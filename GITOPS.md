@@ -321,7 +321,7 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 - [x] Install `sops` 3.13.3 + `age` 1.3.2 via mise; keypair generated at `~/homelab/age.key` (`chmod 600`, gitignored)
 - [x] `.sops.yaml` with `encrypted_regex: ^(data|stringData)$` + `mac_only_encrypted`
 - [x] Encrypt all five secrets (incl. `worker-credentials.yaml`) → `*.sops.yaml`; 10 keys total, every payload `ENC[…]`, metadata left readable
-- [ ] Load age key into cluster as `sops-age` secret in `flux-system` — **deferred to Phase 3**, it is a cluster mutation and Flux is not installed yet
+- [x] ~~Load age key into cluster as `sops-age` secret in `flux-system`~~ — done in Phase 3 (2026-09-02), `age.agekey` key
 - [x] Verify nothing plaintext is staged before the first commit
 
 > Public recipient: `age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt`
@@ -416,15 +416,40 @@ down" posture is inbound-only).
 > account, and its `POSTGREST_JWT_SECRET` matches the cluster's — local dev,
 > cluster, and Infisical all agree today. No drift.
 
-### Phase 3 — Flux
+### Phase 3 — Flux ✅ *done 2026-09-02 (last item deliberately held open)*
 
-- [ ] Add a **deploy key** for `lambo-n/homelab` (private repo — the `FluxInstance` sync uses SSH and needs a `flux-system` pull secret)
-- [ ] Create the `sops-age` secret in `flux-system` from `~/homelab/age.key` (carried over from Phase 2)
-- [ ] Install `flux-operator` + `FluxInstance` (4 controllers, no image automation) — manifest already written at `~/homelab/bootstrap/flux/flux-instance.yaml`
-- [x] ~~Port `sunfire-backend/` workloads to `ks.yaml` + `app/` structure~~ — written in Phase 1, **not yet applied**; `dependsOn` ordering already encoded
-- [ ] Reconcile with `prune: false`; confirm adoption of the 4 running deployments
+- [x] ~~Add a **deploy key** for `lambo-n/homelab`~~ — ed25519, **read-only**, GitHub key id `162121868`, titled `flux-homelab-deploy (k3s flux-system)`. Private half at `~/.ssh/flux-homelab-deploy` (`chmod 600`, never in git); in-cluster as Secret `flux-system` with `identity` / `identity.pub` / `known_hosts`
+- [x] ~~Create the `sops-age` secret in `flux-system` from `~/homelab/age.key`~~ (carried over from Phase 2)
+- [x] ~~Install `flux-operator` + `FluxInstance` (4 controllers, no image automation)~~ — chart `0.59.0` (appVersion `v0.59.0`), `FluxInstance` from `bootstrap/flux/flux-instance.yaml`; all four controllers Running, image automation absent as designed
+- [x] ~~Port `sunfire-backend/` workloads to `ks.yaml` + `app/` structure~~ — written in Phase 1, **applied 2026-09-02**; `dependsOn` ordering already encoded
+- [x] ~~Reconcile with `prune: false`; confirm adoption of the 4 running deployments~~ — all 6 Kustomizations Ready at `80f35c4`
 - [x] ~~Add `dependsOn` ordering for Postgres → PostgREST~~ — `storage → {minio, postgres → postgrest} → cloudflared`
-- [ ] Enable `prune: true` + `prune: disabled` annotations on stateful resources
+- [ ] Enable `prune: true` + `prune: disabled` annotations on stateful resources — **held open on purpose**, see below
+
+> **Adoption result.** The live cluster had been running four unpinned `:latest`
+> tags; the repo carries digest pins, so adoption rolled all four Deployments —
+> the Phase 1 pinning finally reaching the cluster. Verified after reconcile:
+>
+> - all four Deployments 1/1 Ready on the pinned digests
+> - `postgres` took its intended patch upgrade **16 → 16.15**; the log shows a
+>   clean `database system was shut down` → `ready to accept connections`, so the
+>   NFS data directory replayed rather than reinitialised
+> - `postgrest` reconnected and loaded its schema cache (1 relation)
+> - `cloudflared` re-established the tunnel; all QUIC/TCP/API prechecks pass
+> - **`minio-pv` / `postgres-pv` were not recreated** — both still carry their
+>   original `07:05:44Z` creation timestamp, `Bound`, `Retain`
+> - all five SOPS secrets decrypted in-cluster and applied
+>
+> **`prune: true` stays off.** The rule this repo committed to is *several clean
+> reconciles first*, and exactly one has been observed. Turning prune on is a
+> separate, deliberate commit — not a victory lap on install day. When it
+> happens, `sunfire-storage` still never gets it (see its `ks.yaml`).
+
+> **The `flux-operator` install is the one imperative step left.** It was applied
+> with `helm upgrade --install ... --version 0.59.0` rather than from git, because
+> it is the thing that *starts* the reconciler. The pinned version is recorded
+> above so Phase 4 can hand it to Renovate; the `FluxInstance` it manages is
+> already declarative.
 
 ### Phase 4 — Renovate
 

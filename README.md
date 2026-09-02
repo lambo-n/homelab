@@ -142,12 +142,17 @@ Renovate proposes bumps; nothing floats.
 
 ## Status
 
-Phases 1–2 complete (toolchain, pinning, repo, SOPS). **Flux is not installed and
-nothing in this repo has been applied to the cluster.** The four Deployments are
-still hand-applied from `~/sunfire-backend/`.
+Phases 1–3 complete (toolchain, pinning, repo, SOPS, Flux). **This repo now drives
+the cluster.** `flux-operator` 0.59.0 runs the four controllers in `flux-system`,
+syncing `kubernetes/flux/cluster` over SSH with a read-only deploy key; all six
+Kustomizations reconcile Ready.
 
-`kubectl diff` against the live cluster shows exactly two intended deltas: the
-image pins above, and `kustomize.toolkit.fluxcd.io/prune: disabled` on the PV/PVCs.
+Adoption rolled the four Deployments off `:latest` onto the digest pins above,
+including the `postgres` 16 → 16.15 patch upgrade. The NFS PVs were adopted in
+place, not recreated. `~/sunfire-backend/` remains the rollback path.
 
-Next: Phase 3 in `GITOPS.md` — install `flux-operator`, add a deploy key for this
-private repo, reconcile with `prune: false`, confirm adoption.
+`prune` is still `false` everywhere — the repo's rule is several clean reconciles
+before enabling it, and one has been observed. `sunfire-storage` never gets it.
+
+Next: Phase 4 in `GITOPS.md` — point Renovate at `home-operations/renovate-presets`
+(and have it track the pinned `flux-operator` chart).
