@@ -1,0 +1,34 @@
+---
+# flux-operator manages Flux itself declaratively (Renovate can bump the
+# version below). See GITOPS.md "Flux install: flux-operator, not flux bootstrap".
+#
+# Image automation controllers are deliberately ABSENT — Renovate owns all
+# dependency updates and the two would fight over rewriting tags in git.
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "1h"
+    fluxcd.controlplane.io/reconcileTimeout: "5m"
+spec:
+  distribution:
+    version: "2.x"
+    registry: ghcr.io/fluxcd
+  components:
+    - source-controller
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+  cluster:
+    type: kubernetes
+    multitenant: false
+    networkPolicy: true
+    domain: cluster.local
+  sync:
+    kind: GitRepository
+    url: ssh://git@github.com/lambo-n/homelab.git
+    ref: refs/heads/main
+    path: kubernetes/flux/cluster
+    pullSecret: flux-system

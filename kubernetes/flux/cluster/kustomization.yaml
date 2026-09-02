@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Root sync target. The FluxInstance points its GitRepository sync here; every
+# app Kustomization is reached from this one file.
+resources:
+  - ../../apps/sunfire

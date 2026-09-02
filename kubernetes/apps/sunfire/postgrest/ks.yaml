@@ -1,0 +1,28 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sunfire-postgrest
+  namespace: flux-system
+spec:
+  interval: 30m
+  timeout: 5m
+  path: ./kubernetes/apps/sunfire/postgrest/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # prune stays false until several clean reconciles have been observed.
+  # See GITOPS.md "Prune safety".
+  prune: false
+  wait: true
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  dependsOn:
+    - name: sunfire-postgres
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: postgrest
+      namespace: sunfire

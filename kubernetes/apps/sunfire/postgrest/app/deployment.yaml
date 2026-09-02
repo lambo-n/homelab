@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgrest
+  namespace: sunfire
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgrest
+  template:
+    metadata:
+      labels:
+        app: postgrest
+    spec:
+      containers:
+        - name: postgrest
+          image: postgrest/postgrest:v16.2@sha256:85258123312dc496ad4c2ed832154a65e9746f84df0d6d09b44229ff9230c08e
+          env:
+            - name: PGRST_DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: postgrest-config
+                  key: PGRST_DB_URI
+            - name: PGRST_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: postgrest-config
+                  key: PGRST_JWT_SECRET
+            - name: PGRST_DB_SCHEMAS
+              value: "public,sunfire_feature"
+            # TODO: stale — the production domain is now db.sunosrs.cc.
+            # Ported verbatim from the live Deployment so Flux adoption is a
+            # no-op. Change this deliberately, not as part of the migration.
+            - name: PGRST_OPENAPI_SERVER_PROXY_URI
+              value: https://db.sunfirebingo.com
+          ports:
+            - containerPort: 3000
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

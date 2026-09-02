@@ -1,0 +1,17 @@
+# --- SECRET MATERIAL — never commit ---
+age.key
+*.agekey
+kubeconfig
+*.decrypted.yaml
+*.plaintext.yaml
+
+# Only *.sops.yaml (encrypted) belongs in this repo. A bare secret.yaml is
+# plaintext by definition, so it is refused outright.
+secret.yaml
+**/secret.yaml
+worker-credentials.yaml
+**/worker-credentials.yaml
+
+# --- tooling ---
+.mise/
+.direnv/

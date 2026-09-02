@@ -1,0 +1,14 @@
+# SOPS + age. The private key lives at ./age.key (gitignored) and in-cluster as
+# the `sops-age` Secret in `flux-system`; Flux decrypts via
+# `spec.decryption.provider: sops`. The recipient below is the PUBLIC half and
+# is safe to commit.
+#
+# `encrypted_regex` encrypts only the payload — metadata (name, namespace,
+# labels) stays readable so diffs and kustomize builds remain reviewable.
+# `mac_only_encrypted` keeps the MAC stable when unencrypted metadata is edited.
+
+creation_rules:
+  - path_regex: (bootstrap|kubernetes)/.*\.sops\.ya?ml
+    encrypted_regex: "^(data|stringData)$"
+    mac_only_encrypted: true
+    age: "age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt"
