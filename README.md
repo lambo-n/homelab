@@ -94,10 +94,19 @@ Production, feature and local dev share the `sunfire-guide-media` bucket and the
 Two MinIO service accounts remain against the same policy and bucket, only so a
 feature/local key can be revoked without rotating production.
 
-The `postgrest` manifest here already reads `PGRST_DB_SCHEMAS=public`. **The live
-cluster does not** — it still runs the old split. Conversion steps:
-`sunfire/homelab/RUNBOOK.md` → "Unified media store — remaining cluster steps".
-Rationale: `GITOPS.md` → "Unified media store".
+**Applied to the live cluster 2026-09-02** and functionally verified: the
+feature credential does PutObject / GetObject / DeleteObject against
+`sunfire-guide-media`, PostgREST reports one relation instead of two, and both
+the feature bucket and the `sunfire_feature` schema are gone. The `postgrest`
+manifest here matches (`PGRST_DB_SCHEMAS=public`).
+
+Versioning is enabled on the shared bucket — feature and local dev hold
+`s3:DeleteObject` on the only copy of every guide image and Phase 5 backups do
+not exist yet.
+
+Procedure (kept for a cluster rebuild) and the container gotchas that bite when
+running it: `sunfire/homelab/RUNBOOK.md` → "Unified media store — cluster
+conversion". Rationale: `GITOPS.md` → "Unified media store".
 
 ## Toolchain
 
