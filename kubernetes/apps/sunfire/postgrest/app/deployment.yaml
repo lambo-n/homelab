@@ -27,8 +27,12 @@ spec:
                 secretKeyRef:
                   name: postgrest-config
                   key: PGRST_JWT_SECRET
+            # Unified 2026-09-02: prod, feature and local dev all share the
+            # `public` schema and the `sunfire-guide-media` bucket. Guide media
+            # is content, not per-environment state. See GITOPS.md "Unified
+            # media store". NOT YET APPLIED to the cluster.
             - name: PGRST_DB_SCHEMAS
-              value: "public,sunfire_feature"
+              value: "public"
             # TODO: stale — the production domain is now db.sunosrs.cc.
             # Ported verbatim from the live Deployment so Flux adoption is a
             # no-op. Change this deliberately, not as part of the migration.

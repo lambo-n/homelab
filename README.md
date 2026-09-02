@@ -87,6 +87,18 @@ stay in git so a cold boot needs no network — this cluster is often powered of
 
 Rationale and the migration checklist: `GITOPS.md` "Secrets: hybrid" and "Phase 2b".
 
+## Unified media store
+
+Production, feature and local dev share the `sunfire-guide-media` bucket and the
+`public` Postgres schema — no `sunfire-guide-media-feature`, no `sunfire_feature`.
+Two MinIO service accounts remain against the same policy and bucket, only so a
+feature/local key can be revoked without rotating production.
+
+The `postgrest` manifest here already reads `PGRST_DB_SCHEMAS=public`. **The live
+cluster does not** — it still runs the old split. Conversion steps:
+`sunfire/homelab/RUNBOOK.md` → "Unified media store — remaining cluster steps".
+Rationale: `GITOPS.md` → "Unified media store".
+
 ## Toolchain
 
 `mise.toml` pins everything; `kubectl` tracks the k3s server minor (v1.35.x).
