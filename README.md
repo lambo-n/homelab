@@ -77,7 +77,15 @@ mise install     # or: mise trust && mise install
 ```
 
 `[env]` binds `KUBECONFIG` to `./kubeconfig` (a gitignored symlink to
-`~/.kube/config`) and `SOPS_AGE_KEY_FILE` to `./age.key`.
+`~/.kube/config`) and `SOPS_AGE_KEY_FILE` to `./age.key`, so `sops` finds the
+key with no flags anywhere under this directory.
+
+`~/.bashrc` puts `~/.local/share/mise/shims` on `PATH` **above** the
+"if not running interactively, don't do anything" guard. That placement is
+deliberate: without it, a non-interactive `bash -c kubectl ...` — which is how
+scripts and agents invoke it — falls through to the stale system
+`/usr/bin/kubectl` v1.30 and hits the version-skew error. The same block is
+mirrored in `~/.profile` for login shells.
 
 ## Images
 
