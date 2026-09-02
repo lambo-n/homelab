@@ -9,6 +9,10 @@ flux2 = "2.9.5"
 helm = "4.2.4"
 sops = "3.13.3"
 age = "1.3.2"
+# Cloud secrets backend. age/sops stay for the in-repo bootstrap layer.
+infisical = "0.43.128"
+# Resolves image tag -> digest when pinning; see README "Images".
+crane = "0.22.0"
 
 [env]
 KUBECONFIG = "{{config_root}}/kubeconfig"

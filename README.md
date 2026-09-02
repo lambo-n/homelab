@@ -66,7 +66,26 @@ sops --encrypt --filename-override <dest>.sops.yaml <src> > <dest>  # encrypt ne
 > The `--filename-override` flag is required when the source file lives outside
 > this repo — SOPS matches `creation_rules` against the *input* path.
 
-**Back up `age.key` off this VM.** Without it, every secret here is unreadable.
+**`age.key` is backed up in LastPass** (secure note — human login from any device).
+It is deliberately *not* in Infisical: a machine credential used to fetch it would
+die with the VM it is stored on, which is precisely the disaster being insured
+against. Without this key every secret here is unreadable.
+
+**Never `cat` this file**, including to display it for backup — that puts it in
+shell history and agent transcripts. The user copies it out themselves.
+
+## Two secret systems
+
+| Class | Keys | Home |
+|---|---|---|
+| Cluster-only | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token | **SOPS**, in this repo |
+| Cross-boundary | `PGRST_JWT_SECRET`, 4× scoped MinIO Worker keys | **Infisical** (system of record) |
+
+Cross-boundary keys must stay byte-identical across the cluster and two Cloudflare
+Worker environments; they were synced by hand until Infisical. Cluster-only keys
+stay in git so a cold boot needs no network — this cluster is often powered off.
+
+Rationale and the migration checklist: `GITOPS.md` "Secrets: hybrid" and "Phase 2b".
 
 ## Toolchain
 
