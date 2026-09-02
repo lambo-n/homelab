@@ -1,4 +1,4 @@
-# homelab
+# Homelab
 
 GitOps source of truth for the **Sunfire** k3s cluster (Proxmox `192.168.50.101`).
 
