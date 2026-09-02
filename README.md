@@ -2,8 +2,8 @@
 
 GitOps source of truth for the **Sunfire** k3s cluster (Proxmox `192.168.50.101`).
 
-Planning notes, rationale, and the phased TODO live in [`~/GITOPS.md`](../GITOPS.md)
-on the dev VM. This repo is the *executable* half of that plan.
+Planning notes, rationale, and the phased TODO live in [`GITOPS.md`](GITOPS.md).
+This repo is the *executable* half of that plan.
 
 ## Repository boundaries
 
