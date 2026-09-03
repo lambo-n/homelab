@@ -478,17 +478,70 @@ down" posture is inbound-only).
 > first real PRs on the next run. Workflow also triggers on push to `main`
 > when Renovate config changes.
 
-### Phase 5 — Data protection ← *highest value, do early if anything slips*
+### Phase 5 — Data protection ← *in progress 2026-09-03*
 
-- [ ] Install + configure `sanoid` on `.101` for both archive datasets
-- [ ] Verify a snapshot rollback actually works before relying on it
-- [ ] Deploy CNPG operator + `plugin-barman-cloud`
-- [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`)
-- [ ] `ObjectStore` → local MinIO; daily `ScheduledBackup`
+- [ ] Install + configure `sanoid` on `.101` for both archive datasets — runbook written
+      (`SANOID.md`); **yours to run**, this VM has no SSH key on `.101`
+- [ ] Verify a snapshot rollback actually works before relying on it — `SANOID.md` §4
+- [x] ~~Deploy CNPG operator + `plugin-barman-cloud`~~ — done 2026-09-03, plus cert-manager,
+      which the plugin hard-requires
+- [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`) — manifests written,
+      not yet wired into the root kustomization
+- [ ] `ObjectStore` → local MinIO; daily `ScheduledBackup` — written; blocked on the bucket +
+      scoped service account (`scripts/minio-barman-account.sh`, **yours to run**)
 - [ ] **Test a restore into a scratch namespace** — untested backups aren't backups
 - [ ] VolSync for the MinIO PVC (only non-DB stateful volume)
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
+
+> **cert-manager is now a dependency, and that voids one earlier rejection.**
+> CNPG deleted the in-tree `spec.backup.barmanObjectStore` in 1.28; this cluster
+> would run 1.30, so `plugin-barman-cloud` is the only way to back the database
+> up at all, and the plugin requires cert-manager for the operator↔plugin mTLS.
+> "External Secrets Operator drags in cert-manager" therefore stops being an
+> argument against ESO — that rejection now rests solely on 1Password needing a
+> subscription. Nothing else in the cluster issues certificates; ingress TLS is
+> terminated by Cloudflare at the edge.
+>
+> **Versions are pinned by *chart*, not by app version.** Both CNPG charts move
+> independently of what they carry: `cloudnative-pg` 0.29.0 → operator 1.30.0,
+> `plugin-barman-cloud` 0.7.1 → plugin v0.14.0 (upstream had tagged plugin
+> v0.15.0 with no chart shipping it). The chart is what Flux installs. Also
+> note cert-manager's chart defaults `crds.enabled` to **false** and templates
+> the CRDs behind it, so accepting the default installs an operator with no API.
+
+> **PGDATA moves off NFS onto `local-path`** *(decided 2026-09-03)*. The old
+> Deployment kept its data directory on `.101:/archive-pool` over NFS. The CNPG
+> Cluster does not. Three reasons, in order of weight:
+>
+> 1. It retires the **single-writer NFS hazard** outright — the thing that put
+>    two postmasters on one data directory on 2026-09-02 and forced
+>    `strategy: Recreate` on both stateful Deployments.
+> 2. CNPG explicitly discourages NFS for PGDATA (fsync and locking semantics).
+> 3. Durability moves to continuous **WAL archiving + daily base backups** into
+>    MinIO — whose PV *is* on archive-pool ZFS. This file already argued the
+>    principle: sanoid protects the volume, barman protects the database, and
+>    neither substitutes for the other. A crash-consistent snapshot of a live
+>    Postgres was never the thing protecting this database.
+>
+> The cost is explicit and accepted: **losing `k3s-worker2` means
+> restore-from-backup, not a snapshot rollback**, because `local-path` is
+> node-local and `archive-pool/postgres-data` stops being written to. That is
+> precisely what makes the restore drill non-optional rather than tidy-up.
+>
+> Second-order consequence for `SANOID.md`: after cutover
+> `archive-pool/minio-data` carries both the guide media *and* every Postgres
+> backup, so it is now the dataset that matters most.
+
+> **Two steps are yours, not the assistant's.** `kubectl exec` against a pod is
+> refused by this environment's tooling, and `.101` has no SSH key for the dev
+> VM. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
+> service account scoped to it, and writes the credential into the repo already
+> SOPS-encrypted — the keys are generated in the pod, piped into `sops`, and
+> never printed), and `SANOID.md` in full. The barman account deliberately
+> **does** hold `s3:ListBucket`, unlike the Worker accounts one layer down —
+> barman needs to list WALs and backups. Same reasoning, opposite answer; it is
+> not a copy-paste slip.
 
 > **What `sanoid` does and does not cover.** It snapshots ZFS datasets, and the
 > only ZFS on `.101` is `archive-pool` — i.e. exactly `archive-pool/minio-data`

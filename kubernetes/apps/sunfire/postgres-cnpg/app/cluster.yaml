@@ -1,0 +1,141 @@
+---
+# The CNPG replacement for the hand-rolled postgres Deployment next door.
+#
+# While this exists alongside `postgres`, THAT one is still the live database:
+# PostgREST's PGRST_DB_URI still names it. This Cluster bootstraps by importing
+# from it and then sits idle until the cutover commit repoints PostgREST.
+#
+# instances: 1 -- three replicas on one hypervisor is theater. See GITOPS.md
+# "Explicitly rejected".
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-cnpg
+  namespace: sunfire
+  annotations:
+    # Stateful, and more sharply so than a PVC: deleting this Cluster deletes
+    # the PVCs it owns through their ownerReferences, and local-path's reclaim
+    # policy is Delete, so the data goes with them. The PV-level Retain that
+    # protects minio-pv/postgres-pv does not apply here at all.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15@sha256:34cd4159d07b3410a1b29da35072e2e927a0905e717a61afa3814624a2e8859a
+
+  # Same node the Deployment ran on. local-path is node-local: the volume is
+  # created on whichever node the pod first lands on and cannot follow it
+  # elsewhere, so this selector is what keeps the data findable, not a
+  # preference.
+  affinity:
+    nodeSelector:
+      sunfire/role: postgres
+
+  storage:
+    size: 20Gi
+    # local-path, not the NFS archive-pool the Deployment used. Deliberate, and
+    # the reasoning is the whole point of Phase 5:
+    #   * it retires the NFS single-writer hazard outright -- the thing that
+    #     put two postmasters on one data directory on 2026-09-02 and forced
+    #     `strategy: Recreate` next door;
+    #   * CNPG explicitly discourages NFS for PGDATA (fsync/locking semantics);
+    #   * durability moves to continuous WAL archiving + daily base backups into
+    #     MinIO, which IS on archive-pool ZFS. GITOPS.md already draws this
+    #     line: sanoid protects the volume, barman protects the database, and
+    #     neither substitutes for the other.
+    # The cost is explicit: losing k3s-worker2 means restore-from-backup, not a
+    # snapshot rollback. That is what makes the restore drill non-optional.
+    storageClass: local-path
+
+  # Backups. isWALArchiver puts continuous WAL archiving on this plugin; the
+  # ScheduledBackup alongside gives those segments a base to replay onto.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: postgres-backup
+
+  bootstrap:
+    initdb:
+      database: sunfire
+      owner: sunfire
+      import:
+        # monolith, not microservice. microservice imports one database and
+        # DOES NOT IMPORT ROLES -- which would leave PostgREST with no
+        # `authenticator` to log in as and no `sunfire_readwrite` to SET ROLE
+        # to. The four-role trio is load-bearing here, so monolith it is.
+        #
+        # Known behaviour, accepted: monolith strips SUPERUSER from every
+        # imported role. `sunfire` is a superuser today only because the
+        # postgres image makes POSTGRES_USER one. It owns the database and the
+        # table and needs neither superuser nor LOGIN for anything PostgREST
+        # does, so losing it is a tightening, not a regression.
+        type: monolith
+        databases:
+          - sunfire
+        roles:
+          - sunfire
+          - authenticator
+          - anon
+          - sunfire_readwrite
+        source:
+          externalCluster: postgres-legacy
+
+  # The live Deployment, as an import source only. Nothing streams from it --
+  # this is read once at bootstrap and never again.
+  externalClusters:
+    - name: postgres-legacy
+      connectionParameters:
+        host: postgres.sunfire.svc.cluster.local
+        user: sunfire
+        dbname: sunfire
+        sslmode: disable
+      password:
+        name: postgres-credentials
+        key: POSTGRES_PASSWORD
+
+  managed:
+    roles:
+      # Declared as well as imported, deliberately. The import carries role
+      # membership and attributes, but CNPG dumps roles without their password
+      # hashes -- so `authenticator` would arrive unable to log in and PostgREST
+      # would fail authentication with a correct-looking config. Declaring it
+      # here re-applies the password from the same value that is already inside
+      # PGRST_DB_URI, so the two cannot drift.
+      - name: anon
+        ensure: present
+        login: false
+        comment: PostgREST unauthenticated role. Holds USAGE on schema public and nothing else.
+      - name: sunfire_readwrite
+        ensure: present
+        login: false
+        comment: Role that JWTs carrying "role":"sunfire_readwrite" assume.
+      - name: authenticator
+        ensure: present
+        login: true
+        # NOINHERIT is required, not stylistic: authenticator must hold no
+        # privileges of its own and gain them only by SET ROLE per request.
+        # Note this is the role-level attribute. bootstrap-roles.sql also used
+        # per-membership WITH INHERIT FALSE, which spec.managed.roles cannot
+        # express -- on PostgreSQL 16 a NOINHERIT role makes new memberships
+        # non-inheriting anyway, so the effective grant is the same.
+        inherit: false
+        inRoles:
+          - anon
+          - sunfire_readwrite
+        passwordSecret:
+          name: postgres-authenticator
+        comment: The login role PostgREST connects as.
+
+  postgresql:
+    parameters:
+      # PostgREST reloads its schema cache on NOTIFY; nothing here should
+      # silently diverge from what the Deployment ran. Kept minimal on purpose.
+      max_connections: "100"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi

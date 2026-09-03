@@ -1,0 +1,44 @@
+---
+# Where barman-cloud writes base backups and archived WAL.
+#
+# Target is the MinIO in this same namespace, whose PV is on .101:/archive-pool
+# (ZFS, 3-way mirror). So the database's backups land on redundant storage even
+# though PGDATA itself does not -- that asymmetry is the design, not an
+# oversight. See GITOPS.md "Backups: local only -- no cloud".
+#
+# The circularity is acknowledged: Postgres backs up into MinIO, and MinIO is
+# in the same cluster and on the same hypervisor. This protects against
+# accidental deletion, a bad Flux prune and logical corruption -- not against
+# loss of .101. Host loss remains accepted residual risk.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: postgres-backup
+  namespace: sunfire
+  annotations:
+    # Stateful: this object carries the retention policy and the credential
+    # reference for every backup taken. Deleting it does not delete the objects
+    # in MinIO, but it does orphan the cluster's backup config silently.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  configuration:
+    destinationPath: s3://sunfire-postgres-backups/
+    endpointURL: http://minio.sunfire.svc.cluster.local:9000
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+      # One worker. The database is tiny and the whole point of a single
+      # instance on one hypervisor is that there is no throughput problem to
+      # solve here.
+      maxParallel: 1
+    data:
+      compression: gzip
+  # 30 days. Cheap against a ~1.75 TiB pool holding almost nothing, and long
+  # enough that a corruption noticed a fortnight late is still recoverable.
+  retentionPolicy: "30d"

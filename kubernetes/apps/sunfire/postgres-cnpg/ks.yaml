@@ -1,0 +1,36 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sunfire-postgres-cnpg
+  namespace: flux-system
+spec:
+  interval: 30m
+  # A bootstrap that imports has to run initdb, dump the source and restore it
+  # before the Cluster reports healthy. 5m (what the other apps use) is not
+  # enough headroom for a first bootstrap.
+  timeout: 15m
+  path: ./kubernetes/apps/sunfire/postgres-cnpg/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  wait: true
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  dependsOn:
+    # The import source must be up and serving before bootstrap runs...
+    - name: sunfire-postgres
+    # ...and the backup target must exist, or the WAL archiver has nowhere to
+    # write from the first checkpoint onward.
+    - name: sunfire-minio
+    # The plugin has to be registered with the operator before a Cluster that
+    # names it will reconcile.
+    - name: plugin-barman-cloud
+  healthChecks:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      name: postgres-cnpg
+      namespace: sunfire
