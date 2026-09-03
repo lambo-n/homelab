@@ -1,0 +1,23 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  packageRules: [
+    {
+      // Postgres major upgrades require a pg_dump/pg_restore cycle (or
+      // pg_upgrade) — they are never a simple image swap. Gate them behind
+      // manual review so the data migration is planned alongside the merge.
+      description: "Postgres: block major upgrades (require manual review)",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["/postgres/"],
+      allowedVersions: "<=17",
+    },
+    {
+      // kubectl must track the k3s server minor. The server is v1.35.x;
+      // jumping to 1.36+ risks API incompatibility. Bump this constraint
+      // when the k3s cluster is upgraded.
+      description: "kubectl: pin to server minor (v1.35.x)",
+      matchManagers: ["mise"],
+      matchPackageNames: ["kubectl"],
+      allowedVersions: "~1.35",
+    },
+  ],
+}

@@ -1,0 +1,44 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  packageRules: [
+    {
+      // cloudflared, postgrest, minio — patch and minor are safe to roll
+      // automatically. The Flux healthChecks gate on Deployment readiness, so
+      // a bad image that fails probes will be caught at reconcile time.
+      description: "Automerge patch+minor for stateless app containers",
+      matchDatasources: ["docker"],
+      matchPackageNames: [
+        "/cloudflared/",
+        "/postgrest/",
+        "/minio/",
+      ],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      automerge: true,
+      automergeType: "branch",
+      ignoreTests: true,
+    },
+    {
+      // GitHub Actions used by this repo (checkout, create-github-app-token,
+      // renovatebot/github-action). 3-day release age cooldown so a yanked
+      // release is caught before we adopt it.
+      description: "Automerge GitHub Actions (3-day cooldown)",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      automerge: true,
+      automergeType: "branch",
+      minimumReleaseAge: "3 days",
+      ignoreTests: true,
+    },
+    {
+      // mise tools: minor+patch for all 8 tools. kubectl is pinned to the
+      // server minor (1.35.x) by allowedVersions, so a minor bump here means
+      // 1.35.8 → 1.35.9, not 1.36.x.
+      description: "Automerge mise tool minor+patch updates",
+      matchManagers: ["mise"],
+      matchUpdateTypes: ["minor", "patch"],
+      automerge: true,
+      automergeType: "branch",
+      ignoreTests: true,
+    },
+  ],
+}

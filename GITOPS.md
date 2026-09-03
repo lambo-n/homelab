@@ -466,12 +466,18 @@ down" posture is inbound-only).
 > above so Phase 4 can hand it to Renovate; the `FluxInstance` it manages is
 > already declarative.
 
-### Phase 4 — Renovate
+### Phase 4 — Renovate *(in progress 2026-09-03)*
 
-- [ ] Point existing GitHub Action at `home-operations/renovate-presets`
-- [ ] Add `ignorePaths: ["**/*.sops.*"]`
-- [ ] Automerge rules: patch/minor for `cloudflared`, `postgrest`, `minio`; manual for Postgres majors
-- [ ] Automerge GitHub Actions with `minimumReleaseAge: "3 days"`
+- [x] ~~Point existing GitHub Action at `home-operations/renovate-presets`~~ — `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0`; workflow adapted from `Sunfire-Team/sunfire`'s proven pattern (same GitHub App, same SHA-pinned Actions)
+- [x] ~~Add `ignorePaths: ["**/*.sops.*"]`~~ — in `.renovaterc.json5`
+- [x] ~~Automerge rules: patch/minor for `cloudflared`, `postgrest`, `minio`; manual for Postgres majors~~ — `.renovate/autoMerge.json5` + `.renovate/allowedVersions.json5` (Postgres `<=17`, kubectl `~1.35`)
+- [x] ~~Automerge GitHub Actions with `minimumReleaseAge: "3 days"`~~ — in `.renovate/autoMerge.json5`
+- [ ] **Install the GitHub App on `lambo-n/homelab`** and add `BOT_APP_CLIENT_ID` + `BOT_APP_PRIVATE_KEY` as Actions secrets — same App as `Sunfire-Team/sunfire`, but minutes bill to `lambo-n`'s personal 2,000/month free tier (workflow runs in the personal repo, not the org)
+
+> Config files committed 2026-09-03. Renovate will not run until the GitHub
+> App is installed and the two secrets are added to the repo. First run can
+> be triggered manually via workflow_dispatch (with optional dry-run) to
+> verify before the daily cron takes over.
 
 ### Phase 5 — Data protection ← *highest value, do early if anything slips*
 

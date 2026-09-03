@@ -1,0 +1,16 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    // The home-operations preset gives us: Flux/Kubernetes/Kustomize/Helm
+    // managers, mise manager, custom regex managers for `# renovate:`
+    // annotations, semantic commit scoping, and zer0ver handling.
+    "github>home-operations/renovate-presets#8.1.0",
+    // Local overrides live in .renovate/ alongside this file.
+    "github>lambo-n/homelab//.renovate/autoMerge.json5",
+    "github>lambo-n/homelab//.renovate/allowedVersions.json5",
+  ],
+  // SOPS-encrypted files contain base64 ciphertext that looks like semver to
+  // the regex manager. Scanning them produces phantom PRs and leaks key
+  // metadata into PR descriptions. Exclude unconditionally.
+  ignorePaths: ["**/*.sops.*"],
+}

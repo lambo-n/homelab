@@ -1,0 +1,82 @@
+name: Renovate
+
+on:
+  # Once daily at 00:00 UTC. Renovate opens/updates PRs and automerges the ones
+  # that match the rules in .renovate/autoMerge.json5.
+  schedule:
+    - cron: "0 0 * * *"
+  # Run on demand, with optional dry-run / log-level for debugging.
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Dry run (log only — no branches, PRs, or merges)"
+        type: boolean
+        default: false
+      logLevel:
+        description: "Log level"
+        type: choice
+        options: [info, debug]
+        default: info
+  # React quickly when the Renovate config or this workflow changes.
+  push:
+    branches: [main]
+    paths:
+      # renovate.json* (not just .json5) so a stray config file — which would
+      # silently shadow .renovaterc.json5 — trips a run instead of going unnoticed.
+      - .renovaterc*
+      - renovate.json*
+      - .renovate/**
+      - .github/workflows/renovate.yaml
+
+# Never let two Renovate runs touch the repo at once.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+# Minimal default token; all write access comes from the GitHub App token below.
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      # Mint a short-lived token from the GitHub App. Renovate acts as the App
+      # (not as a PAT tied to a person), so its commits/PRs/merges are clearly
+      # attributable and the App's permissions can be tightly scoped.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # Look up the App's bot user id so commits are authored by the bot account
+      # and pass branch-protection "verified author" style checks cleanly.
+      - name: Resolve App user id
+        id: app-user
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          user_id="$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)"
+          echo "user-id=${user_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@5402b206248e5a8c8427a15102702eb9c1793efc # v46.2.4
+        env:
+          RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
+          RENOVATE_PLATFORM: github
+          # Single-repo run — no org-wide autodiscovery.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # Author commits as the GitHub App's bot identity.
+          RENOVATE_USERNAME: "${{ steps.app-token.outputs.app-slug }}[bot]"
+          RENOVATE_GIT_AUTHOR: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ steps.app-user.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
+          # Honour the workflow_dispatch inputs (unset on scheduled/push runs).
+          RENOVATE_DRY_RUN: ${{ inputs.dryRun == true && 'full' || '' }}
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
