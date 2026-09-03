@@ -124,6 +124,13 @@ blkid /dev/sdb                         # copy the UUID
 If `sdb` does not appear, the running guest has not rescanned the SCSI bus:
 `echo "- - -" | sudo tee /sys/class/scsi_host/host*/scan`, or reboot.
 
+Optionally reclaim ext4's 5% root reserve, which is pointless on a data volume
+and costs ~3 GiB here:
+
+```bash
+tune2fs -m 0 /dev/sdb
+```
+
 > **As built 2026-09-03:** `/dev/sdb`, 64G, ext4 labelled `pgdata`, UUID
 > `47470f9d-6503-4538-bd6f-4acc2e818366`. That UUID is recorded for reference
 > only — a rebuild makes a new filesystem with a new one, so always take it from
@@ -175,13 +182,28 @@ of landing on the root disk:
 ```bash
 umount /var/lib/rancher/k3s/storage
 chattr +i /var/lib/rancher/k3s/storage
+
+# BOTH checks belong here, in the unmounted window -- see the trap below.
+lsattr -d /var/lib/rancher/k3s/storage   # expect ----i----------
+touch /var/lib/rancher/k3s/storage/canary  # MUST fail: Operation not permitted
+
 mount -a
-lsattr -d /var/lib/rancher/k3s/storage   # the ----i---------- is on the UNDERLYING dir
+findmnt /var/lib/rancher/k3s/storage
 ```
 
-The flag applies to the directory beneath the mount, so it constrains nothing
-while mounted and blocks everything while not. To change the mount later,
-`umount` then `chattr -i`.
+> ⚠️ **Verify while unmounted, or the check lies.** Once the volume is mounted,
+> that path resolves to the *root of the mounted ext4 filesystem*, not to the
+> directory the flag is on — `lsattr` shows no `i` and the guard looks broken
+> when it is fine. The flag applies to the directory beneath the mount, so it
+> constrains nothing while mounted and blocks everything while not. That is the
+> intended behaviour, and it is also why the negative `touch` is the only
+> evidence that matters: every other check in this section confirms the mount is
+> present, none of them confirms the `chattr` took.
+>
+> To change the mount later: `umount`, then `chattr -i`.
+
+`mount -a` will print a hint that systemd still has the old fstab. Harmless, and
+cleared by the `systemctl daemon-reload` in the next step.
 
 **c. Refuse to start k3s without it.**
 
@@ -201,19 +223,9 @@ and you lose remote access to fix it. With it, the node boots, SSH works, and
 k3s-agent simply refuses to start — the node goes `NotReady`, which is visible
 in `kubectl get nodes` and recoverable without a console.
 
-**Prove the guard works — do not skip this.** It is the only evidence that the
-`chattr` actually took, and a silent failure here is exactly the scenario the
-whole section exists to prevent:
-
-```bash
-systemctl stop k3s-agent
-umount /var/lib/rancher/k3s/storage
-touch /var/lib/rancher/k3s/storage/canary    # MUST fail: Operation not permitted
-mount -a && systemctl start k3s-agent
-```
-
-If that `touch` succeeds, the immutable flag is not set and `local-path` can
-still provision onto the root disk.
+If the canary `touch` in (b) ever succeeds, the immutable flag is not set and
+`local-path` can still provision onto the root disk. Re-run (b) after any change
+to this mount.
 
 **Verify all three before wiring anything into Flux:**
 
