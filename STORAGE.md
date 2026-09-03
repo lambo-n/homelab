@@ -28,7 +28,19 @@ cat /etc/pve/storage.cfg          # or: pvesh get /storage/archive-pool
 > There is **no `pvesm config`** subcommand — `pvesm set` writes, but reading
 > goes through `storage.cfg` or `pvesh`.
 
-Check two properties in that output:
+**As found 2026-09-03**, only `blocksize` needed changing:
+
+```
+zfspool: archive-pool
+    pool archive-pool
+    content images,rootdir      # already correct
+    mountpoint /archive-pool
+    nodes pve
+                                # no `sparse` line -> thick, which is what we want
+                                # no `blocksize` line -> inherits the ZFS default (16K)
+```
+
+Check the same two properties on a rebuild:
 
 **`content`** must include `images`, or `qm set` will refuse the disk:
 
@@ -36,8 +48,10 @@ Check two properties in that output:
 pvesm set archive-pool --content images,rootdir
 ```
 
-**`sparse`** is likely `1` — the PVE GUI ticks "Thin provision" by default when
-a ZFS storage is added. Turn it off so the zvol is thick:
+**`sparse`** must be absent or `0`. The PVE GUI ticks "Thin provision" by
+default when a ZFS storage is added, which writes `sparse 1`; the plugin treats
+an absent value as off, so a config with no `sparse` line already creates thick
+volumes. If it is set:
 
 ```bash
 pvesm set archive-pool --sparse 0
