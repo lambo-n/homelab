@@ -121,6 +121,14 @@ mkfs.ext4 -L pgdata /dev/sdb
 blkid /dev/sdb                         # copy the UUID
 ```
 
+If `sdb` does not appear, the running guest has not rescanned the SCSI bus:
+`echo "- - -" | sudo tee /sys/class/scsi_host/host*/scan`, or reboot.
+
+> **As built 2026-09-03:** `/dev/sdb`, 64G, ext4 labelled `pgdata`, UUID
+> `47470f9d-6503-4538-bd6f-4acc2e818366`. That UUID is recorded for reference
+> only — a rebuild makes a new filesystem with a new one, so always take it from
+> `blkid` rather than copying it out of this file.
+
 Use the whole device — no partition table. One filesystem, one purpose, and
 growing it later is `qm resize` + `resize2fs` with no partition to move.
 
@@ -192,6 +200,20 @@ here. Without `nofail` a missing volume drops the box into an emergency shell
 and you lose remote access to fix it. With it, the node boots, SSH works, and
 k3s-agent simply refuses to start — the node goes `NotReady`, which is visible
 in `kubectl get nodes` and recoverable without a console.
+
+**Prove the guard works — do not skip this.** It is the only evidence that the
+`chattr` actually took, and a silent failure here is exactly the scenario the
+whole section exists to prevent:
+
+```bash
+systemctl stop k3s-agent
+umount /var/lib/rancher/k3s/storage
+touch /var/lib/rancher/k3s/storage/canary    # MUST fail: Operation not permitted
+mount -a && systemctl start k3s-agent
+```
+
+If that `touch` succeeds, the immutable flag is not set and `local-path` can
+still provision onto the root disk.
 
 **Verify all three before wiring anything into Flux:**
 
