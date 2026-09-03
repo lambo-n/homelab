@@ -5,6 +5,15 @@ metadata:
   namespace: sunfire
 spec:
   replicas: 1
+  # Recreate, never RollingUpdate: the data directory is a single-writer store on
+  # a ReadWriteMany NFS PV (.101:/archive-pool). At replicas: 1 a rolling update's
+  # maxUnavailable of 25% rounds down to 0, so Kubernetes starts the new pod
+  # before stopping the old one and both mount the same directory at once.
+  # Postgres hit exactly this on 2026-09-02 (see its Deployment); MinIO carries
+  # the same exposure — two servers writing one backend is unsupported, and its
+  # object-level locking assumes it is the only writer.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: minio

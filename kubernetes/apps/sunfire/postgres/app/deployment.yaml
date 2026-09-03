@@ -5,6 +5,17 @@ metadata:
   namespace: sunfire
 spec:
   replicas: 1
+  # Recreate, never RollingUpdate: the data directory is a single-writer store on
+  # a ReadWriteMany NFS PV (.101:/archive-pool). At replicas: 1 a rolling update's
+  # maxUnavailable of 25% rounds down to 0, so Kubernetes starts the new pod
+  # before stopping the old one and both mount the same directory at once.
+  # That is not theoretical: on 2026-09-02 two postmasters overlapped for ~60s
+  # and the second shut itself down with "could not open file postmaster.pid:
+  # No such file or directory / data directory lock file is invalid". Postgres's
+  # own stale-lock detection cannot save it here — the check is PID-based and the
+  # other postmaster is in a different pod on a different node.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: postgres

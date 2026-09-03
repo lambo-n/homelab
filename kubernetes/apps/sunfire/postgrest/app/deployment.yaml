@@ -30,14 +30,15 @@ spec:
             # Unified 2026-09-02: prod, feature and local dev all share the
             # `public` schema and the `sunfire-guide-media` bucket. Guide media
             # is content, not per-environment state. See GITOPS.md "Unified
-            # media store". NOT YET APPLIED to the cluster.
+            # media store". Applied and verified live 2026-09-03.
             - name: PGRST_DB_SCHEMAS
               value: "public"
-            # TODO: stale — the production domain is now db.sunosrs.cc.
-            # Ported verbatim from the live Deployment so Flux adoption is a
-            # no-op. Change this deliberately, not as part of the migration.
+            # The hostname cloudflared actually routes to this Service. It is
+            # only the `host` field of the OpenAPI document, but a wrong value
+            # there points every reader of `/` at a dead zone: sunfirebingo.com
+            # belonged to the retired app and is not ours to serve from.
             - name: PGRST_OPENAPI_SERVER_PROXY_URI
-              value: https://db.sunfirebingo.com
+              value: https://db.sunosrs.cc
           ports:
             - containerPort: 3000
               name: http
