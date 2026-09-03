@@ -2,3 +2,12 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: sunfire
+  annotations:
+    # The parent flux-system Kustomization runs with prune: true, and this
+    # Namespace is in its inventory. Without this annotation, dropping the
+    # namespace from git would delete it and Kubernetes' garbage collector
+    # would take every object inside with it -- including the PVCs, whose own
+    # prune: disabled only stops Flux, not the GC cascade. PVs are Retain so
+    # the data would survive, but the claims would not. Deleting this
+    # namespace must stay a deliberate manual act.
+    kustomize.toolkit.fluxcd.io/prune: disabled

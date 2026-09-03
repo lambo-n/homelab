@@ -424,7 +424,7 @@ down" posture is inbound-only).
 - [x] ~~Port `sunfire-backend/` workloads to `ks.yaml` + `app/` structure~~ — written in Phase 1, **applied 2026-09-02**; `dependsOn` ordering already encoded
 - [x] ~~Reconcile with `prune: false`; confirm adoption of the 4 running deployments~~ — all 6 Kustomizations Ready at `80f35c4`
 - [x] ~~Add `dependsOn` ordering for Postgres → PostgREST~~ — `storage → {minio, postgres → postgrest} → cloudflared`
-- [ ] Enable `prune: true` + `prune: disabled` annotations on stateful resources — **held open on purpose**, see below
+- [x] ~~Enable `prune: true` + `prune: disabled` annotations on stateful resources~~ — done 2026-09-03, see "Prune enabled" below
 
 > **Adoption result.** The live cluster had been running four unpinned `:latest`
 > tags; the repo carries digest pins, so adoption rolled all four Deployments —
@@ -440,10 +440,25 @@ down" posture is inbound-only).
 >   original `07:05:44Z` creation timestamp, `Bound`, `Retain`
 > - all five SOPS secrets decrypted in-cluster and applied
 >
-> **`prune: true` stays off.** The rule this repo committed to is *several clean
-> reconciles first*, and exactly one has been observed. Turning prune on is a
-> separate, deliberate commit — not a victory lap on install day. When it
-> happens, `sunfire-storage` still never gets it (see its `ks.yaml`).
+> **Prune enabled (2026-09-03).** `prune: true` on `sunfire-{minio,postgres,postgrest,cloudflared}`.
+> `sunfire-storage` keeps `prune: false` permanently. Removing a manifest from
+> git now deletes the live object.
+>
+> Before enabling, each Kustomization's inventory was dumped and matched against
+> its git content — 6/2/4/3/3/4 objects, nothing unexpected adopted from the
+> hand-applied era. That inventory check, not the reconcile count, is what makes
+> this safe: prune only removes objects a Kustomization already owns and git no
+> longer declares, so a correct inventory means enabling it is an immediate no-op.
+>
+> **Found while doing it:** the parent `flux-system` Kustomization was already
+> running `prune: true` — flux-operator sets that on the sync Kustomization by
+> default — and the `sunfire` Namespace sits in its inventory. Dropping
+> `namespace.yaml` from git would therefore have deleted the namespace, and the
+> Kubernetes garbage collector would have taken every object inside with it. The
+> `prune: disabled` annotations on the PVCs do **not** stop that: they stop Flux,
+> not the GC cascade. PVs are `Retain` so the data survives, but the claims would
+> not. `namespace.yaml` now carries `prune: disabled` to close it. This hazard
+> predated enabling prune on the app Kustomizations.
 
 > **The `flux-operator` install is the one imperative step left.** It was applied
 > with `helm upgrade --install ... --version 0.59.0` rather than from git, because

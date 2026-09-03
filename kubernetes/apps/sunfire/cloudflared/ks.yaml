@@ -11,9 +11,11 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # prune stays false until several clean reconciles have been observed.
-  # See GITOPS.md "Prune safety".
-  prune: false
+  # Enabled 2026-09-03 after clean reconciles at d1a387d. Removing a manifest
+  # from git now deletes the live object. Stateful resources are excluded two
+  # ways: they live in sunfire-storage (prune permanently false) and carry
+  # kustomize.toolkit.fluxcd.io/prune: disabled. See GITOPS.md "Prune safety".
+  prune: true
   wait: true
   decryption:
     provider: sops

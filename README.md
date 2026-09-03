@@ -151,8 +151,10 @@ Adoption rolled the four Deployments off `:latest` onto the digest pins above,
 including the `postgres` 16 → 16.15 patch upgrade. The NFS PVs were adopted in
 place, not recreated. `~/sunfire-backend/` remains the rollback path.
 
-`prune` is still `false` everywhere — the repo's rule is several clean reconciles
-before enabling it, and one has been observed. `sunfire-storage` never gets it.
+`prune: true` on the four app Kustomizations as of 2026-09-03; `sunfire-storage`
+stays `false` permanently. `namespace.yaml` and the PV/PVCs carry
+`kustomize.toolkit.fluxcd.io/prune: disabled`. Removing a manifest from git now
+deletes the live object.
 
 Next: Phase 4 in `GITOPS.md` — point Renovate at `home-operations/renovate-presets`
 (and have it track the pinned `flux-operator` chart).
