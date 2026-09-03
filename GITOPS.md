@@ -510,16 +510,31 @@ down" posture is inbound-only).
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
 
-> 🛑 **Blocker found 2026-09-03: the worker root disks are 9.75 GiB.** Phase 5's
-> central decision — move PGDATA off NFS onto `local-path` — quietly assumes the
-> k3s nodes have room for it. They do not. Measured from the kubelet
+> ✅ **Blocker found and cleared 2026-09-03: the worker root disks were 9.75 GiB.**
+> Phase 5's original decision — move PGDATA onto `local-path` — quietly assumed
+> the k3s nodes had room for it. They did not. Measured from the kubelet
 > (`/api/v1/nodes/<node>/proxy/stats/summary`):
 >
-> | Node | Root fs | Used | **Available** |
-> |---|---|---|---|
-> | `k3s-control` | 9.75 GiB | 4.45 | 4.78 |
-> | `k3s-worker1` (minio) | 9.75 GiB | 6.51 | 2.72 |
-> | `k3s-worker2` (postgres) | 9.75 GiB | 6.54 | **2.69** |
+> | Node | Root fs | Used | Available | After `lvextend` |
+> |---|---|---|---|---|
+> | `k3s-control` | 9.75 GiB | 4.45 | 4.78 | *not yet grown* |
+> | `k3s-worker1` (minio) | 9.75 GiB | 6.51 | 2.72 | **17.83 GiB, 10.45 free** |
+> | `k3s-worker2` (postgres) | 9.75 GiB | 6.54 | **2.69** | **17.83 GiB, 10.42 free** |
+>
+> The cause was the stock Ubuntu Server installer: an 18.22 GiB VG on `sda3`
+> with only a 10 GiB root LV carved out of it. No Proxmox resize and no
+> thin-pool space were needed — `lvextend -l +100%FREE` plus `resize2fs`, online,
+> on each worker. `STORAGE.md` §6 records it.
+>
+> Note `.status.allocatable.ephemeral-storage` still reports the pre-growth
+> figure afterwards: kubelet caches it from cadvisor machine info and refreshes
+> on restart. Eviction and `DiskPressure` use the live stats and were correct
+> immediately, so this is cosmetic unless a pod declares an explicit
+> `ephemeral-storage` request. Nothing here does.
+>
+> This did **not** make `local-path` on the root disk an acceptable home for
+> PGDATA — a bigger shared filesystem is the same absent boundary. The zvol
+> decision below stands on its own reasoning.
 >
 > `cluster.yaml` originally asked for `storage: 20Gi` on `k3s-worker2`.
 > **local-path does not enforce that number** — it provisions a directory, not a
