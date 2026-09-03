@@ -46,11 +46,11 @@ permanent write amplification on every page write for the life of the volume.
 Find the VMID first — do not guess it:
 
 ```bash
-qm list                    # note the VMID whose name is k3s-worker2
+qm list                    # confirm; VMIDs do not track the IP last octet here
 ```
 
 ```bash
-VMID=<k3s-worker2 vmid>
+VMID=104                   # k3s-worker2 -- confirmed via qm list
 qm set "$VMID" -scsi1 archive-pool:64,backup=0,discard=on,ssd=1
 ```
 
@@ -195,45 +195,67 @@ free in `local-lvm`, so no thin-pool extension is needed.
 > all five guests. A **full thin pool breaks every guest at once**, which is
 > strictly worse than one full root disk. `lvs` shows `Data%` on the pool.
 
-### On `.101`
+### The VMIDs — they do NOT track the IP last octet
+
+Confirmed 2026-09-03 with `qm list`. Earlier notes in this repo inferred the
+mapping from `.104`–`.106` and got it wrong:
+
+| VMID | Name | Boot disk | RAM |
+|---|---|---|---|
+| 101 | `dev` | 32 GB | 32 GB |
+| 102 | `k3s-control` | 15 GB | 8 GB |
+| **103** | **`k3s-worker1`** | 20 GB | 128 GB |
+| **104** | **`k3s-worker2`** | 20 GB | 128 GB |
+
+`k3s-worker2` is VMID **104** — that is the one §2 attaches the zvol to. The
+`.102` vpn-gateway is an LXC and does not appear in `qm list`; use `pct list`.
+
+### First: claim the space you already have
+
+**Do not reach for `qm resize` yet.** The virtual disks are already 20 GB, but
+every node reports a **9.75 GiB** root filesystem — including `k3s-control`,
+whose disk is 15 GB. One uniform size across two different disk sizes means the
+filesystem was never grown to fill the disk, so there is ~10 GiB per worker
+sitting allocated and unclaimed. Growing the disk before claiming that would
+consume thin-pool space to solve a problem you do not have.
+
+Inside each guest:
 
 ```bash
-qm list                                     # VMIDs for control, worker1, worker2
-qm config <vmid> | grep -E '^(scsi|virtio|sata)[0-9]'   # identify the BOOT disk
-
-for VMID in <control> <worker1> <worker2>; do
-  qm resize "$VMID" scsi0 +15G              # 9.75G -> ~24.75G; use the real disk key
-done
-
-lvs                                          # confirm the thin pool Data% after
+lsblk
+df -h /
+vgs && lvs                                   # free extents in the VG?
 ```
 
-`qm resize` grows the virtual disk online; the guest still has to be told.
-
-### Inside each guest
+Then take the branch that matches — do not run both:
 
 ```bash
-lsblk -f                                     # confirm the layout before touching it
+# (a) LVM with free extents in the VG -- the likely case here
+lvextend -l +100%FREE /dev/mapper/<vg>-<root-lv>
+resize2fs /dev/mapper/<vg>-<root-lv>         # or: xfs_growfs /
+
+# (b) no LVM; the partition simply never expanded to fill the disk
+growpart /dev/sda 1
+resize2fs /dev/sda1                          # or: xfs_growfs /
 ```
 
-Then take the branch that matches — do not run all three:
+That reaches ~19–20 GiB usable per worker for **zero** Proxmox change and zero
+thin-pool consumption. With PGDATA on the zvol, the root disk only ever holds
+the OS, k3s, container images and pod logs, and 20 GiB is comfortable for that.
+
+### Only if `vgs` shows the VG genuinely full
 
 ```bash
-# (a) partition + ext4 directly on it
-growpart /dev/sda 1 && resize2fs /dev/sda1
-
-# (b) partition + xfs
-growpart /dev/sda 1 && xfs_growfs /
-
-# (c) LVM inside the guest (root is /dev/mapper/...)
-growpart /dev/sda 3
-pvresize /dev/sda3
-lvextend -l +100%FREE /dev/mapper/<vg>-<lv>
-resize2fs /dev/mapper/<vg>-<lv>      # or xfs_growfs / for xfs
+qm resize 103 scsi0 +15G          # k3s-worker1
+qm resize 104 scsi0 +15G          # k3s-worker2
+lvs                               # watch Data% on the thin pool afterwards
 ```
 
-`growpart` is in `cloud-guest-utils` on Debian/Ubuntu. Confirm with `df -h /`,
-then from the dev VM:
+`qm resize` grows the virtual disk online; the guest still has to be told —
+`growpart` the partition, `pvresize` the PV, then `lvextend` + `resize2fs` as
+above. `growpart` is in `cloud-guest-utils` on Debian/Ubuntu.
+
+Confirm with `df -h /`, then from the dev VM:
 
 ```bash
 kubectl get --raw "/api/v1/nodes/k3s-worker2/proxy/stats/summary" \
