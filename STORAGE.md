@@ -219,31 +219,45 @@ filesystem was never grown to fill the disk, so there is ~10 GiB per worker
 sitting allocated and unclaimed. Growing the disk before claiming that would
 consume thin-pool space to solve a problem you do not have.
 
-Inside each guest:
+**Confirmed layout 2026-09-03** — the stock Ubuntu Server installer default,
+identical on both workers. It builds a 10 G logical volume and leaves the rest
+of the volume group unallocated:
 
-```bash
-lsblk
-df -h /
-vgs && lvs                                   # free extents in the VG?
+```
+sda                       20G
+├─sda1                     1M          (BIOS boot)
+├─sda2                   1.8G  /boot
+└─sda3                  18.2G          → VG ubuntu-vg
+  └─ubuntu--vg-ubuntu--lv 10G  /       → 8.22 GiB FREE in the VG
 ```
 
-Then take the branch that matches — do not run both:
+So the fix is two commands per node, online, no reboot and no unmount (ext4
+grows in place):
 
 ```bash
-# (a) LVM with free extents in the VG -- the likely case here
-lvextend -l +100%FREE /dev/mapper/<vg>-<root-lv>
-resize2fs /dev/mapper/<vg>-<root-lv>         # or: xfs_growfs /
-
-# (b) no LVM; the partition simply never expanded to fill the disk
-growpart /dev/sda 1
-resize2fs /dev/sda1                          # or: xfs_growfs /
+sudo lvextend -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+sudo resize2fs /dev/ubuntu-vg/ubuntu-lv
+df -h /                                      # expect ~18G, was 9.8G
 ```
 
-That reaches ~19–20 GiB usable per worker for **zero** Proxmox change and zero
-thin-pool consumption. With PGDATA on the zvol, the root disk only ever holds
-the OS, k3s, container images and pod logs, and 20 GiB is comfortable for that.
+Run it on **`k3s-worker1` (.105)** and **`k3s-worker2` (.106)**. `k3s-control`
+(.104) has the same 10 G LV on a 15 GB disk and is worth doing too — its VG has
+less spare, so take whatever `vgs` reports.
 
-### Only if `vgs` shows the VG genuinely full
+That takes each worker from 9.8 G (2.8 G free) to ~18 G (~11.4 G free) for
+**zero** Proxmox change and zero thin-pool consumption — the space was already
+inside the VM disk, just never claimed. With PGDATA on the zvol the root disk
+only ever holds the OS, k3s, container images and pod logs, and 18 GiB is
+comfortable for that.
+
+> `sda3` is already 18.2 G of the 20 G disk, the remainder being `/boot` and the
+> BIOS boot partition, so the VG cannot grow further without `qm resize`. It
+> does not need to.
+
+### Not needed — kept for the day the VG really is full
+
+Measured 2026-09-03, it is not: `lvextend` above is sufficient and costs nothing
+from the thin pool. Should that change:
 
 ```bash
 qm resize 103 scsi0 +15G          # k3s-worker1
