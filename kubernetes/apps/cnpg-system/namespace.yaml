@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cnpg-system
+  annotations:
+    # Prune hazard, same as the sunfire and cert-manager namespaces: this is in
+    # the parent flux-system Kustomization's inventory and that runs
+    # prune: true. Losing it would take the operator, the barman plugin and the
+    # plugin's mTLS material at once.
+    kustomize.toolkit.fluxcd.io/prune: disabled

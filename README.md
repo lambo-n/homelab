@@ -27,8 +27,12 @@ It is superseded once Flux reconciles, but is kept until then as the rollback pa
 ## Layout
 
 ```
-bootstrap/flux/flux-instance.yaml   flux-operator FluxInstance (Phase 3, not yet applied)
+bootstrap/flux/flux-instance.yaml   flux-operator FluxInstance
 kubernetes/flux/cluster/            root sync target
+kubernetes/apps/cert-manager/       cert-manager   (exists only for the barman plugin)
+kubernetes/apps/cnpg-system/
+  ├── cloudnative-pg/      CNPG operator
+  └── plugin-barman-cloud/ Barman Cloud CNPG-I plugin (must share the operator's namespace)
 kubernetes/apps/sunfire/
   ├── namespace.yaml
   ├── storage/     PV + PVC on NFS archive-pool  (prune permanently disabled)
@@ -44,7 +48,13 @@ Ordering is expressed with `dependsOn`:
 ```
 storage ─┬─ minio ──────┬─ cloudflared
          └─ postgres ── postgrest ─┘
+
+cert-manager ──────┬─ plugin-barman-cloud
+cloudnative-pg ────┘
 ```
+
+The two graphs are independent today. They join in Phase 5, when the `sunfire`
+Postgres becomes a CNPG `Cluster` backed up by the plugin.
 
 ## Secrets
 

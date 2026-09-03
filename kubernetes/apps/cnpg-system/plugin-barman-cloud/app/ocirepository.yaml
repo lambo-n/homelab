@@ -1,0 +1,17 @@
+---
+# Chart 0.7.1 carries plugin appVersion v0.14.0. Upstream had tagged plugin
+# v0.15.0 at the time of writing but no chart shipped it yet; the chart is what
+# Flux installs, so the chart version is the pin. Renovate will move it.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: plugin-barman-cloud
+  namespace: cnpg-system
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: "0.7.1"
+  url: oci://ghcr.io/cloudnative-pg/charts/plugin-barman-cloud

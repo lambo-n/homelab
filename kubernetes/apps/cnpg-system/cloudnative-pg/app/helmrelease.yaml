@@ -1,0 +1,30 @@
+---
+# CloudNativePG operator. Replaces the hand-rolled postgres Deployment in the
+# sunfire namespace -- see GITOPS.md "Postgres: CloudNativePG, 1 instance".
+#
+# The operator must be installed before plugin-barman-cloud, which registers
+# itself with it; the plugin's Kustomization dependsOn this one.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cloudnative-pg
+  namespace: cnpg-system
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: cloudnative-pg
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    # Watches every namespace. The Cluster it manages lives in `sunfire`, not
+    # here -- the plugin is what has to be co-located with the operator.
+    config:
+      clusterWide: true
+    crds:
+      create: true

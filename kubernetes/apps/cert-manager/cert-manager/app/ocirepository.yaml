@@ -1,0 +1,17 @@
+---
+# Chart source. OCIRepository rather than HelmRepository so there is no
+# index.yaml poll and the tag below is the whole pin -- Renovate's
+# home-operations preset parses this kind directly.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: v1.21.1
+  url: oci://quay.io/jetstack/charts/cert-manager

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  annotations:
+    # Same hazard as the sunfire namespace: the parent flux-system
+    # Kustomization runs prune: true and this Namespace sits in its inventory.
+    # Dropping it from git would delete it and the GC would cascade through
+    # every CA keypair cert-manager holds. Deleting it stays a manual act.
+    kustomize.toolkit.fluxcd.io/prune: disabled

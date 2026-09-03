@@ -1,0 +1,27 @@
+---
+# Barman Cloud as a CNPG-I plugin. This is not an optional add-on: CNPG removed
+# the in-tree `spec.backup.barmanObjectStore` in 1.28 and this cluster runs
+# 1.30, so the plugin is the only way to back the database up at all.
+#
+# MUST be installed in the operator's own namespace -- the operator discovers
+# plugins by looking for their Service in the namespace it runs in, so moving
+# this elsewhere makes it silently invisible rather than broken.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: plugin-barman-cloud
+  namespace: cnpg-system
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: plugin-barman-cloud
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    replicaCount: 1

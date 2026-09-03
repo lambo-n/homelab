@@ -1,0 +1,43 @@
+---
+# cert-manager exists here for exactly one reason: plugin-barman-cloud requires
+# it (CNPG-I plugins are mTLS between operator and plugin, and the plugin chart
+# mints those certs with cert-manager). Nothing else in this cluster issues
+# certificates -- ingress TLS is terminated by Cloudflare at the edge.
+#
+# GITOPS.md rejected External Secrets Operator partly because it dragged in
+# cert-manager. That specific objection is void as of Phase 5: CNPG backups
+# require cert-manager regardless, because in-tree barmanObjectStore was
+# removed in CNPG 1.28 and the plugin is the only remaining path. The ESO
+# rejection still stands on its other ground (1Password needs a subscription).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: cert-manager
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    # The chart defaults this to false and then templates the CRDs behind it,
+    # so leaving it alone yields an operator with no API to serve.
+    crds:
+      enabled: true
+      # Survives a `helm uninstall`, so removing this release does not take
+      # every Certificate and Issuer in the cluster with it.
+      keep: true
+    # Single hypervisor -- replicas beyond 1 are theater, same reasoning as
+    # CNPG instances: 1. See GITOPS.md "Explicitly rejected".
+    replicaCount: 1
+    webhook:
+      replicaCount: 1
+    cainjector:
+      replicaCount: 1

@@ -1,0 +1,23 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cert-manager
+  namespace: flux-system
+spec:
+  interval: 30m
+  # Longer than the 5m the sunfire apps use: a first install has to register
+  # the full CRD set and roll three Deployments before the HelmRelease reports
+  # Ready, and `wait: true` blocks the barman plugin behind it.
+  timeout: 10m
+  path: ./kubernetes/apps/cert-manager/cert-manager/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  wait: true
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: cert-manager
+      namespace: cert-manager

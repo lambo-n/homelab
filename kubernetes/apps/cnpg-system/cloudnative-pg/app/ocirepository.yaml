@@ -1,0 +1,17 @@
+---
+# Chart 0.29.0 carries operator appVersion 1.30.0. The two version lines move
+# independently -- pin and read the chart version, never assume it tracks the
+# operator's.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: cloudnative-pg
+  namespace: cnpg-system
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: "0.29.0"
+  url: oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg
