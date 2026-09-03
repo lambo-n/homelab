@@ -22,17 +22,35 @@ store and could still take the node down by filling it.
 
 ```bash
 pvesm status
-pvesm config archive-pool
+cat /etc/pve/storage.cfg          # or: pvesh get /storage/archive-pool
 ```
 
-`content` must include `images`. If it lists only `rootdir`:
+> There is **no `pvesm config`** subcommand — `pvesm set` writes, but reading
+> goes through `storage.cfg` or `pvesh`.
+
+Check two properties in that output:
+
+**`content`** must include `images`, or `qm set` will refuse the disk:
 
 ```bash
 pvesm set archive-pool --content images,rootdir
 ```
 
-Then set the block size **before creating the disk** — this is the one setting
-that cannot be changed afterwards:
+**`sparse`** is likely `1` — the PVE GUI ticks "Thin provision" by default when
+a ZFS storage is added. Turn it off so the zvol is thick:
+
+```bash
+pvesm set archive-pool --sparse 0
+```
+
+Thick is deliberate here: `refreservation` equal to the volume size guarantees
+Postgres can always write, even if MinIO later grows into the rest of the pool.
+64 GiB out of 1.68 TiB is not worth economising, and a database that cannot
+extend a file because a *different* workload filled the pool is a bad failure to
+design in. This affects newly created volumes only, so it must be set before §2.
+
+Then the block size, also **before creating the disk** — this is the one setting
+that cannot be changed afterwards at all:
 
 ```bash
 pvesm set archive-pool --blocksize 8k
