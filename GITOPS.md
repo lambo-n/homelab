@@ -485,14 +485,86 @@ down" posture is inbound-only).
 - [ ] Verify a snapshot rollback actually works before relying on it — `SANOID.md` §4
 - [x] ~~Deploy CNPG operator + `plugin-barman-cloud`~~ — done 2026-09-03, plus cert-manager,
       which the plugin hard-requires
-- [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`) — manifests written,
-      not yet wired into the root kustomization
+- [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`) — manifests written and
+      validated against the live CRDs; **not wired into the root kustomization**, and now
+      blocked on worker disk as well as on the backup bucket (below)
 - [ ] `ObjectStore` → local MinIO; daily `ScheduledBackup` — written; blocked on the bucket +
       scoped service account (`scripts/minio-barman-account.sh`, **yours to run**)
-- [ ] **Test a restore into a scratch namespace** — untested backups aren't backups
-- [ ] VolSync for the MinIO PVC (only non-DB stateful volume)
+- [ ] **Test a restore into a scratch namespace** — untested backups aren't backups.
+      Runbook written (`RESTORE.md`); blocked on the same disk finding, since the drill needs
+      a second PGDATA on the same node
+- [ ] ~~VolSync for the MinIO PVC~~ — **deferred, see below.** There is no destination for it
+      on this cluster today that is not either the source volume or the source pool
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
+
+> 🛑 **Blocker found 2026-09-03: the worker root disks are 9.75 GiB.** Phase 5's
+> central decision — move PGDATA off NFS onto `local-path` — quietly assumes the
+> k3s nodes have room for it. They do not. Measured from the kubelet
+> (`/api/v1/nodes/<node>/proxy/stats/summary`):
+>
+> | Node | Root fs | Used | **Available** |
+> |---|---|---|---|
+> | `k3s-control` | 9.75 GiB | 4.45 | 4.78 |
+> | `k3s-worker1` (minio) | 9.75 GiB | 6.51 | 2.72 |
+> | `k3s-worker2` (postgres) | 9.75 GiB | 6.54 | **2.69** |
+>
+> `cluster.yaml` asks for `storage: 20Gi` on `k3s-worker2`. **local-path does not
+> enforce that number** — it provisions a directory, not a quota — so the PVC
+> binds, reports 20Gi, and the real ceiling is 2.69 GiB shared with the OS and
+> the container images. Nothing fails at apply time. The database is empty today,
+> so bootstrap would *succeed*, and the misconfiguration would surface later as
+> node-level `DiskPressure` on the node running Postgres, PostgREST and the
+> kubelet's image store.
+>
+> The WAL case is what makes this urgent rather than untidy. CNPG keeps
+> unarchived WAL in PGDATA until the archiver drains it, and this cluster is
+> *frequently powered off* — so MinIO being down is the normal state, not the
+> exception, and WAL accumulating against a 2.69 GiB ceiling is the expected
+> path, not a tail risk. There is no CNPG knob that bounds it without also
+> throwing away recoverability; the fix is headroom.
+>
+> **This is a hypervisor-layer fix, and it is yours.** `local-lvm` was recorded
+> at ~130 GiB / ~28% used, so the room exists — confirm with `pvesm status` on
+> `.101`, then grow `k3s-worker2` (and `k3s-worker1`, which is one MinIO upload
+> away from the same problem) and extend the filesystem inside the guest. Until
+> then `postgres-cnpg` stays out of `kubernetes/apps/sunfire/kustomization.yaml`.
+> Note the ordering: this must land *before* `minio-barman-account.sh`, because
+> once the bucket and credential exist the only thing still holding the cutover
+> back is a disk that silently overcommits.
+>
+> Two things this does *not* invalidate. The reasoning for leaving NFS still
+> stands on its own — the single-writer hazard is real and was demonstrated on
+> 2026-09-02. And the manifests are correct: all three objects pass
+> `kubectl apply --dry-run=server` against the live CRDs, the `dependsOn` targets
+> all exist, `sunfire/role: postgres` is on `k3s-worker2`, and the SOPS
+> `authenticator` password was confirmed byte-identical to the one embedded in
+> the live `PGRST_DB_URI`. The design is sound; the substrate was never sized
+> for it.
+
+> **VolSync is deferred, not scheduled** *(2026-09-03)*. The line item read
+> "VolSync for the MinIO PVC (only non-DB stateful volume)" and never said where
+> the replica would go. Working that through, there is no answer on this cluster:
+>
+> | Destination | Why not |
+> |---|---|
+> | MinIO itself (restic → `s3://…`) | The repository would live inside the volume being replicated. Circular |
+> | A `local-path` PVC on a worker | 2.7 GiB free, per the blocker above |
+> | A second NFS PV on `archive-pool` | Same pool sanoid already snapshots. A second copy that dies with the first |
+>
+> There is also no CSI snapshot support here (`local-path` and two manual NFS
+> PVs; `volumesnapshotclass` is not even a resource type), so VolSync would be
+> limited to `copyMethod: Direct` — reading a live MinIO data directory rather
+> than a point-in-time image of it.
+>
+> What VolSync would genuinely add is a copy on *different media* in restic's
+> file-level, verifiable format. That only becomes real when a destination exists
+> that is not `.101` — which is the same condition already written into "Backups:
+> local only": revisit when a successor app defines data whose value justifies
+> going off-host. Until then this is machinery guarding a copy against nothing.
+> `archive-pool/minio-data` gets sanoid, and after the CNPG cutover it holds the
+> Postgres backups too — that is the dataset that matters, and `SANOID.md`
+> already says so.
 
 > **cert-manager is now a dependency, and that voids one earlier rejection.**
 > CNPG deleted the in-tree `spec.backup.barmanObjectStore` in 1.28; this cluster
@@ -533,7 +605,8 @@ down" posture is inbound-only).
 > `archive-pool/minio-data` carries both the guide media *and* every Postgres
 > backup, so it is now the dataset that matters most.
 
-> **Two steps are yours, not the assistant's.** `kubectl exec` against a pod is
+> **Three steps are yours, not the assistant's** *(was two; the disk grow is
+> new)*. `kubectl exec` against a pod is
 > refused by this environment's tooling, and `.101` has no SSH key for the dev
 > VM. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
 > service account scoped to it, and writes the credential into the repo already
@@ -542,6 +615,12 @@ down" posture is inbound-only).
 > **does** hold `s3:ListBucket`, unlike the Worker accounts one layer down —
 > barman needs to list WALs and backups. Same reasoning, opposite answer; it is
 > not a copy-paste slip.
+>
+> The third is **growing the `k3s-worker2` (and `k3s-worker1`) VM disks on
+> `.101`** — Proxmox has no Kubernetes API to reach it through, and it now gates
+> the CNPG cutover. `RESTORE.md` is likewise yours to execute end to end; it is
+> written and blocked on the same disk, since a restore drill needs a second
+> PGDATA alongside the live one.
 
 > **What `sanoid` does and does not cover.** It snapshots ZFS datasets, and the
 > only ZFS on `.101` is `archive-pool` — i.e. exactly `archive-pool/minio-data`

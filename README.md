@@ -5,6 +5,10 @@ GitOps source of truth for the **Sunfire** k3s cluster (Proxmox `192.168.50.101`
 Planning notes, rationale, and the phased TODO live in [`GITOPS.md`](GITOPS.md).
 This repo is the *executable* half of that plan.
 
+Two runbooks cover the parts that cannot be reconciled from inside the cluster:
+[`SANOID.md`](SANOID.md) (ZFS snapshots, on the Proxmox host) and
+[`RESTORE.md`](RESTORE.md) (the CNPG restore drill).
+
 ## Repository boundaries
 
 Three trees on the dev VM, deliberately kept separate:
@@ -35,12 +39,19 @@ kubernetes/apps/cnpg-system/
   └── plugin-barman-cloud/ Barman Cloud CNPG-I plugin (must share the operator's namespace)
 kubernetes/apps/sunfire/
   ├── namespace.yaml
-  ├── storage/     PV + PVC on NFS archive-pool  (prune permanently disabled)
-  ├── minio/       S3 object storage             → minio-api.sunosrs.cc
-  ├── postgres/    PostgreSQL 16
-  ├── postgrest/   REST over Postgres            → db.sunosrs.cc
-  └── cloudflared/ remote-managed tunnel
+  ├── storage/       PV + PVC on NFS archive-pool  (prune permanently disabled)
+  ├── minio/         S3 object storage             → minio-api.sunosrs.cc
+  ├── postgres/      PostgreSQL 16                 (the live database)
+  ├── postgres-cnpg/ CNPG Cluster + ObjectStore    (Phase 5, NOT yet wired in)
+  ├── postgrest/     REST over Postgres            → db.sunosrs.cc
+  └── cloudflared/   remote-managed tunnel
 ```
+
+`postgres-cnpg/` is written and validated but is deliberately absent from
+`kubernetes/apps/sunfire/kustomization.yaml`, so Flux does not see it. It stays
+out until the two blockers in `GITOPS.md` Phase 5 clear — the backup bucket does
+not exist yet, and the worker root disks are too small for the PGDATA it asks
+for.
 
 Each app is `ks.yaml` (a Flux `Kustomization`) + `app/` (the plain manifests).
 Ordering is expressed with `dependsOn`:
@@ -152,8 +163,8 @@ Renovate proposes bumps; nothing floats.
 
 ## Status
 
-Phases 1–3 complete (toolchain, pinning, repo, SOPS, Flux). **This repo now drives
-the cluster.** `flux-operator` 0.59.0 runs the four controllers in `flux-system`,
+Phases 1–4 complete (toolchain, pinning, repo, SOPS, Flux, Renovate); **Phase 5
+— data protection — is in progress.** **This repo now drives the cluster.** `flux-operator` 0.59.0 runs the four controllers in `flux-system`,
 syncing `kubernetes/flux/cluster` over SSH with a read-only deploy key; all six
 Kustomizations reconcile Ready.
 
@@ -166,5 +177,24 @@ stays `false` permanently. `namespace.yaml` and the PV/PVCs carry
 `kustomize.toolkit.fluxcd.io/prune: disabled`. Removing a manifest from git now
 deletes the live object.
 
-Next: Phase 4 in `GITOPS.md` — point Renovate at `home-operations/renovate-presets`
-(and have it track the pinned `flux-operator` chart).
+Renovate runs daily at 10:00 UTC against `home-operations/renovate-presets`
+(`.renovaterc.json5`), with `**/*.sops.*` excluded from scanning.
+
+**Phase 5 (data protection) is where the work is.** cert-manager, the CNPG
+operator and `plugin-barman-cloud` are installed and Ready. What remains is
+blocked on three things that only a human can do, in this order:
+
+1. **Grow the `k3s-worker*` VM disks on `.101`.** Each node has a 9.75 GiB root
+   filesystem with ~2.7 GiB free, and the CNPG `Cluster` wants 20Gi of
+   `local-path` on `k3s-worker2`. `local-path` provisions a directory rather
+   than a quota, so that PVC would bind and then fill the node's OS disk.
+2. **Run `scripts/minio-barman-account.sh`** — creates the backup bucket and a
+   scoped service account, writing the credential into the repo already
+   SOPS-encrypted. It needs `kubectl exec`, which the assistant's tooling
+   refuses.
+3. **Run `SANOID.md`** on `.101` in full, then the restore drill in
+   `RESTORE.md`. Both are written; neither has been executed.
+
+Only after 1 and 2 does `postgres-cnpg/ks.yaml` get added to
+`kubernetes/apps/sunfire/kustomization.yaml`. Rationale, measurements and the
+VolSync deferral: `GITOPS.md` Phase 5.
