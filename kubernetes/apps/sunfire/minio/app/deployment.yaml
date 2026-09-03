@@ -12,6 +12,14 @@ spec:
   # Postgres hit exactly this on 2026-09-02 (see its Deployment); MinIO carries
   # the same exposure — two servers writing one backend is unsupported, and its
   # object-level locking assumes it is the only writer.
+  # Converting an *existing* RollingUpdate Deployment needs a one-time patch
+  # before this applies — the live object keeps a defaulted rollingUpdate
+  # block, server-side apply merges rather than replaces, and the API server
+  # rejects the pair. `rollingUpdate: null` here does not clear it either:
+  # SSA only drops fields the applying manager owns. Run once per cluster:
+  #   kubectl patch deploy -n sunfire <name> --type=merge \
+  #     -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+  # Done on this cluster 2026-09-03. A fresh install needs none of it.
   strategy:
     type: Recreate
   selector:
