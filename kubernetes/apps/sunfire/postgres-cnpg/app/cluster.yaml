@@ -31,32 +31,35 @@ spec:
       sunfire/role: postgres
 
   storage:
-    # PREREQUISITE, not a preference: k3s-worker2's root filesystem is 9.75 GiB
-    # with ~2.69 GiB free (measured 2026-09-03). local-path provisions a
-    # directory, NOT a quota -- this 20Gi binds happily and means nothing, and
-    # the real ceiling is shared with the OS and the image store. Filling it is
-    # node-level DiskPressure, not a failed PVC.
+    # 64Gi is the size of the zvol this lands on, restated. local-path
+    # provisions a DIRECTORY, not a quota, so this number enforces nothing by
+    # itself -- the block device underneath is the real ceiling, and the two are
+    # kept equal so the manifest is not asserting a fiction.
     #
-    # The likely path there is WAL, not table growth: CNPG holds unarchived WAL
-    # in PGDATA until the archiver drains it, and this cluster is frequently
-    # powered off, so MinIO being unreachable is normal rather than exceptional.
+    # PREREQUISITE: /var/lib/rancher/k3s/storage on k3s-worker2 must be a mount
+    # of the archive-pool/pgdata-worker2 zvol BEFORE this is wired in. Unmounted,
+    # local-path writes to the node's 9.75 GiB root filesystem instead, silently,
+    # and the first symptom is node-level DiskPressure taking out Postgres,
+    # PostgREST and the kubelet's image store together. STORAGE.md installs a
+    # chattr +i sentinel and a systemd mount dependency so that fails loudly
+    # instead. Verify with STORAGE.md section 5 before enabling.
+    size: 64Gi
+    # local-path is the PROVISIONER, not the medium. The medium is a zvol on
+    # archive-pool -- block storage on the 3-way mirror, mounted at the path
+    # local-path already provisions into, so no StorageClass or ConfigMap change
+    # is needed and k3s cannot revert it.
     #
-    # DO NOT wire this Kustomization into kubernetes/apps/sunfire/kustomization.yaml
-    # until the worker VM disk has actually been grown on .101. See GITOPS.md
-    # Phase 5, "the worker root disks are 9.75 GiB".
-    size: 20Gi
-    # local-path, not the NFS archive-pool the Deployment used. Deliberate, and
-    # the reasoning is the whole point of Phase 5:
-    #   * it retires the NFS single-writer hazard outright -- the thing that
-    #     put two postmasters on one data directory on 2026-09-02 and forced
-    #     `strategy: Recreate` next door;
-    #   * CNPG explicitly discourages NFS for PGDATA (fsync/locking semantics);
-    #   * durability moves to continuous WAL archiving + daily base backups into
-    #     MinIO, which IS on archive-pool ZFS. GITOPS.md already draws this
-    #     line: sanoid protects the volume, barman protects the database, and
-    #     neither substitutes for the other.
-    # The cost is explicit: losing k3s-worker2 means restore-from-backup, not a
-    # snapshot rollback. That is what makes the restore drill non-optional.
+    # Why block and not the NFS export the old Deployment used: CNPG discourages
+    # NFS for PGDATA on fsync and locking semantics, and that is the ONLY
+    # surviving reason to leave the pool. The "single-writer NFS hazard" this
+    # comment used to cite was really RollingUpdate on an RWX volume -- fixed by
+    # `strategy: Recreate` in 6d51959, and impossible under CNPG, which does not
+    # use a Deployment. See GITOPS.md, "PGDATA moves off NFS onto a zvol".
+    #
+    # Consequence: PGDATA is back on ZFS, so sanoid snapshots it again and the
+    # "losing k3s-worker2 means restore-from-backup" cost is retired. The
+    # restore drill stays non-optional anyway -- snapshots are crash-consistent,
+    # barman is the actual backup.
     storageClass: local-path
 
   # Backups. isWALArchiver puts continuous WAL archiving on this plugin; the

@@ -7,10 +7,12 @@ objects in a bucket; only this file proves those objects reconstruct a database.
 Runs entirely against the Kubernetes API from the dev VM. Nothing here touches
 `.101`, and nothing here writes to the live `sunfire` namespace.
 
-> **Blocked today.** The drill needs a second PGDATA volume, and the k3s workers
-> have ~2.7 GiB free on a 9.75 GiB root disk — see GITOPS.md Phase 5,
-> "Worker root disks are 9.75 GiB". Read this file now; run it after the disks
-> grow and the first `ScheduledBackup` has actually completed.
+> **Blocked today.** The drill needs a second PGDATA alongside the live one, and
+> the volume it would land on does not exist yet — see `STORAGE.md`. Read this
+> file now; run it once the zvol is mounted and the first `ScheduledBackup` has
+> actually completed. Note that after `STORAGE.md` the drill's PVC lands on the
+> **64 GiB zvol**, not the 9.75 GiB root disk, so the free-space check in §0 is
+> measuring the right thing only once that mount is in place.
 
 ---
 
@@ -118,8 +120,9 @@ spec:
   instances: 1
   # Must match the source cluster's image, or at least not be older than it.
   imageName: ghcr.io/cloudnative-pg/postgresql:16.15@sha256:34cd4159d07b3410a1b29da35072e2e927a0905e717a61afa3814624a2e8859a
-  # Same node as the source: local-path is node-local, and this is where the
-  # free space was measured in step 0.
+  # Same node as the source. local-path is node-local, and on k3s-worker2 it
+  # provisions into the archive-pool zvol (STORAGE.md) -- which is where the
+  # free space in step 0 is actually being measured.
   affinity:
     nodeSelector:
       sunfire/role: postgres

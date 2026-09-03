@@ -15,14 +15,24 @@ Reference repo: [perryhuynh/homelab](https://github.com/perryhuynh/homelab/tree/
 |---|---|
 | Proxmox host | `192.168.50.101` — **also the NFS server** (`/archive-pool`) |
 | Guests | `.102` (vpn-gateway container), `.103` (this dev VM), `.104`–`.106` (k3s nodes) |
-| VM disks | `local-lvm` (LVM-thin, ~130 GiB, ~28% used) — **not** on ZFS; zero zvols on the host |
-| `archive-pool` | 5 × 1.92 TB raidz2 — **8.72 TiB raw / 5.03 TiB usable**, ~118 MB used |
+| VM disks | `local-lvm` (LVM-thin on an NVMe RAID1) — **130.2 GiB, 30.5% used, 90.5 GiB free** |
+| `archive-pool` | 3-way mirror — **1.68 TiB usable, 0.01% used (102 MiB)**; two-disk fault tolerance |
+| Worker root fs | **9.75 GiB each, ~2.7 GiB free** — see Phase 5 |
 
-> Corrected 2026-09-02: this table previously read "~14 TB, ZFS w/ redundancy".
-> The real figures are above (`zpool list` reports raw incl. parity; `pvesm
-> status` reports usable). The pool is being rebuilt as a **3-way mirror** to
-> free two drives — see `POOL-DOWNSIZE.md`. Because no VM disk is on ZFS, that
-> rebuild does not touch the cluster.
+> Figures refreshed 2026-09-03 from `pvesm status` on `.101`. The pool rebuild in
+> `POOL-DOWNSIZE.md` is **complete**: 5 × 1.92 TB raidz2 (5.03 TiB) became a
+> 3-way mirror (1.68 TiB), freeing two drives. Earlier revisions of this table
+> read "~14 TB, ZFS w/ redundancy", then "8.72 TiB raw / 5.03 TiB usable" — both
+> are now historical.
+>
+> ⚠️ **The "no VM disk is on ZFS" invariant is being retired deliberately.**
+> It appears in this file, `HOMELAB.md`, `POOL-DOWNSIZE.md` §1 and the
+> assistant's stored memory, always as the reason `archive-pool` could be
+> destroyed without touching a VM. Phase 5 puts PGDATA on a **zvol** on that
+> pool, so from that point on: destroying, exporting or rebuilding
+> `archive-pool` takes `k3s-worker2`'s data disk with it, and pool work requires
+> the VM stopped first. Nothing else changes — the other four guests stay on
+> `local-lvm`.
 
 **Single host = single failure domain.** This constrains most decisions below.
 
@@ -239,7 +249,7 @@ the pool still scrubs clean. That risk goes *up* when automated reconciliation w
 arrives, but it's covered locally:
 
 - **`sanoid` ZFS snapshots** on `.101` for `archive-pool/minio-data` and `archive-pool/postgres-data`.
-  Copy-on-write, single-digit GB against the pool's ~1.75 TiB (post-rebuild). ~24 hourly / 30 daily
+  Copy-on-write, single-digit GB against the pool's 1.68 TiB (measured post-rebuild). ~24 hourly / 30 daily
   / 6 monthly. **Set this up when the pool is recreated** — a fresh pool is the natural moment, and
   snapshots cover the accidental-delete case that ZFS redundancy does not.
 - **CNPG → MinIO**, not R2. `endpointURL: http://minio.sunfire.svc.cluster.local:9000`, with ZFS
@@ -485,9 +495,11 @@ down" posture is inbound-only).
 - [ ] Verify a snapshot rollback actually works before relying on it — `SANOID.md` §4
 - [x] ~~Deploy CNPG operator + `plugin-barman-cloud`~~ — done 2026-09-03, plus cert-manager,
       which the plugin hard-requires
+- [ ] Provision the PGDATA zvol on `archive-pool` and attach it to `k3s-worker2` — runbook
+      written (`STORAGE.md`); **yours to run**, `.101` has no SSH key for this VM
 - [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`) — manifests written and
-      validated against the live CRDs; **not wired into the root kustomization**, and now
-      blocked on worker disk as well as on the backup bucket (below)
+      validated against the live CRDs; **not wired into the root kustomization**, and blocked
+      on the zvol above and the backup bucket below
 - [ ] `ObjectStore` → local MinIO; daily `ScheduledBackup` — written; blocked on the bucket +
       scoped service account (`scripts/minio-barman-account.sh`, **yours to run**)
 - [ ] **Test a restore into a scratch namespace** — untested backups aren't backups.
@@ -509,33 +521,32 @@ down" posture is inbound-only).
 > | `k3s-worker1` (minio) | 9.75 GiB | 6.51 | 2.72 |
 > | `k3s-worker2` (postgres) | 9.75 GiB | 6.54 | **2.69** |
 >
-> `cluster.yaml` asks for `storage: 20Gi` on `k3s-worker2`. **local-path does not
-> enforce that number** — it provisions a directory, not a quota — so the PVC
-> binds, reports 20Gi, and the real ceiling is 2.69 GiB shared with the OS and
-> the container images. Nothing fails at apply time. The database is empty today,
-> so bootstrap would *succeed*, and the misconfiguration would surface later as
-> node-level `DiskPressure` on the node running Postgres, PostgREST and the
-> kubelet's image store.
+> `cluster.yaml` originally asked for `storage: 20Gi` on `k3s-worker2`.
+> **local-path does not enforce that number** — it provisions a directory, not a
+> quota — so the PVC binds, reports 20Gi, and the real ceiling is 2.69 GiB shared
+> with the OS and the container images. Nothing fails at apply time. The database
+> is empty today, so bootstrap would *succeed*, and the misconfiguration would
+> surface later as node-level `DiskPressure` on the node running Postgres,
+> PostgREST and the kubelet's image store.
 >
 > The WAL case is what makes this urgent rather than untidy. CNPG keeps
 > unarchived WAL in PGDATA until the archiver drains it, and this cluster is
 > *frequently powered off* — so MinIO being down is the normal state, not the
 > exception, and WAL accumulating against a 2.69 GiB ceiling is the expected
 > path, not a tail risk. There is no CNPG knob that bounds it without also
-> throwing away recoverability; the fix is headroom.
+> throwing away recoverability; the fix is a real device.
 >
-> **This is a hypervisor-layer fix, and it is yours.** `local-lvm` was recorded
-> at ~130 GiB / ~28% used, so the room exists — confirm with `pvesm status` on
-> `.101`, then grow `k3s-worker2` (and `k3s-worker1`, which is one MinIO upload
-> away from the same problem) and extend the filesystem inside the guest. Until
-> then `postgres-cnpg` stays out of `kubernetes/apps/sunfire/kustomization.yaml`.
-> Note the ordering: this must land *before* `minio-barman-account.sh`, because
-> once the bucket and credential exist the only thing still holding the cutover
-> back is a disk that silently overcommits.
+> ✅ **Resolved by the zvol decision below, not by growing the root disk.**
+> Growing the root disk would have left the database sharing a filesystem with
+> the OS and the image store — a bigger disk, same absent boundary. Putting
+> PGDATA on its own block device makes the device the ceiling, and putting that
+> device on `archive-pool` puts it on the storage that exists for exactly this.
+> `storage:` is now `64Gi`, matching the zvol, so the manifest states a number
+> something actually enforces. The root disks still grow to ~24 GiB, for
+> container-image churn only. Host-side procedure: `STORAGE.md`.
 >
-> Two things this does *not* invalidate. The reasoning for leaving NFS still
-> stands on its own — the single-writer hazard is real and was demonstrated on
-> 2026-09-02. And the manifests are correct: all three objects pass
+> One thing this does *not* invalidate: the manifests are correct. All three
+> objects pass
 > `kubectl apply --dry-run=server` against the live CRDs, the `dependsOn` targets
 > all exist, `sunfire/role: postgres` is on `k3s-worker2`, and the SOPS
 > `authenticator` password was confirmed byte-identical to the one embedded in
@@ -550,7 +561,12 @@ down" posture is inbound-only).
 > |---|---|
 > | MinIO itself (restic → `s3://…`) | The repository would live inside the volume being replicated. Circular |
 > | A `local-path` PVC on a worker | 2.7 GiB free, per the blocker above |
-> | A second NFS PV on `archive-pool` | Same pool sanoid already snapshots. A second copy that dies with the first |
+> | A second NFS PV or zvol on `archive-pool` | Same pool sanoid already snapshots. A second copy that dies with the first |
+>
+> The PGDATA zvol decision below does not change this. It gives `archive-pool`
+> a block-device path it did not have before, but VolSync's source here is
+> MinIO's PV — which is already *on* `archive-pool`. A destination on the same
+> pool replicates a volume onto itself at one remove.
 >
 > There is also no CSI snapshot support here (`local-path` and two manual NFS
 > PVs; `volumesnapshotclass` is not even a resource type), so VolSync would be
@@ -582,28 +598,68 @@ down" posture is inbound-only).
 > note cert-manager's chart defaults `crds.enabled` to **false** and templates
 > the CRDs behind it, so accepting the default installs an operator with no API.
 
-> **PGDATA moves off NFS onto `local-path`** *(decided 2026-09-03)*. The old
-> Deployment kept its data directory on `.101:/archive-pool` over NFS. The CNPG
-> Cluster does not. Three reasons, in order of weight:
+> **PGDATA moves off NFS onto a zvol on `archive-pool`** *(decided 2026-09-03;
+> supersedes the `local-path` decision taken earlier the same day)*. The old
+> Deployment kept its data directory on `.101:/archive-pool` over **NFS**. The
+> CNPG Cluster keeps it on the same pool, but as a **block device**: a zvol
+> attached to `k3s-worker2` as a virtual disk and mounted at
+> `/var/lib/rancher/k3s/storage`, the path `local-path` already provisions into.
 >
-> 1. It retires the **single-writer NFS hazard** outright — the thing that put
->    two postmasters on one data directory on 2026-09-02 and forced
->    `strategy: Recreate` on both stateful Deployments.
-> 2. CNPG explicitly discourages NFS for PGDATA (fsync and locking semantics).
-> 3. Durability moves to continuous **WAL archiving + daily base backups** into
->    MinIO — whose PV *is* on archive-pool ZFS. This file already argued the
->    principle: sanoid protects the volume, barman protects the database, and
->    neither substitutes for the other. A crash-consistent snapshot of a live
->    Postgres was never the thing protecting this database.
+> **What the earlier decision got wrong.** It ranked "retires the single-writer
+> NFS hazard" as the first and heaviest reason to abandon the pool. That is not
+> what happened on 2026-09-02. Commit `6d51959` records the actual cause:
+> `maxUnavailable` of 25% rounds down to 0 on `replicas: 1`, so Kubernetes
+> started the replacement pod before stopping the old one and both mounted the
+> same directory. That is **RollingUpdate on a ReadWriteMany volume** — it would
+> occur on any RWX backend and has nothing to do with NFS semantics. It was
+> already fixed by `strategy: Recreate` in that same commit, and CNPG does not
+> use a Deployment at all, so it cannot recur under CNPG regardless of storage.
+> The argument was retired twice over before it was written down.
 >
-> The cost is explicit and accepted: **losing `k3s-worker2` means
-> restore-from-backup, not a snapshot rollback**, because `local-path` is
-> node-local and `archive-pool/postgres-data` stops being written to. That is
-> precisely what makes the restore drill non-optional rather than tidy-up.
+> What survives is the second reason — **CNPG explicitly discourages NFS for
+> PGDATA** (fsync and locking semantics). That is an objection to *NFS*, not to
+> *archive-pool*, and a zvol answers it: it is block storage, single-writer by
+> construction, with no network filesystem in the path.
 >
-> Second-order consequence for `SANOID.md`: after cutover
-> `archive-pool/minio-data` carries both the guide media *and* every Postgres
-> backup, so it is now the dataset that matters most.
+> | | `local-path` on `local-lvm` | **zvol on `archive-pool`** |
+> |---|---|---|
+> | CNPG's NFS objection | avoided | avoided — block, not NFS |
+> | Space | 90.5 GiB, shared with all five guests | **1.68 TiB, 0.01% used** |
+> | Fault tolerance | RAID1, one disk | 3-way mirror, **two disks** |
+> | sanoid snapshots of PGDATA | **none** | **yes** |
+> | Enforced ceiling | the device | the device |
+> | Kubernetes changes | none | none |
+>
+> The snapshot row carries the most weight. The `local-path` version explicitly
+> accepted "losing `k3s-worker2` means restore-from-backup, not a snapshot
+> rollback" as a cost; on a zvol that cost simply does not arise, and `SANOID.md`
+> stops having a hole where the database used to be.
+>
+> **Three costs, stated plainly.** *(1)* It retires the "no VM disk is on ZFS"
+> invariant — see the warning under "Current State"; pool work now requires
+> `k3s-worker2` stopped. *(2)* SATA SSD mirror instead of NVMe, so higher fsync
+> latency. For a guide-metadata table with near-zero write volume this is noise,
+> but it is a real trade in the honest direction. *(3)* PGDATA and its barman
+> backups now share a pool, where the `local-path` plan had them on different
+> media. Both were always on the same *host*, which dominates the risk — but the
+> separation is genuinely reduced, and the answer if that ever matters is the
+> off-host option already named under "Backups: local only", not a different
+> local disk.
+>
+> **`volblocksize=8K`, set at creation and immutable afterwards.** Postgres pages
+> are 8K; recent ZFS defaults to 16K, and the mismatch is permanent write
+> amplification. Keep `compression=lz4`; leave `sync=standard` — never
+> `sync=disabled` under a database.
+>
+> Consequence for `SANOID.md`: `archive-pool/postgres-data` (the NFS dataset) is
+> the **legacy** rollback path and stops changing at cutover, while the new zvol
+> and `archive-pool/minio-data` are the two live datasets. `minio-data` still
+> carries both the guide media and every Postgres backup, so it remains the one
+> that matters most.
+>
+> The worker root filesystems are still growing 9.75 → ~24 GiB, but for
+> **container-image churn only** — 6.5 of 9.75 GiB is already used. No database
+> data lands there. See `STORAGE.md`.
 
 > **Three steps are yours, not the assistant's** *(was two; the disk grow is
 > new)*. `kubectl exec` against a pod is
@@ -616,11 +672,12 @@ down" posture is inbound-only).
 > barman needs to list WALs and backups. Same reasoning, opposite answer; it is
 > not a copy-paste slip.
 >
-> The third is **growing the `k3s-worker2` (and `k3s-worker1`) VM disks on
-> `.101`** — Proxmox has no Kubernetes API to reach it through, and it now gates
-> the CNPG cutover. `RESTORE.md` is likewise yours to execute end to end; it is
-> written and blocked on the same disk, since a restore drill needs a second
-> PGDATA alongside the live one.
+> The third is **`STORAGE.md`** — creating the PGDATA zvol on `archive-pool`,
+> attaching it to `k3s-worker2`, and growing the three root disks for image
+> churn. Proxmox has no Kubernetes API to reach it through, and the zvol now
+> gates the CNPG cutover. `RESTORE.md` is likewise yours to execute end to end;
+> it is written and blocked on the same volume, since a restore drill needs a
+> second PGDATA alongside the live one.
 
 > **What `sanoid` does and does not cover.** It snapshots ZFS datasets, and the
 > only ZFS on `.101` is `archive-pool` — i.e. exactly `archive-pool/minio-data`

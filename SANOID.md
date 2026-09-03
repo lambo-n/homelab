@@ -20,6 +20,7 @@ instantly and the pool still scrubs clean.
 | Drive failure | the 3-way mirror + SMART |
 | Accidental delete / bad prune of MinIO objects | **sanoid, below** |
 | Postgres logical corruption, PITR | **CNPG + barman-cloud**, not this |
+| Fast rollback of the PGDATA volume | **sanoid** — via the zvol, as of 2026-09-03 |
 | Loss of a k3s VM | neither — `vzdump`, or the Phase 6 OpenTofu rebuild |
 | Loss of `.101` | nothing. Accepted residual risk |
 
@@ -35,17 +36,29 @@ Two traps worth stating plainly:
 
 ### What changed with the CNPG migration
 
-Phase 5 moves PGDATA off NFS onto `local-path` on `k3s-worker2`, so
-`archive-pool/postgres-data` becomes the **legacy** dataset — frozen, kept as a
-rollback path, no longer written to. The live database's durability now runs
-through barman into the `sunfire-postgres-backups` bucket, which lives in
-`archive-pool/minio-data`.
+Phase 5 moves PGDATA off **NFS** onto a **zvol on this same pool** — block
+storage attached to `k3s-worker2`, mounted where `local-path` provisions. So
+after the cutover there are three things here worth snapshotting, not two:
 
-So after the migration `minio-data` is carrying two different things:
-the guide media, and every Postgres base backup and WAL segment. It is the
-dataset that matters. Keep snapshotting `postgres-data` anyway while the old
-Deployment is still the rollback path; it costs nothing on a copy-on-write pool
-and it stops changing the moment the cutover lands.
+| Dataset | Holds | State |
+|---|---|---|
+| `archive-pool/minio-data` | guide media **+ every Postgres backup and WAL segment** | live, matters most |
+| `archive-pool/vm-<VMID>-disk-0` | **PGDATA** (the zvol; name from `STORAGE.md` §2) | live, new |
+| `archive-pool/postgres-data` | the old NFS data directory | **legacy** — frozen at cutover |
+
+Keep snapshotting `postgres-data` while the old Deployment is still the rollback
+path; it costs nothing on a copy-on-write pool and stops changing the moment the
+cutover lands.
+
+> An earlier revision of this file said PGDATA was moving to `local-path` and
+> would therefore be **outside** sanoid's reach entirely — GITOPS.md accepted
+> "losing `k3s-worker2` means restore-from-backup, not a snapshot rollback" as a
+> deliberate cost. That decision was reversed on 2026-09-03 in favour of the
+> zvol, and the cost with it. Snapshot coverage of the database is back.
+
+`STORAGE.md` §7 has the `sanoid.conf` stanza for the zvol. Add it beside the two
+datasets in §3 below — the volume will not appear in `zfs list` without `-t
+volume` (or `-t all`), which is the usual reason it gets forgotten.
 
 ---
 

@@ -5,8 +5,9 @@ GitOps source of truth for the **Sunfire** k3s cluster (Proxmox `192.168.50.101`
 Planning notes, rationale, and the phased TODO live in [`GITOPS.md`](GITOPS.md).
 This repo is the *executable* half of that plan.
 
-Two runbooks cover the parts that cannot be reconciled from inside the cluster:
-[`SANOID.md`](SANOID.md) (ZFS snapshots, on the Proxmox host) and
+Three runbooks cover the parts that cannot be reconciled from inside the cluster:
+[`STORAGE.md`](STORAGE.md) (the PGDATA zvol and worker disk growth, on the
+Proxmox host), [`SANOID.md`](SANOID.md) (ZFS snapshots, same host) and
 [`RESTORE.md`](RESTORE.md) (the CNPG restore drill).
 
 ## Repository boundaries
@@ -50,8 +51,7 @@ kubernetes/apps/sunfire/
 `postgres-cnpg/` is written and validated but is deliberately absent from
 `kubernetes/apps/sunfire/kustomization.yaml`, so Flux does not see it. It stays
 out until the two blockers in `GITOPS.md` Phase 5 clear — the backup bucket does
-not exist yet, and the worker root disks are too small for the PGDATA it asks
-for.
+not exist yet, and neither does the zvol its PGDATA is meant to land on.
 
 Each app is `ks.yaml` (a Flux `Kustomization`) + `app/` (the plain manifests).
 Ordering is expressed with `dependsOn`:
@@ -184,10 +184,11 @@ Renovate runs daily at 10:00 UTC against `home-operations/renovate-presets`
 operator and `plugin-barman-cloud` are installed and Ready. What remains is
 blocked on three things that only a human can do, in this order:
 
-1. **Grow the `k3s-worker*` VM disks on `.101`.** Each node has a 9.75 GiB root
-   filesystem with ~2.7 GiB free, and the CNPG `Cluster` wants 20Gi of
-   `local-path` on `k3s-worker2`. `local-path` provisions a directory rather
-   than a quota, so that PVC would bind and then fill the node's OS disk.
+1. **Run `STORAGE.md`** on `.101` — create the 64 GiB PGDATA zvol on
+   `archive-pool`, attach it to `k3s-worker2`, mount it at
+   `/var/lib/rancher/k3s/storage`, and install the three guards that stop
+   `local-path` silently provisioning onto the 9.75 GiB root disk instead. The
+   same file has the (separate, smaller) root-disk growth for image churn.
 2. **Run `scripts/minio-barman-account.sh`** — creates the backup bucket and a
    scoped service account, writing the credential into the repo already
    SOPS-encrypted. It needs `kubectl exec`, which the assistant's tooling
@@ -198,3 +199,8 @@ blocked on three things that only a human can do, in this order:
 Only after 1 and 2 does `postgres-cnpg/ks.yaml` get added to
 `kubernetes/apps/sunfire/kustomization.yaml`. Rationale, measurements and the
 VolSync deferral: `GITOPS.md` Phase 5.
+
+> ⚠️ Step 1 retires an invariant repeated across these docs: *"no VM disk is on
+> ZFS, so `archive-pool` can be destroyed without touching a VM."* Once the zvol
+> exists, destroying or rebuilding that pool takes `k3s-worker2`'s database disk
+> with it, and pool work needs the VM stopped first.
