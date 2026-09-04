@@ -26,7 +26,16 @@ variable "cloudflare_zone_id" {
 }
 
 variable "tunnel_id" {
-  description = "Existing cloudflared tunnel. Unchanged by the local-management conversion."
+  description = <<-EOT
+    The tunnel both CNAMEs point at. THIS VALUE IS THE CUTOVER: changing it and
+    applying moves live traffic from one tunnel to the other, because the DNS
+    records' content is derived from it.
+
+    Currently the original remotely-managed tunnel. After
+    scripts/cloudflared-new-local-tunnel.sh has created the locally-managed
+    replacement and the cluster is running its credentials, set this to the new
+    id and apply -- that is the moment routing changes hands.
+  EOT
   type        = string
   default     = "b42c20c1-2d20-43ee-a17c-15f9849e5f13"
 }
