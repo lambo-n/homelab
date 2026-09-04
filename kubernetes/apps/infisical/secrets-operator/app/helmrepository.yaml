@@ -1,0 +1,16 @@
+---
+# HelmRepository, not OCIRepository -- a deliberate exception to the convention
+# used by cert-manager and reloader in this repo.
+#
+# Infisical publishes this chart to Cloudsmith over HTTPS only. There is no OCI
+# variant: both /v2/ endpoints (dl.cloudsmith.io and docker.cloudsmith.io)
+# return 404 for this package, checked 2026-09-04. So the index.yaml poll the
+# other two avoid is unavoidable here. The `interval` below is what that costs.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: infisical
+  namespace: infisical
+spec:
+  interval: 1h
+  url: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/

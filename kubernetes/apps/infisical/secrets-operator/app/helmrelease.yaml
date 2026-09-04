@@ -1,0 +1,82 @@
+---
+# The Infisical Kubernetes Secrets Operator: materialises the cross-boundary
+# class of secret into the cluster.
+#
+# GITOPS.md "Secrets: hybrid" splits secrets in two. Cluster-only secrets stay
+# SOPS-encrypted in git so a cold boot is self-contained -- this cluster is
+# frequently powered off, and routing those through a cloud API would buy a
+# boot-time dependency in exchange for nothing. Cross-boundary secrets are the
+# other class: values that must stay byte-identical between this cluster and two
+# Cloudflare Worker environments. Those were synced by hand across four copies,
+# which is the failure mode this operator exists to end.
+#
+# WHAT HAPPENS WHEN app.infisical.com IS UNREACHABLE, since the docs do not say
+# and it decides whether this is safe here: the reconcile loop returns a
+# non-fatal error and backs off, leaving the InfisicalSecret in a Pending
+# condition. The managed Secret it already created is NOT deleted and NOT
+# emptied -- it keeps its last-synced values. So a warm restart is unaffected;
+# pods start with the last good value. Only a cold rebuild, where no managed
+# Secret exists yet, has a hard dependency on Infisical being reachable.
+#
+# The corollary is the real hazard and it is a familiar one: the failure is
+# SILENT. A stale secret and a fresh one look identical from inside the cluster,
+# exactly as PostgREST serving the old database looked identical to success
+# during the Phase 5 CNPG cutover. Nothing here alerts on a Pending
+# InfisicalSecret today -- that is Phase 7's job, and it is the reason this
+# controller is worth alerting on early rather than late.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: secrets-operator
+  namespace: infisical
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: secrets-operator
+      # Chart 0.11.8 carries appVersion v0.11.8 -- Infisical keeps them in
+      # lockstep, unlike reloader where the two move independently. Pinned by
+      # chart, as everywhere else in this repo.
+      version: 0.11.8
+      sourceRef:
+        kind: HelmRepository
+        name: infisical
+        namespace: infisical
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    # Restrict the operator to the one namespace that uses it. Left at the
+    # default it takes CLUSTER-WIDE read/write on Secrets, which is a large
+    # privilege to hand a controller that talks to an external API on behalf of
+    # exactly one workload.
+    #
+    # The cost is real and worth stating: RBAC gaps are a known silent failure
+    # for this operator -- it does not crash, it goes Pending and the managed
+    # Secret quietly stops refreshing. Scoping increases the chance of that
+    # class of fault, so the first sync after any namespace change must be
+    # verified rather than assumed.
+    scopedNamespaces:
+      - sunfire
+    scopedRBAC: true
+    installCRDs: true
+    controllerManager:
+      # Single hypervisor. Replicas beyond 1 are theater, same reasoning as
+      # CNPG instances: 1, cert-manager and reloader.
+      replicas: 1
+      manager:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+    telemetry:
+      # Nothing scrapes metrics yet (Phase 7). Left off rather than shipping a
+      # ServiceMonitor no Prometheus will read -- same call as reloader.
+      serviceMonitor:
+        enabled: false
