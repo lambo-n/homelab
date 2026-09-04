@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# What is left of the legacy postgres app after the Deployment and Service were
+# deleted on 2026-09-04. Only the credential remains, and it remains because
+# something still references it -- see ks.yaml.
 resources:
-  - deployment.yaml
-  - service.yaml
   - secret.sops.yaml

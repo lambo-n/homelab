@@ -1,4 +1,19 @@
 ---
+# The legacy `postgres` app, reduced to the one thing still in use.
+#
+# The Deployment and Service are gone (2026-09-04). What survives is the
+# `postgres-credentials` Secret, and it survives for a specific reason:
+# `postgres-cnpg/app/cluster.yaml` names it as the password for
+# `externalClusters: postgres-legacy`, the bootstrap import source. That
+# bootstrap is read once at cluster creation and never again -- but the
+# reference is in the live Cluster spec, so deleting the Secret would leave
+# CNPG's spec pointing at a Secret that is not there. It is also the credential
+# you would need to read the legacy PV, which is retained.
+#
+# Restoring the legacy database is now a git-history operation rather than a
+# `replicas: 1` edit: recover deployment.yaml and service.yaml from the commit
+# that removed them. The PVC and PV are untouched and live in sunfire-storage,
+# where prune is permanently disabled and the PV is Retain.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -23,8 +38,10 @@ spec:
       name: sops-age
   dependsOn:
     - name: sunfire-storage
-  healthChecks:
-    - apiVersion: apps/v1
-      kind: Deployment
-      name: postgres
-      namespace: sunfire
+  # No healthChecks. There is no workload here any more -- the Deployment and
+  # Service were deleted 2026-09-04 once PostgREST had been serving from
+  # postgres-cnpg-rw for a day with zero restarts. A healthCheck naming an
+  # object that no longer exists FAILS the Kustomization, and both
+  # sunfire-postgrest and sunfire-postgres-cnpg dependOn this one, so leaving
+  # the old block in place would have wedged them rather than erroring locally.
+  # `wait: true` still applies; a Secret is Current the moment it is applied.
