@@ -195,13 +195,60 @@ edge's serving config.
 
 ## Proxmox — the last open item in Phase 6
 
-Separate token, independent of the Cloudflare one, and **issuable by this
-operator** (unlike the Cloudflare account, which is not owned here). Nothing
-below has been run: `192.168.50.101` accepts no key from this VM
-(`Permission denied (publickey)`), so both the token and the `pveum` commands
-have to come from someone with a console or a password there.
+**Run 2026-09-04, and it half worked.** One of the five guests is in state; the
+other four are blocked on a Proxmox privilege rather than on anything missing
+here. `192.168.50.101` accepts no key from this VM
+(`Permission denied (publickey)`), so the token and the `pveum` commands come
+from someone with a console or a password there — everything after that is API.
 
-### Issue the token read-only. Not "for now" — as the design.
+| Guest | Kind | State |
+|---|---|---|
+| `tailscale-gateway` (CTID 100, `.102`) | LXC | **imported**, `proxmox-container.tf`, clean plan |
+| `dev` (101, `.103`) | QEMU | blocked — `VM.Config.Disk` |
+| `k3s-control` (102, `.104`) | QEMU | blocked — `VM.Config.Disk` |
+| `k3s-worker1` (103, `.105`) | QEMU | blocked — `VM.Config.Disk` |
+| `k3s-worker2` (104, `.106`) | QEMU | blocked — `VM.Config.Disk` |
+
+The fifth guest was `vpn-gateway` at an unknown CTID in the earlier draft here.
+It is `tailscale-gateway` at CTID 100 — outside the 101–104 run the VMs use, so
+the "VMID + 2 = last octet" pattern is a coincidence of the VMs and not a rule.
+Both facts came from one API call, which is the argument for reading before
+writing an id.
+
+### The privilege that blocks the four VMs
+
+`PVEAuditor` is not enough, and the reason is worth stating precisely because
+"read-only cannot read it" sounds like a contradiction:
+
+```
+error get file local-lvm:vm-102-disk-0 from datastore local-lvm:
+403 Permission check failed (/vms/102, VM.Config.Disk)
+```
+
+The VM config itself reads fine — `GET /nodes/pve/qemu/102/config` returns
+`scsi0 = "local-lvm:vm-102-disk-0,iothread=1,size=15G"`, disk string included.
+It is the *second* call that fails: the provider re-resolves every volume
+through `GET /nodes/pve/storage/{store}/content/{volume}`, and PVE gates that
+endpoint on `VM.Config.Disk` — the privilege that permits **changing** disk
+configuration. The data is readable; the provider asks for it by a route that
+requires write authority.
+
+That is a direct conflict with the read-only decision in `GITOPS.md` Phase 6,
+and `proxmox-vms.tf.example` carries the trade-off and the grant/revoke
+commands. The short version: `VM.Config.Disk` would let a token on this VM
+detach or resize the disks of the guests it is describing, `archive-pool:vm-104-disk-0`
+— the PGDATA zvol — among them. It would still **not** permit replacing a
+guest; that needs `VM.Allocate`, withheld either way.
+
+The LXC did not hit this: PVE gates container volume reads on `Datastore.Audit`,
+which `PVEAuditor` has.
+
+### Issue the token read-only — but know what that does and does not buy
+
+*(Read the privilege finding below before acting on this section: read-only is
+enough for the LXC and not for the four VMs.)*
+
+### The argument for read-only
 
 Everything this import does is a read: `import` blocks, `-generate-config-out`,
 and the plan that must come back clean. A token that cannot write is the thing
@@ -242,11 +289,11 @@ curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
   https://192.168.50.101:8006/api2/json/version | jq .data.version
 ```
 
-### Get the fifth guest's ID without SSH
+### Enumerating the guests without SSH
 
-`proxmox-import.tf.example` has the four VMIDs confirmed by `qm list`, but the
-`.102` vpn-gateway is an LXC and does not appear there. The API returns both
-kinds at once:
+This is how CTID 100 was found, and it is the call to repeat rather than trust
+the table above if anything has changed. `qm list` shows QEMU only, so an LXC is
+invisible to it; `/cluster/resources` returns both kinds at once:
 
 ```bash
 curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
@@ -254,23 +301,40 @@ curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
   | jq -r '.data[] | "\(.type)\t\(.vmid)\t\(.node)\t\(.name)"' | sort
 ```
 
-`lxc` rows go in the commented `proxmox_virtual_environment_container` block;
-`qemu` rows should match the four VMIDs already written down. Import IDs are
-`<node>/<vmid>` for both.
+Import IDs are `<node>/<vmid>` for both kinds; the node is `pve`. As of
+2026-09-04 it returns exactly the five rows in the table above.
 
 ### The sequence
 
 ```bash
-mv proxmox-import.tf.example proxmox-import.tf     # import blocks only, no bodies
-tofu plan -generate-config-out=proxmox-generated.tf
+mv proxmox-vms.tf.example proxmox-vms.tf           # import blocks only, no bodies
+tofu plan -refresh=false -generate-config-out=proxmox-generated.tf
 ```
+
+**`-refresh=false` is not optional here.** Both providers live in this one root
+module, so any plan refreshes the two Cloudflare DNS records too — and with no
+`CLOUDFLARE_API_TOKEN` exported that fails with `9106 Missing X-Auth-Key,
+X-Auth-Email or Authorization headers` before it ever gets to Proxmox. Skipping
+refresh is what lets one token's work proceed without the other's. (The real
+fix is separate root modules with separate state; it has not been done.)
 
 Then **read** `proxmox-generated.tf` before anything else — it is gitignored
 precisely so a generated file cannot be committed unreviewed. Fold what is worth
 keeping into a real `.tf` file, delete the noise, and run `tofu plan` again.
 
 **That second plan must say "No changes."** Anything else means the config does
-not yet describe the machines. Fix the config; never the machine. A generated
+not yet describe the machines — with one exception, already met once and worth
+recognising rather than chasing. The generated body sets `timeout_* = null` for
+attributes that have schema defaults, which produces a permanent "update
+in-place" whose entire diff is those timeouts. They are *this client's*
+patience, not anything Proxmox stores, so no apply against the host could ever
+settle them. `proxmox-container.tf` ignores them in a `lifecycle` block, with
+the reasoning inline. Two more generation artifacts came up there too:
+`entrypoint = ""` is emitted and then rejected by the provider's own validator,
+while `template_file_id = ""` looks identical and cannot be removed because the
+schema marks it required.
+
+Beyond that exception, anything else is real. Fix the config; never the machine. A generated
 body carries every computed attribute the provider felt like emitting, and some
 of them — disk layout above all — plan a **replacement** rather than an update
 when they are even slightly wrong. On `k3s-worker2` that is the database.

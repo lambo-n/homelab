@@ -838,24 +838,53 @@ down" posture is inbound-only).
       a dashboard action, not a tofu one — codifying a rule in order to delete it later is
       strictly more work
 - [~] Import the 5 existing Proxmox guests into OpenTofu state **without recreating them** —
-      scaffolded as `tofu/proxmox-import.tf.example` with the confirmed VMIDs (101 dev, 102
-      control, 103/104 workers, plus one LXC). Deliberately **not** hand-written resource
-      bodies: use `tofu plan -generate-config-out`, because a mismatched attribute here proposes
-      replacing a running k3s node rather than showing a cosmetic diff. **The only thing left in
-      this phase**, and the only thing blocking it is a Proxmox API token — which this operator
-      can issue, unlike the Cloudflare one. Issue it **read-only (`PVEAuditor`)**: import,
-      `-generate-config-out` and the confirming plan are all reads, and a token that cannot
-      write is a token that cannot replace a running k3s node no matter what the config says.
-      `tofu/README.md` → "Proxmox" has the two `pveum` commands and the sequence
+      **1 of 5 done 2026-09-04.** A `tofu@pve!import` token was issued with `PVEAuditor` and
+      the `tailscale-gateway` LXC (CTID **100**, `.102`) is in state and planning clean —
+      `tofu/proxmox-container.tf`, body generated from the live container and reviewed, not
+      hand-written. The four QEMU guests are **blocked on a privilege, not on the token**: see
+      below. Also corrected two guesses in the old scaffold — the fifth guest is
+      `tailscale-gateway`, not `vpn-gateway`, and CTID 100 sits outside the 101–104 run, so
+      "VMID + 2 = last octet" is a coincidence of the VMs rather than a rule
 
-> **Why the Proxmox token is read-only and stays that way.** The whole point of this
-> import is to get the guests *described* in code — it is not a step toward reconciling
-> them. GITOPS.md already rejects a reconciler that can delete the VMs it runs on; a
-> write-capable token sitting on this VM is a weaker version of the same hazard, since
-> `.103` is itself one of the guests in state. `PVEAuditor` makes the failure mode
-> "plan proposes a replacement and cannot carry it out" instead of "apply replaces
-> `k3s-worker2` and takes the PGDATA zvol with it". If a future change genuinely needs
-> to write, that is the moment to widen the token — deliberately, for that change.
+> ⚠️ **`PVEAuditor` cannot import a QEMU guest, and the reason is not what the error
+> says** *(found 2026-09-04)*. Every VM fails generation with
+> `403 Permission check failed (/vms/102, VM.Config.Disk)`.
+>
+> The VM config itself reads fine — `GET /nodes/pve/qemu/102/config` returns
+> `scsi0 = "local-lvm:vm-102-disk-0,iothread=1,size=15G"`, disk string and all. It is the
+> *second* call that fails: bpg/proxmox re-resolves every volume through
+> `GET /nodes/pve/storage/{store}/content/{volume}`, and PVE gates that endpoint on
+> `VM.Config.Disk` — the privilege that permits **changing** disk configuration. The
+> information is readable by a token that already has it; the provider asks for it by a
+> route that requires write authority. So "read-only cannot read it" is not a
+> contradiction, it is an authorization model that does not separate those two things at
+> that endpoint.
+>
+> The LXC was unaffected: PVE gates container volume reads on `Datastore.Audit`, which
+> `PVEAuditor` has. That asymmetry is the whole reason one of five landed.
+>
+> **This puts the read-only decision below in direct conflict with finishing the import**,
+> and that is a real trade-off rather than an oversight to route around. `VM.Config.Disk`
+> would let a token sitting on `.103` detach or resize the disks of the guests it is
+> describing — `archive-pool:vm-104-disk-0`, the PGDATA zvol, among them. It would still
+> not permit *replacing* a guest: that needs `VM.Allocate`, withheld either way. Grant and
+> revoke commands are in `tofu/proxmox-vms.tf.example`; generation is a one-time need, so
+> the privilege does not have to outlive it.
+
+> **Why the Proxmox token is read-only.** The whole point of this import is to get the
+> guests *described* in code — it is not a step toward reconciling them. GITOPS.md already
+> rejects a reconciler that can delete the VMs it runs on; a write-capable token sitting on
+> this VM is a weaker version of the same hazard, since `.103` is itself one of the guests
+> in state. `PVEAuditor` makes the failure mode "plan proposes a replacement and cannot
+> carry it out" instead of "apply replaces `k3s-worker2` and takes the PGDATA zvol with
+> it". The finding above is the first real bill for that choice, and it is worth paying
+> deliberately rather than by default in either direction.
+
+> **Both providers share one root module, so every plan needs both tokens.** A Proxmox-only
+> plan still refreshes the two Cloudflare DNS records and dies on
+> `9106 Missing X-Auth-Key, X-Auth-Email or Authorization headers`. `-refresh=false` is the
+> workaround and is now written into the runbook; separate root modules with separate state
+> is the fix, and has not been done.
 
 > ✅ **Locally-managed tunnel, done 2026-09-04 — and it took a new tunnel.**
 > `config_src` is **immutable after creation**, which Cloudflare reports as
