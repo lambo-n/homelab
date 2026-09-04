@@ -7,12 +7,13 @@ objects in a bucket; only this file proves those objects reconstruct a database.
 Runs entirely against the Kubernetes API from the dev VM. Nothing here touches
 `.101`, and nothing here writes to the live `sunfire` namespace.
 
-> **Blocked today.** The drill needs a second PGDATA alongside the live one, and
-> the volume it would land on does not exist yet — see `STORAGE.md`. Read this
-> file now; run it once the zvol is mounted and the first `ScheduledBackup` has
-> actually completed. Note that after `STORAGE.md` the drill's PVC lands on the
-> **64 GiB zvol**, not the 9.75 GiB root disk, so the free-space check in §0 is
-> measuring the right thing only once that mount is in place.
+> ✅ **Unblocked 2026-09-04.** Every precondition in §0 now holds: the CNPG cluster
+> is healthy, `ContinuousArchiving=True`, and a completed base backup plus four
+> WAL segments sit in `s3://sunfire-postgres-backups/`. The drill's PVC lands on
+> the 64 GiB zvol (62 GiB free), not the root disk.
+>
+> Run this **before** PostgREST is cut over to the new cluster. While the old
+> `postgres` Deployment is still authoritative, a failed drill costs nothing.
 
 ---
 

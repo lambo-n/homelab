@@ -48,10 +48,11 @@ kubernetes/apps/sunfire/
   └── cloudflared/   remote-managed tunnel
 ```
 
-`postgres-cnpg/` is written and validated but is deliberately absent from
-`kubernetes/apps/sunfire/kustomization.yaml`, so Flux does not see it. It stays
-out until the two blockers in `GITOPS.md` Phase 5 clear — the backup bucket does
-not exist yet, and neither does the zvol its PGDATA is meant to land on.
+`postgres-cnpg/` went live 2026-09-04. Its PGDATA sits on a 64 GiB zvol on
+`archive-pool`, mounted at `/var/lib/rancher/k3s/storage` on `k3s-worker2`, and it
+archives WAL continuously plus a daily base backup into MinIO. **It is not yet the
+database PostgREST reads** — that cutover is a separate commit, to be made after
+the `RESTORE.md` drill.
 
 Each app is `ks.yaml` (a Flux `Kustomization`) + `app/` (the plain manifests).
 Ordering is expressed with `dependsOn`:
@@ -193,8 +194,10 @@ blocked on three things that only a human can do, in this order:
    scoped service account, writing the credential into the repo already
    SOPS-encrypted. It needs `kubectl exec`, which the assistant's tooling
    refuses.
-3. **Run `SANOID.md`** on `.101` in full, then the restore drill in
-   `RESTORE.md`. Both are written; neither has been executed.
+3. **Run `SANOID.md`** on `.101` in full — now covering three datasets, including
+   the PGDATA zvol (`archive-pool/vm-104-disk-0`).
+4. **Run the restore drill** in `RESTORE.md`, then cut PostgREST over to
+   `postgres-cnpg-rw` as a separate commit.
 
 Only after 1 and 2 does `postgres-cnpg/ks.yaml` get added to
 `kubernetes/apps/sunfire/kustomization.yaml`. Rationale, measurements and the

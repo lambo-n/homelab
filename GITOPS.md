@@ -501,18 +501,48 @@ down" posture is inbound-only).
       `STORAGE.md` §5 verified and the mount survives a reboot
 - [x] ~~Grow the worker root filesystems~~ — done 2026-09-03, 9.75 → 17.83 GiB each; the Ubuntu
       installer had left 8.22 GiB unallocated in the VG, so no Proxmox resize was needed
-- [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`) — manifests written and
-      validated against the live CRDs; **not wired into the root kustomization**. The zvol is
-      now in place, so the only remaining blocker is the backup bucket below
-- [ ] `ObjectStore` → local MinIO; daily `ScheduledBackup` — written; blocked on the bucket +
-      scoped service account (`scripts/minio-barman-account.sh`, **yours to run**)
+- [x] ~~Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`)~~ — **live 2026-09-04**.
+      Wired into the sunfire kustomization; bootstrapped in 76s and reports
+      `Cluster in healthy state`. **This is not the cutover** — PostgREST still names the old
+      Deployment; see below
+- [x] ~~`ObjectStore` → local MinIO; daily `ScheduledBackup`~~ — `scripts/minio-barman-account.sh`
+      created the bucket and scoped account 2026-09-04; both objects live, and WAL archiving plus
+      an on-demand base backup are verified against MinIO
+- [ ] **Cut PostgREST over** to `postgres-cnpg-rw.sunfire.svc.cluster.local` and retire the old
+      `postgres` Deployment — a deliberate, separate commit. Do the restore drill first
 - [ ] **Test a restore into a scratch namespace** — untested backups aren't backups.
-      Runbook written (`RESTORE.md`); blocked on the same disk finding, since the drill needs
-      a second PGDATA on the same node
+      Runbook written (`RESTORE.md`); **now unblocked** — a completed backup and archived WAL
+      both exist, and the zvol has 62 GiB free for the drill's second PGDATA
 - [ ] ~~VolSync for the MinIO PVC~~ — **deferred, see below.** There is no destination for it
       on this cluster today that is not either the source volume or the source pool
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
+
+> ✅ **CNPG is live and verified 2026-09-04.** Bootstrapped in 76 seconds from the
+> live Deployment via `bootstrap.initdb.import` (monolith). Verified, not assumed:
+>
+> | Check | Result |
+> |---|---|
+> | Cluster phase | `Cluster in healthy state`, 1/1, primary `postgres-cnpg-1` |
+> | Roles imported | all four, `authenticator` with `rolcanlogin=t rolinherit=f` |
+> | Memberships | `authenticator → anon`, `authenticator → sunfire_readwrite` |
+> | Table | `public.guide_media_assets`, owner `sunfire` |
+> | PGDATA location | `/var/lib/rancher/k3s/storage/pvc-…` on `k3s-worker2` — **the zvol** |
+> | WAL archiving | `archived_count=1`, `failed_count=0`, `ContinuousArchiving=True` |
+> | Base backup | on-demand `Backup` completed; `LastBackupSucceeded=True` |
+> | Objects in MinIO | `base/20260904T005414/{backup.info,data.tar.gz}` + 4 WAL segments |
+>
+> The kubelet's per-volume stats make the storage split visible: `pgdata` reports
+> **62.44 GiB** capacity while the pod's other volumes report 17.83 GiB — the root
+> disk. PGDATA genuinely is not sharing a filesystem with the OS.
+>
+> ⚠️ **This is not the cutover.** `PGRST_DB_URI` still names
+> `postgres.sunfire.svc.cluster.local`, so PostgREST reads the *old* Deployment and
+> the CNPG cluster sits idle apart from archiving. **Both databases are live and
+> will now drift.** Repointing PostgREST at `postgres-cnpg-rw` is its own commit,
+> and `RESTORE.md` should run before it — the drill is what proves the new stack is
+> recoverable, and it is far cheaper to find a problem while the old Deployment is
+> still authoritative.
 
 > ✅ **Blocker found and cleared 2026-09-03: the worker root disks were 9.75 GiB.**
 > Phase 5's original decision — move PGDATA onto `local-path` — quietly assumed
