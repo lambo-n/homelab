@@ -62,3 +62,36 @@ resource "cloudflare_zero_trust_tunnel_cloudflared" "sunfire" {
     ignore_changes = [tunnel_secret]
   }
 }
+
+# ---------------------------------------------------------------------------
+# The actual route to local management.
+#
+# `config_src` on the tunnel resource above is ForceNew and cannot be used. But
+# the same field is exposed as `source` on the CONFIGURATION resource, which is
+# a separate object -- so setting it here is a PUT to
+# /accounts/{account}/cfd_tunnel/{tunnel}/configurations rather than a
+# destroy-and-recreate of the tunnel itself.
+#
+# With source = "local" and no `config` block, the edge stops serving an ingress
+# map and the connector falls back to the file it already has:
+# kubernetes/apps/sunfire/cloudflared/app/configmap.yaml, which is validated
+# (`ingress validate` -> OK) and byte-for-byte equivalent to what the dashboard
+# serves today, modulo the no-op `originRequest:{}` and the remote-only
+# `warp-routing` key.
+#
+# ROLLBACK is cheap and pre-written. Set source = "cloudflare" and restore the
+# config block below, whose contents are recorded verbatim in the comment at the
+# top of this file. Nothing about the tunnel identity changes either way, so the
+# CNAMEs and the cluster's credentials.json are untouched.
+import {
+  to = cloudflare_zero_trust_tunnel_cloudflared_config.sunfire
+  id = "${var.cloudflare_account_id}/${var.tunnel_id}"
+}
+
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "sunfire" {
+  account_id = var.cloudflare_account_id
+  tunnel_id  = var.tunnel_id
+
+  # Hand routing to the origin's YAML file. This is the whole change.
+  source = "local"
+}
