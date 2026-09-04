@@ -12,7 +12,29 @@ metadata:
     # applies here too, for the reason spelled out below.
     reloader.stakater.com/auto: "true"
 spec:
-  replicas: 1
+  # SCALED TO ZERO 2026-09-04, as the first reversible step of retiring this
+  # Deployment (GITOPS.md Phase 5). Nothing points at it: PostgREST was cut over
+  # to postgres-cnpg-rw earlier the same day and the repo contains no other
+  # reference to postgres.sunfire.svc.
+  #
+  # The object and its Service are kept, not deleted, and the PVC is untouched --
+  # so rolling back is `replicas: 1` here plus flipping PGRST_DB_URI, and the
+  # data is exactly where it was left.
+  #
+  # ⚠️ One non-obvious consumer remains, and it is not running today. The CNPG
+  # Cluster's bootstrap declares this Service as `externalClusters:
+  # postgres-legacy` and imports from it. That is read ONCE at cluster creation
+  # and never again -- postgres-cnpg is `Initialized`, so it will not reach for
+  # this again. But if that Cluster were ever deleted and recreated from git, its
+  # bootstrap would try to import from a Deployment scaled to zero and fail.
+  # Scale this back to 1 first, or rebuild from the barman backups instead --
+  # which is the path that actually has a passing restore drill behind it.
+  #
+  # ⚠️ The rollback value decays. This data is frozen at the 2026-09-04 cutover;
+  # every write CNPG takes since makes rolling back here a data-loss event rather
+  # than a recovery. Near-zero today (the new Worker does not exist yet), which is
+  # the only reason this is a soft deadline rather than a hard one.
+  replicas: 0
   # Recreate, never RollingUpdate: the data directory is a single-writer store on
   # a ReadWriteMany NFS PV (.101:/archive-pool). At replicas: 1 a rolling update's
   # maxUnavailable of 25% rounds down to 0, so Kubernetes starts the new pod
