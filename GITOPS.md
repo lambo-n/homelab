@@ -74,7 +74,7 @@ Reference repo: [perryhuynh/homelab](https://github.com/perryhuynh/homelab/tree/
 - [x] ~~MinIO CORS handled by a Cloudflare Transform Rule — also clickops~~ — **resolved 2026-09-04 by deleting the question, not codifying the rule.** It is vestigial: no browser ever addresses `minio-api.sunosrs.cc`. Guide images are `<img src="/api/guides/media/<hash>.<ext>">` against the Worker, same origin; the Worker is the only S3 client and there is no presign path in `worker/`, `shared/` or `src/`; and Access would reject a browser at the edge anyway. The rule should be **deleted in the dashboard** — a one-off action, after which nothing about it belongs in `tofu/`. See Phase 6
 - [x] ~~**Local dev inherits production vars but feature credentials**~~ — resolved 2026-09-02 by unifying the media store (below); local dev's feature credentials now authorize the one shared bucket. Original finding: (found 2026-09-02, lives in `sunfire/`, not this repo). `npm run preview` runs `wrangler dev` with **no `--env`**, so it takes top-level config — `MINIO_BUCKET=sunfire-guide-media`, `POSTGREST_SCHEMA=public`. But `.dev.vars` holds the **feature** MinIO keys, whose embedded policy allows only `sunfire-guide-media-feature/*`. After tunnel cutover that combination is a guaranteed `AccessDenied`. Masked today only because `MINIO_ENDPOINT` is `.invalid`. Fix is `wrangler dev --env feature` (preferred — local dev should not touch the production bucket), *not* swapping in prod keys
 - [x] ~~**Unified media store — cluster not yet converted**~~ — converted and verified 2026-09-02 (policy re-scoped, `PGRST_DB_SCHEMAS=public`, `sunfire_feature` dropped, feature bucket removed)
-- [ ] **`minio-worker-credentials` is a filing cabinet, not a workload secret** — verified 2026-09-02 that *no* Deployment references it; it sits in the cluster purely as a store for Cloudflare Worker keys. Moves to Infisical and is then deleted from the cluster
+- [x] ~~**`minio-worker-credentials` is a filing cabinet, not a workload secret**~~ — closed 2026-09-04. Moved to Infisical (both environments, all four values sha256-matched) and deleted from the cluster. Original finding: verified 2026-09-02 that *no* Deployment references it; it sat in the cluster purely as a store for Cloudflare Worker keys
 - [x] ~~**`PGRST_OPENAPI_SERVER_PROXY_URI` is stale**~~ — fixed in `6d51959` and verified live 2026-09-04 (`https://db.sunosrs.cc`). Original finding: — the live `postgrest` Deployment still points at `https://db.sunfirebingo.com`; the production domain is `db.sunosrs.cc`. Ported verbatim into `~/homelab` (with a `TODO`) so adoption stays a no-op — fix it as a deliberate commit, not inside the migration
 
 ---
@@ -351,7 +351,7 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 > ⚠️ Original warning, kept for context: **`age.key` exists only on this VM and is gitignored.** Lose it and every
 > secret in the repo is unrecoverable. Back it up off-VM.
 
-### Phase 2b — Infisical (cross-boundary secrets)
+### Phase 2b — Infisical (cross-boundary secrets) ✅ *done 2026-09-04*
 
 Free tier: 5 identities, 3 projects, 3 environments, Kubernetes Operator included.
 CLI pinned in `mise.toml` (`infisical = "0.43.128"`). Outbound reachability to
@@ -368,12 +368,24 @@ down" posture is inbound-only).
 - [x] Verify round-trip: all 6 re-exported from Infisical and hash-matched against
       `~/sunfire-backend/`; JWT confirmed byte-identical across both envs
 - [ ] ~~Verify Wrangler's staged copies byte-match~~ — **impossible, see below**
-- [ ] SOPS-encrypt the machine-identity client ID + secret as the one bootstrap
-      credential (`kubernetes/apps/sunfire/infisical/app/secret.sops.yaml`)
-- [ ] Deploy the Infisical Operator via Flux (after Phase 3) + an `InfisicalSecret`
-      CR that materialises `postgrest-config`'s JWT key
-- [ ] Delete `minio-worker-credentials` from the cluster — nothing consumes it
-- [ ] Remove the now-duplicated cross-boundary keys from the SOPS files
+- [x] ~~SOPS-encrypt the machine-identity client ID + secret as the one bootstrap
+      credential~~ — **done 2026-09-04**, `kubernetes/apps/sunfire/infisical/app/credentials.sops.yaml`,
+      written by `scripts/infisical-identity-secret.sh` (prompt → sops in one pipeline, never
+      plaintext on disk)
+- [x] ~~Deploy the Infisical Operator via Flux (after Phase 3) + an `InfisicalSecret`
+      CR that materialises `postgrest-config`'s JWT key~~ — **done 2026-09-04.** Chart `0.11.8`
+      in its own `infisical` namespace, scoped to `sunfire` with `scopedRBAC`. The CR
+      materialises `sunfire-cross-boundary` holding **one** key, `PGRST_JWT_SECRET`, and
+      PostgREST reads it from there while `PGRST_DB_URI` stays in SOPS — the hybrid split made
+      concrete in two adjacent lines of one Deployment
+- [x] ~~Delete `minio-worker-credentials` from the cluster — nothing consumes it~~ —
+      **done 2026-09-04.** Re-verified no workload referenced it, and that all four values
+      round-trip from Infisical by sha256 across both environments, before removing it from
+      git for Flux to prune
+- [x] ~~Remove the now-duplicated cross-boundary keys from the SOPS files~~ —
+      **done 2026-09-04.** `PGRST_JWT_SECRET` unset from `postgrest/app/secret.sops.yaml`
+      (leaving only the cluster-only `PGRST_DB_URI`) and `minio/app/worker-credentials.sops.yaml`
+      deleted outright. Done last, after the operator was proven serving
 
 > **Ordering:** populate and verify Infisical *before* removing anything from
 > SOPS. Until the operator is proven, the SOPS copies are the working system.
