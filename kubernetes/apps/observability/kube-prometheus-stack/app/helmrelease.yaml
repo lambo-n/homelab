@@ -177,8 +177,49 @@ spec:
     # --- what gets scraped ---------------------------------------------------
     kubeApiServer:
       enabled: true
+      serviceMonitor:
+        # ⚠️ THIS LIST REPLACES THE CHART'S, IT DOES NOT EXTEND IT. Helm merges
+        # maps and REPLACES lists, so the chart's own bucket-thinning rule --
+        # the first entry, copied verbatim -- has to be repeated here or it is
+        # silently lost. Re-copy it when bumping the chart.
+        metricRelabelings:
+          - action: drop
+            sourceLabels: [__name__, le]
+            regex: (etcd_request|apiserver_request_slo|apiserver_request_sli|apiserver_request)_duration_seconds_bucket;(0\.15|0\.2|0\.3|0\.35|0\.4|0\.45|0\.6|0\.7|0\.8|0\.9|1\.25|1\.5|1\.75|2|3|3\.5|4|4\.5|6|7|8|9|15|20|40|45|50)(\.0)?
+          # Histogram families no enabled rule or dashboard reads: 19,272 series
+          # measured on this cluster, ~13% of the whole TSDB, for questions
+          # nobody here asks. apiserver_request_duration_seconds_bucket and
+          # apiserver_request_sli_duration_seconds_bucket are deliberately NOT
+          # in this list -- the kubeApiserverBurnrate/Histogram/Slos rule groups
+          # are built on them.
+          - action: drop
+            sourceLabels: [__name__]
+            regex: (apiserver_request_body_size_bytes|apiserver_response_sizes|apiserver_watch_list_duration_seconds|apiserver_watch_cache_read_wait_seconds|apiserver_watch_events_sizes|etcd_request_duration_seconds)_bucket
     kubelet:
       enabled: true
+      serviceMonitor:
+        # ⚠️ ON k3s THE KUBELET ENDPOINT SERVES THE APISERVER'S METRICS TOO.
+        # k3s runs the whole control plane in one process behind one metrics
+        # registry, so scraping port 10250 on k3s-control returns the full
+        # apiserver, etcd and scheduler metric set on top of the kubelet's own.
+        # Every one of those series is ALREADY collected by the apiserver job,
+        # correctly labelled -- so they were being stored twice, under a `job`
+        # label that made them look like kubelet metrics.
+        #
+        # Measured 2026-09-04: 64,638 of the kubelet job's 81,443 series, 43% of
+        # the entire TSDB, were this duplicate. It is invisible in every health
+        # signal -- targets are up, nothing errors, Prometheus is simply storing
+        # the control plane twice.
+        #
+        # Same replaces-not-extends trap as above: the first entry is the
+        # chart's own, copied verbatim.
+        metricRelabelings:
+          - action: drop
+            sourceLabels: [__name__, le]
+            regex: (csi_operations|storage_operation_duration)_seconds_bucket;(0.25|2.5|15|25|120|600)(\.0)?
+          - action: drop
+            sourceLabels: [__name__]
+            regex: (apiserver|etcd|scheduler)_.*
     coreDns:
       enabled: true
     kubeDns:
@@ -250,10 +291,14 @@ spec:
         retention: 15d
         # THE REAL GUARD. `retention` is a promise about age; retentionSize is
         # the one Prometheus enforces against the disk, dropping oldest blocks
-        # once the TSDB passes it. At ~40 pods and a 60s interval the 15d series
-        # come to roughly 1-2 GiB, so 4GiB is headroom, not a ceiling being
-        # leaned on -- and it leaves ~5.8 GiB of worker1's root disk for the OS
-        # and the image store.
+        # once the TSDB passes it. The two only agree if the cardinality
+        # estimate holds, and here it did not: the first run came in at 149,807
+        # active series -- roughly 5.5 GiB over 15 days, so `retention: 15d`
+        # would have been quietly truncated to about 10 by retentionSize, and
+        # nothing would have said so. The metricRelabelings above cut that to
+        # ~66,000, which is ~2.4 GiB at 15 days. 4GiB is now headroom rather
+        # than a ceiling being leaned on, and leaves ~5.8 GiB of worker1's root
+        # disk for the OS and the image store.
         retentionSize: 4GiB
         walCompression: true
         nodeSelector:
