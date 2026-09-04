@@ -7,8 +7,8 @@ metadata:
     # Restart this Deployment when a Secret or ConfigMap it references changes.
     # Env vars from secretKeyRef are read once at container start, so without
     # this a rotated Secret reports success and changes nothing.
-    # Consumes postgrest-config (PGRST_DB_URI, PGRST_JWT_SECRET) via
-    # secretKeyRef. This is the Deployment that proved the point on 2026-09-04:
+    # Consumes postgrest-config (PGRST_DB_URI, SOPS) and
+    # sunfire-cross-boundary (PGRST_JWT_SECRET, Infisical) via secretKeyRef. This is the Deployment that proved the point on 2026-09-04:
     # the CNPG cutover changed the Secret, Flux reported Ready, and this pod kept
     # serving from the old database until it was restarted by hand.
     reloader.stakater.com/auto: "true"
@@ -31,10 +31,16 @@ spec:
                 secretKeyRef:
                   name: postgrest-config
                   key: PGRST_DB_URI
+            # Cross-boundary: this key must stay byte-identical to what the
+            # Cloudflare Worker signs with, so Infisical is system of record and
+            # the operator materialises it here. PGRST_DB_URI above stays in
+            # SOPS -- it is cluster-only, nothing outside reads it, and keeping
+            # it in git is what lets a cold boot come up without app.infisical.com.
+            # The split in GITOPS.md "Secrets: hybrid" is these two lines.
             - name: PGRST_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: postgrest-config
+                  name: sunfire-cross-boundary
                   key: PGRST_JWT_SECRET
             # Unified 2026-09-02: prod, feature and local dev all share the
             # `public` schema and the `sunfire-guide-media` bucket. Guide media
