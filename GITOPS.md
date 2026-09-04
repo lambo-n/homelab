@@ -70,7 +70,7 @@ Reference repo: [perryhuynh/homelab](https://github.com/perryhuynh/homelab/tree/
 - [ ] No backups of any kind (no snapshots, no logical DB dumps)
 - [ ] No monitoring/observability
 - [x] ~~`kubectl` v1.30 vs server v1.35~~ — mise pins `kubectl` 1.35.8
-- [~] cloudflared tunnel was **remote-managed** — credentials are now in git (SOPS) and the ingress rules are written and validated in a ConfigMap, but the tunnel's `config_src` is still `cloudflare`, so the dashboard still serves routing. Blocked on a Cloudflare API token; `tofu/` is written and waiting
+- [x] ~~cloudflared tunnel is **remote-managed** — ingress routing lives in the Cloudflare dashboard, outside git~~ — closed 2026-09-04. Routing is a ConfigMap reconciled by Flux; credentials are SOPS-encrypted; DNS is managed in `tofu/`
 - [ ] MinIO CORS handled by a Cloudflare Transform Rule — also clickops. **May be vestigial**: `HOMELAB.md` records that only browser-direct access needs it, and the Worker is the only client. Establish whether any browser fetches `minio-api.sunosrs.cc` directly before codifying it — the answer may be to delete the rule instead (`tofu/cloudflare-transform.tf.example`)
 - [x] ~~**Local dev inherits production vars but feature credentials**~~ — resolved 2026-09-02 by unifying the media store (below); local dev's feature credentials now authorize the one shared bucket. Original finding: (found 2026-09-02, lives in `sunfire/`, not this repo). `npm run preview` runs `wrangler dev` with **no `--env`**, so it takes top-level config — `MINIO_BUCKET=sunfire-guide-media`, `POSTGREST_SCHEMA=public`. But `.dev.vars` holds the **feature** MinIO keys, whose embedded policy allows only `sunfire-guide-media-feature/*`. After tunnel cutover that combination is a guaranteed `AccessDenied`. Masked today only because `MINIO_ENDPOINT` is `.invalid`. Fix is `wrangler dev --env feature` (preferred — local dev should not touch the production bucket), *not* swapping in prod keys
 - [x] ~~**Unified media store — cluster not yet converted**~~ — converted and verified 2026-09-02 (policy re-scoped, `PGRST_DB_SCHEMAS=public`, `sunfire_feature` dropped, feature bucket removed)
@@ -807,15 +807,11 @@ down" posture is inbound-only).
 
 ### Phase 6 — Close the clickops gaps
 
-- [~] Convert cloudflared to a **locally-managed** tunnel — **half done 2026-09-04**. The
-      credential half works: the connector runs from a SOPS-encrypted `credentials.json` built
-      out of the existing token, with no `--token`, same tunnel UUID and no DNS change. The
-      ingress half does **not** yet: the tunnel's `config_src` is still `cloudflare`, so the
-      dashboard's map wins and `configmap.yaml` is inert. Flipping `config_src` to `local` is a
-      Cloudflare API action — see below
-- [ ] Flip the tunnel's `config_src` from `cloudflare` to `local` so the ConfigMap governs.
-      Candidate for the OpenTofu module below (`cloudflare_zero_trust_tunnel_cloudflared` takes
-      `config_src`), which would close both items at once
+- [x] ~~Convert cloudflared to a **locally-managed** tunnel~~ — **done 2026-09-04.** Ingress
+      routing now lives in `configmap.yaml` and is read by the connector; the edge serves no
+      map at all. Required a **new tunnel** (`sunfire-local`,
+      `1ac59ce2-15bb-46df-967f-caa8b05881f7`) because `config_src` is immutable after creation
+      — see below. Old tunnel retained as the rollback path, `status: down`, 0 connections
 - [x] ~~**Deploy Reloader** (`reloader.stakater.com/auto: "true"`) so secret rotation restarts
       pods~~ — **done 2026-09-04**, chart `2.2.16` (appVersion `v1.4.21`), own namespace, no
       `dependsOn` so it cannot wedge the sunfire graph. All four sunfire Deployments annotated.
@@ -834,6 +830,38 @@ down" posture is inbound-only).
       bodies: use `tofu plan -generate-config-out`, because a mismatched attribute here proposes
       replacing a running k3s node rather than showing a cosmetic diff. Needs a Proxmox API
       token, which is independent of the Cloudflare one
+
+> ✅ **Locally-managed tunnel, done 2026-09-04 — and it took a new tunnel.**
+> `config_src` is **immutable after creation**, which Cloudflare reports as
+> `1002 Tunnel not found`. That error points at a wrong id or a bad token and is
+> neither; isolating it took three calls on one token against one tunnel:
+> `GET` succeeds, `PATCH {"name":…}` succeeds, `PATCH {"config_src":"local"}`
+> returns 1002. Writes are permitted; that field is not editable. The
+> configurations endpoint refuses the other route too — `source: "local"` with an
+> empty config returns `1056 … doesn't contain any ingress rules`, insisting on
+> rules even in the mode that ignores them.
+>
+> So the conversion was a **tunnel swap**: `scripts/cloudflared-new-local-tunnel.sh`
+> creates `sunfire-local` with `config_src: "local"`, generates the secret, sends
+> it once, pipes it into SOPS and never prints it. Flux applied the new
+> credentials and ConfigMap, **Reloader restarted the connector** (installed
+> earlier the same day for exactly this), and one pre-staged `tofu apply` moved
+> both CNAMEs. End state: new tunnel `local`/`healthy`/4 connections, old tunnel
+> `down`/0, kept as the rollback path.
+>
+> Proof it is genuinely local: the connector's startup log has **no
+> `Updated to new configuration` line**. That line is what a remotely-configured
+> connector emits when the edge pushes its ingress map, and its absence is the
+> only direct evidence that the file is what is being read.
+>
+> ⚠️ **A `403` from these hostnames is not a health check.** Cloudflare Access
+> rejects at the edge *before* the tunnel — responses carry `cf-access-aud` and
+> `server: cloudflare` with no origin fingerprint — so a `403` is returned
+> whether the origin is healthy, broken, or absent. This file and
+> `sunfire/CUTOVER.md` both treat `403` as the healthy signal; it only ever
+> demonstrated that DNS resolves and the edge is up. The honest end-to-end test
+> is the Worker itself, since it holds the Access service token and is the only
+> client that can traverse the whole path.
 
 > ⚠️ **Local config does not beat remote config — `config_src` decides**
 > *(found 2026-09-04)*. Converting cloudflared to local management is two

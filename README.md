@@ -211,10 +211,16 @@ untouched.
 > zvol exists, destroying or rebuilding that pool takes `k3s-worker2`'s database
 > disk with it, and pool work needs the VM stopped first.
 
-**Phase 6 is partly done.** `tofu/` holds the OpenTofu layer — Cloudflare tunnel,
-DNS and the Proxmox import scaffolding — written, validated and provider-locked
-but **not applied**, because it needs a Cloudflare API token the operator cannot
-currently issue. `tofu/README.md` lists the exact scopes to request.
+**Phase 6 is mostly done.** The cloudflared tunnel is now **locally managed**:
+ingress routing lives in a ConfigMap reconciled by Flux, the credentials are
+SOPS-encrypted, and the edge serves no ingress map at all. That required
+swapping to a new tunnel (`sunfire-local`), because `config_src` is immutable
+after creation — the old one is retained, `down`, as the rollback path. DNS for
+both hostnames is managed in `tofu/`, applied by hand from this VM.
+
+Still open in Phase 6: the Proxmox guest import (scaffolded, needs a PVE token)
+and a decision on the MinIO CORS Transform Rule, which may be vestigial rather
+than worth codifying.
 
 Reloader is deployed and proven — a Secret change now
 restarts the workloads that reference it, which the CNPG cutover showed was a

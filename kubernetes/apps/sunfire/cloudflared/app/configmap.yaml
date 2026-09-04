@@ -1,22 +1,11 @@
 ---
 # Tunnel ingress routing, in git.
 #
-# ⚠️ NOT YET IN EFFECT (2026-09-04). These rules are correct and validated, but
-# the connector is still serving the DASHBOARD's ingress map. The tunnel object
-# carries a `config_src` field -- "local" means a YAML file on the origin
-# machine, "cloudflare" means the Zero Trust dashboard -- and this tunnel is
-# still `cloudflare`. cloudflared reads this file for the tunnel UUID and
-# credentials, connects fine, and then silently takes its ingress from the edge.
-# There is no warning in the logs; the tell is that the config it logs contains
-# `warp-routing`, which this file does not.
-#
-# Flipping config_src is a Cloudflare API action, not a Kubernetes one. Until it
-# happens this ConfigMap is inert -- correct, verified, and ignored.
-#
-# Until 2026-09-04 this lived only in the Cloudflare dashboard: the connector ran
-# with `--token` and pulled its entire ingress map from the API at startup and on
-# change, so `deployment.yaml` contained zero routing information. That is the
-# clickops gap GITOPS.md Phase 6 exists to close.
+# ✅ LIVE as of 2026-09-04. These rules are the routing -- the connector reads
+# this file and the edge serves no ingress map at all. Confirmed by the absence
+# of an "Updated to new configuration" line in the connector's startup log,
+# which is what a remotely-configured tunnel emits, and by the tunnel reporting
+# config_src=local, status=healthy with 4 connections.
 #
 # It has already bitten once. sunfire/CUTOVER.md records a connector that was
 # connected and healthy with every route returning 502, because the dashboard
