@@ -68,7 +68,7 @@ Reference repo: [perryhuynh/homelab](https://github.com/perryhuynh/homelab/tree/
 - [x] ~~**Secrets are plaintext**~~ — all five encrypted as `*.sops.yaml` in `~/homelab/`. Plaintext copies still live in `~/sunfire-backend/` (`chmod 600`, untracked) until Flux reconciles
 - [x] ~~`postgrest/postgrest:latest` unpinned~~ — all four images now `tag@sha256:digest`
 - [x] ~~No backups of any kind (no snapshots, no logical DB dumps)~~ — closed by Phase 5, 2026-09-04. Two independent layers: `sanoid` snapshots the volume (incl. the PGDATA zvol) and CNPG + `plugin-barman-cloud` backs up the database to MinIO on a daily `ScheduledBackup`, verified by a restore drill into a scratch namespace rather than by the backup reporting success. Confirmed still running 2026-09-04: cluster healthy, `postgres-daily` firing, two `completed` backups
-- [ ] No monitoring/observability — **the last unclosed gap in this list**, and Phase 7
+- [x] ~~No monitoring/observability~~ — **closed by Phase 7, 2026-09-04, and it was the last entry in this list.** kube-prometheus-stack in an `observability` namespace, TSDB pinned to `k3s-worker1` so it can never share a filesystem with PGDATA, and Flux reconcile-failure alerting on two independent paths — verified by breaking a Kustomization on purpose and watching the alert arrive, not by reading configuration. Two things were silently wrong on the way and are written up under Phase 7: the Flux alert every guide gives you queries a metric that no longer exists, and k3s was making Prometheus store the control plane twice
 - [x] ~~`kubectl` v1.30 vs server v1.35~~ — mise pins `kubectl` 1.35.8
 - [x] ~~cloudflared tunnel is **remote-managed** — ingress routing lives in the Cloudflare dashboard, outside git~~ — closed 2026-09-04. Routing is a ConfigMap reconciled by Flux; credentials are SOPS-encrypted; DNS is managed in `tofu/`
 - [x] ~~MinIO CORS handled by a Cloudflare Transform Rule — also clickops~~ — **resolved 2026-09-04 by deleting the question, not codifying the rule.** It is vestigial: no browser ever addresses `minio-api.sunosrs.cc`. Guide images are `<img src="/api/guides/media/<hash>.<ext>">` against the Worker, same origin; the Worker is the only S3 client and there is no presign path in `worker/`, `shared/` or `src/`; and Access would reject a browser at the edge anyway. The rule should be **deleted in the dashboard** — a one-off action, after which nothing about it belongs in `tofu/`. See Phase 6
@@ -994,15 +994,152 @@ down" posture is inbound-only).
 > with it; **applies are run by hand from here, never reconciled from inside the
 > cluster** — that is the whole point of the rejection below.
 
-### Phase 7 — Observability
+### Phase 7 — Observability ✅ *done 2026-09-04*
 
-- [ ] `kube-prometheus-stack` (128 GB/worker sitting idle)
-- [ ] Flux reconcile-failure alerting (Flux ships Prometheus metrics + Grafana dashboards)
+- [x] ~~`kube-prometheus-stack` (128 GB/worker sitting idle)~~ — **done 2026-09-04**, chart
+      `89.2.0` (appVersion `v0.93.1`), own `observability` namespace, no `dependsOn` so it
+      cannot wedge the sunfire or cnpg graphs. Prometheus, Alertmanager, Grafana,
+      kube-state-metrics and a 3-node node-exporter DaemonSet. 26/26 scrape targets up,
+      222/222 rules healthy, `Watchdog` the only firing alert. Grafana is LAN-only through
+      the existing Traefik LoadBalancer at `grafana.homelab.lan`; its admin password is a
+      SOPS-encrypted 32-char secret and its Deployment carries the Reloader annotation,
+      because `GF_SECURITY_ADMIN_PASSWORD` is an env var from a `secretKeyRef` and would
+      otherwise survive its own rotation
+- [x] ~~Flux reconcile-failure alerting (Flux ships Prometheus metrics + Grafana dashboards)~~
+      — **done and verified end to end 2026-09-04.** Two independent paths that fail in
+      opposite directions: a notification-controller `Provider`/`Alert` pushing error events
+      into Alertmanager, and a `PrometheusRule` evaluating resource state pulled by
+      `PodMonitor`. Verified by *causing a failure*, not by reading config: a `Kustomization`
+      pointed at a nonexistent path produced `FluxKustomizationArtifactfailed` in Alertmanager
+      within seconds, carrying `reason=ArtifactFailed`, the revision and the real error string,
+      and `FluxReconciliationFailure` went to `pending` on the same event. Both cleared when
+      it was deleted. Flux's own two Grafana dashboards are committed as JSON
+
+> ⚠️ **The Flux alert every guide gives you does not work on Flux v2.9, and it fails
+> silently** *(found 2026-09-04)*. Upstream's monitoring example, the Flux docs and every
+> post derived from them alert on
+> `gotk_reconcile_condition{type="Ready",status="False"}`. That metric does not exist.
+> Verified at the source, against kustomize-controller's raw `/metrics`: the only `gotk_`
+> families it exports are `gotk_reconcile_duration_seconds`, `gotk_event_http_*` and
+> `gotk_token_cache*`. Neither `gotk_reconcile_condition` nor `gotk_suspend_status` is
+> among them, and no flag turns them on — the controllers stopped exporting per-resource
+> status gauges.
+>
+> The failure mode is the part worth keeping. A `PrometheusRule` over a metric that
+> returns no series reports `health: ok, state: inactive` — indistinguishable, on every
+> screen Prometheus offers, from a cluster where nothing is wrong. It had to be caught by
+> asking Prometheus whether the *input* existed, which is not a thing anyone thinks to do
+> to a rule that looks healthy. **The alert that tells you Flux is broken is the one most
+> likely to be quietly broken itself**, which is the whole argument for the deliberate
+> failure test above.
+>
+> Per-resource status now comes from **flux-operator**, not from Flux, as
+> `flux_resource_info` — one series per object with `ready`, `suspended` and `reason` as
+> labels, confirmed covering all eight kinds this cluster uses and updating within 30s in
+> both directions. A consequence worth naming: these alerts now depend on flux-operator,
+> which this file chose over `flux bootstrap` for unrelated reasons. Swapping the install
+> method would blind them.
+>
+> The same defect is in upstream's `cluster.json` dashboard — `gotk_resource_info`, a
+> `customresource_kind` label and `suspended="true"`, none of which exist. Patched with 26
+> substitutions and every resulting query re-run against the live Prometheus (21
+> Kustomizations/HelmReleases, 7 sources, 0 failing). **The patch is recorded in
+> `flux-monitoring/app/kustomization.yaml`** so a refresh from upstream re-applies it
+> rather than silently reverting to a blank dashboard. `control-plane.json` is verbatim;
+> its `controller_runtime_*` and `workqueue_*` metrics are still exported.
+
+> ⚠️ **k3s serves the apiserver's metrics on the kubelet endpoint, so Prometheus stored
+> the control plane twice** *(found 2026-09-04)*. The first run came in at **149,807
+> active series**. At a 60s interval that is roughly 5.5 GiB over 15 days, so
+> `retentionSize: 4GiB` would have quietly truncated `retention: 15d` to about ten — the
+> two settings disagreeing, with only the enforced one telling the truth and nothing
+> reporting the discrepancy.
+>
+> **43% of the entire TSDB was one duplicate.** k3s runs the whole control plane in a
+> single process behind a single metrics registry, so scraping port 10250 on `k3s-control`
+> returns the full apiserver, etcd and scheduler metric set on top of the kubelet's own —
+> 64,638 of the kubelet job's 81,443 series, every one of them already collected by the
+> `apiserver` job, stored again under a `job` label that made them look like kubelet
+> metrics. Nothing about this is visible in a health signal: 26/26 targets up, no errors,
+> Prometheus simply doing twice the work. A further 19,272 apiserver histogram series
+> belonged to families no enabled rule or dashboard reads.
+>
+> Dropped via `metricRelabelings` on both ServiceMonitors: **65,810 series**, ~2.4 GiB at
+> 15 days, so the retention promise and the size guard now agree. `apiserver_request_
+> duration_seconds_bucket` and its `_sli` twin are deliberately kept — the
+> `kubeApiserverBurnrate`/`Histogram`/`Slos` groups are built on them.
+>
+> ⚠️ **`metricRelabelings` REPLACES the chart's list, it does not extend it.** Helm merges
+> maps and replaces lists, so overriding the key silently discards the chart's own
+> bucket-thinning rule. Both overrides repeat that first entry verbatim, and it has to be
+> re-copied on a chart bump.
+
+> **Storage: the TSDB is on `k3s-worker1`, and that placement is load-bearing.** Three
+> constraints, in order:
+>
+> 1. **It cannot go on NFS.** Prometheus does not support non-POSIX filesystems, and NFS in
+>    practice is one — mmap and file locking are exactly what a TSDB leans on. That rules
+>    out `archive-pool`, the only redundant storage this cluster has, and leaves
+>    `local-path`, which means a node's root disk.
+> 2. **It must not share a filesystem with PGDATA.** `k3s-worker2`'s `local-path` directory
+>    *is* the PGDATA zvol — `STORAGE.md` §1–5 exists to make that true. `local-path`
+>    provisions a directory, not a quota, so a runaway TSDB there would fill the database's
+>    filesystem and undo exactly the separation that document was written to create.
+>    Prometheus, Alertmanager and Grafana are therefore all pinned to `k3s-worker1`, whose
+>    only tenant is MinIO — and MinIO's data is on NFS, so the worst case here is
+>    DiskPressure on one node rather than a dead database.
+> 3. **Worker1's root disk is 17.83 GiB and also holds the image store.** 9.65 GiB used /
+>    7.31 GiB free after this phase. Hence `retentionSize`, the 60s scrape interval, and no
+>    Thanos.
+>
+> Note that per-PVC usage figures from the kubelet are meaningless here: `local-path` is a
+> bind mount of a directory on the root filesystem, so every PVC on the node reports the
+> whole filesystem's usage. The node-level number is the only real one.
+
+> **Alerting is in-cluster only, deliberately.** Alertmanager keeps the chart's default
+> `null` receiver: alerts fire and are visible, and nothing is pushed anywhere. This
+> cluster is powered on and off by hand — `AGENTS.md` calls it "frequently powered off /
+> sleeping" — so a webhook would deliver a storm of `KubeNodeNotReady` / `TargetDown` /
+> `KubePodNotReady` on every power cycle, which is how an alert channel becomes something
+> nobody reads. The in-cluster destination also needs no secret and no internet egress at
+> the moment of failure, which is worth something for an alert about the cluster being
+> broken. **Add a receiver the day this cluster is expected to stay up**, not before.
+>
+> Alertmanager has no authentication of its own and so gets no Ingress; it is reached
+> through Grafana's provisioned Alertmanager datasource, behind the one login that exists,
+> or by port-forward. An earlier revision declared that datasource explicitly and put two
+> same-named entries in one provisioning file — the chart already ships it whenever
+> `alertmanager.enabled` is true. Grafana kept one of them without complaining and the UI
+> looked correct either way; found by reading the rendered ConfigMap.
+
+> **k3s exposes no controller-manager, scheduler, kube-proxy or etcd metrics.** All four
+> bind to `127.0.0.1`; verified by probing `.104` and `.105` — 10249, 10257, 10259 and 2381
+> all closed from off-host. This is also a sqlite k3s, so there is no etcd at all. Their
+> ServiceMonitors *and* their default rule groups are disabled: left on, they would sit
+> permanently firing against metrics that never arrive, which is the ordinary way an alert
+> console becomes furniture.
+
+> **Reaching Grafana.** Nothing resolves `homelab.lan` — add to `/etc/hosts` on any machine
+> that browses it:
+>
+> ```
+> 192.168.50.104  grafana.homelab.lan
+> ```
+>
+> Any of the three node IPs works; Traefik's klipper LoadBalancer answers on all of them.
+> The admin password is in git, encrypted — read it with
+> `sops --decrypt kubernetes/apps/observability/kube-prometheus-stack/app/grafana-admin.sops.yaml`.
+> Deliberately **not** added to the cloudflared tunnel: that would put an admin UI on the
+> public edge and grow the tunnel's blast radius for something only ever used from this LAN.
 
 ### Backlog / not now
 
 - [ ] kubeconform or [`flux-schema`](https://github.com/fluxcd/flux-schema) validation in CI
       *(my own recommendation — the reference repo does **not** do this)*
+- [ ] Loki + Promtail for logs — the third Flux dashboard (`logs.json`) is deliberately not
+      deployed because there is nothing to back it. Wants its own storage answer first:
+      the TSDB argument in Phase 7 applies again, and worker1's root disk is already the
+      constraint
 - [ ] Talos Linux for the k3s nodes — the real endgame for declarative node config, but a rebuild
 - [ ] Gateway API / Envoy Gateway instead of Traefik Ingress (CRDs already present)
 - [ ] ~~External Secrets Operator~~ — superseded by the Infisical Operator for the cross-boundary class; SOPS keeps the cluster-only class

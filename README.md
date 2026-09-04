@@ -39,14 +39,17 @@ kubernetes/apps/cnpg-system/
   ├── cloudnative-pg/      CNPG operator
   └── plugin-barman-cloud/ Barman Cloud CNPG-I plugin (must share the operator's namespace)
 kubernetes/apps/reloader/         restarts workloads when their Secrets change
+kubernetes/apps/observability/
+  ├── kube-prometheus-stack/ Prometheus, Alertmanager, Grafana, exporters
+  └── flux-monitoring/       PodMonitors, Flux alerts, Flux dashboards
 kubernetes/apps/sunfire/
   ├── namespace.yaml
   ├── storage/       PV + PVC on NFS archive-pool  (prune permanently disabled)
   ├── minio/         S3 object storage             → minio-api.sunosrs.cc
-  ├── postgres/      PostgreSQL 16                 (the live database)
-  ├── postgres-cnpg/ CNPG Cluster + ObjectStore    (Phase 5, NOT yet wired in)
+  ├── postgres/      PostgreSQL 16                 (rollback path, still running)
+  ├── postgres-cnpg/ CNPG Cluster + ObjectStore    (live since 2026-09-04)
   ├── postgrest/     REST over Postgres            → db.sunosrs.cc
-  └── cloudflared/   remote-managed tunnel
+  └── cloudflared/   locally-managed tunnel        (routing in configmap.yaml)
 ```
 
 `postgres-cnpg/` went live 2026-09-04 and **is now the database PostgREST reads**.
@@ -65,10 +68,14 @@ storage ─┬─ minio ──────┬─ cloudflared
 
 cert-manager ──────┬─ plugin-barman-cloud
 cloudnative-pg ────┘
+
+kube-prometheus-stack ── flux-monitoring
 ```
 
-The two graphs are independent today. They join in Phase 5, when the `sunfire`
-Postgres becomes a CNPG `Cluster` backed up by the plugin.
+`reloader` and `kube-prometheus-stack` deliberately have no `dependsOn` at all:
+nothing in the cluster depends on either, so neither can wedge the sunfire or
+cnpg graphs. `flux-monitoring` depends on the stack only because `PodMonitor`
+and `PrometheusRule` do not exist as kinds until its CRDs are registered.
 
 ## Secrets
 
@@ -241,7 +248,31 @@ config. It was granted as a one-privilege `TofuDisk` role stacked on
 never granted at all, so replacing a guest was never something the token could
 do. `tofu/README.md` has the detail.
 
+**Phase 7 (observability) is complete as of 2026-09-04**, which closes the last
+entry in the `GITOPS.md` "Known gaps" list. kube-prometheus-stack runs in an
+`observability` namespace with 26/26 targets up and 222/222 rules healthy.
+Grafana is LAN-only at `grafana.homelab.lan` through the existing Traefik
+LoadBalancer — add `192.168.50.104  grafana.homelab.lan` to `/etc/hosts`, and
+read the admin password with `sops --decrypt
+kubernetes/apps/observability/kube-prometheus-stack/app/grafana-admin.sops.yaml`.
+
+Alerting is **in-cluster only, deliberately**. Alertmanager keeps the chart's
+`null` receiver: alerts fire and are visible, nothing is pushed. This cluster is
+powered on and off by hand, so a webhook would deliver a storm on every power
+cycle. Add a receiver the day it is expected to stay up.
+
+Flux reconcile-failure alerting runs on two paths that fail in opposite
+directions — notification-controller pushing error *events* into Alertmanager,
+and a `PrometheusRule` pulling resource *state*. It was verified by breaking a
+Kustomization on purpose and watching the alert arrive, which is how two silent
+faults surfaced: the `gotk_reconcile_condition` metric that every Flux alerting
+guide is built on no longer exists in v2.9 (a rule over an absent metric reads
+as healthy), and k3s serves the apiserver's metrics on the kubelet endpoint, so
+43% of the TSDB was the control plane stored twice. Both are written up under
+`GITOPS.md` Phase 7.
+
 Deliberately still open, with reasoning in `GITOPS.md`: the old `postgres`
 Deployment keeps running as the rollback path, VolSync is deferred for want of a
-destination that is not the source pool, and pinning `sanoid` in host config
-waits for that layer to exist.
+destination that is not the source pool, pinning `sanoid` in host config waits
+for that layer to exist, and there is no log aggregation — Loki needs its own
+storage answer before the third Flux dashboard is worth deploying.
