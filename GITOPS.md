@@ -488,11 +488,14 @@ down" posture is inbound-only).
 > first real PRs on the next run. Workflow also triggers on push to `main`
 > when Renovate config changes.
 
-### Phase 5 — Data protection ← *in progress 2026-09-03*
+### Phase 5 — Data protection ✅ *done 2026-09-04*
 
-- [ ] Install + configure `sanoid` on `.101` for both archive datasets — runbook written
-      (`SANOID.md`); **yours to run**, this VM has no SSH key on `.101`
-- [ ] Verify a snapshot rollback actually works before relying on it — `SANOID.md` §4
+- [x] ~~Install + configure `sanoid` on `.101`~~ — **done 2026-09-04**. Three datasets, not two:
+      `minio-data`, `postgres-data` and the PGDATA zvol `vm-104-disk-0`. 24 hourly / 30 daily /
+      6 monthly, `sanoid.timer` active
+- [x] ~~Verify a snapshot rollback actually works before relying on it~~ — **done 2026-09-04**,
+      `SANOID.md` §4. Both clone tests passed; the zvol clone returned the same filesystem UUID
+      it was created with, and the `minio-data` clone contained the Postgres backups too
 - [x] ~~Deploy CNPG operator + `plugin-barman-cloud`~~ — done 2026-09-03, plus cert-manager,
       which the plugin hard-requires
 - [x] ~~Provision the PGDATA zvol on `archive-pool` and attach it to `k3s-worker2`~~ — done

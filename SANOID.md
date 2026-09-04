@@ -192,6 +192,39 @@ yourself about which copy is real. If you ever genuinely need the contents, moun
 
 Record the date you did this. An untested snapshot is a belief, not a backup.
 
+### Verified 2026-09-04 — both clones passed
+
+Snapshots present for **all three** datasets (hourly, daily and monthly), the
+zvol included:
+
+```
+archive-pool/minio-data@autosnap_2026-09-04_03:00:13_hourly       440K   97.1M
+archive-pool/postgres-data@autosnap_2026-09-04_03:00:13_hourly      0B   12.7M
+archive-pool/vm-104-disk-0@autosnap_2026-09-04_03:00:13_hourly      0B   74.8M
+```
+
+**`minio-data` clone** mounted and showed the real layout — `.minio.sys/`,
+`sunfire-guide-media/` and `sunfire-postgres-backups/`, 97 M total. Worth noting
+what that third directory means: the Postgres base backups and archived WAL are
+themselves inside the ZFS snapshot. Barman protects the database, sanoid protects
+the volume, and here the volume contains barman's output — so an accidental
+deletion inside the backup bucket is recoverable too.
+
+**Zvol clone** returned:
+
+```
+LABEL="pgdata" UUID="47470f9d-6503-4538-bd6f-4acc2e818366" TYPE="ext4"
+```
+
+That UUID is byte-identical to the one `blkid` reported when the filesystem was
+created in `STORAGE.md` §3. The chain is closed end to end: the filesystem made
+on the zvol, mounted on `k3s-worker2`, holding PGDATA, is the same filesystem
+that comes back out of a snapshot clone on the hypervisor.
+
+Both clones were destroyed afterwards. Note also that the earlier snapshot had
+grown to `440K USED` on `minio-data` — copy-on-write is doing what it should,
+retaining only the delta.
+
 ## 5. Leave a note where the next person will look
 
 Because none of this is reconciled, nothing will tell you when it stops

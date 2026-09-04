@@ -183,29 +183,42 @@ deletes the live object.
 Renovate runs daily at 10:00 UTC against `home-operations/renovate-presets`
 (`.renovaterc.json5`), with `**/*.sops.*` excluded from scanning.
 
-**Phase 5 (data protection) is where the work is.** cert-manager, the CNPG
-operator and `plugin-barman-cloud` are installed and Ready. What remains is
-blocked on three things that only a human can do, in this order:
+**Phase 5 (data protection) is complete as of 2026-09-04.** cert-manager, the
+CNPG operator and `plugin-barman-cloud` are installed; PostgreSQL runs as a CNPG
+`Cluster` with PGDATA on a 64 GiB zvol on `archive-pool`; WAL is archived
+continuously and a base backup runs daily into MinIO; `sanoid` snapshots all
+three ZFS datasets on `.101`.
 
-1. ~~**Run `STORAGE.md`**~~ — **done 2026-09-04.** The PGDATA zvol
-   (`archive-pool/vm-104-disk-0`, 64G, 8K blocks, thick) is mounted on
-   `k3s-worker2` at `/var/lib/rancher/k3s/storage` with all three guards
-   verified and surviving a reboot. Worker root filesystems grew 9.75 → 17.83
-   GiB. Only §7, the sanoid stanza, is outstanding.
-2. **Run `scripts/minio-barman-account.sh`** — creates the backup bucket and a
-   scoped service account, writing the credential into the repo already
-   SOPS-encrypted. It needs `kubectl exec`, which the assistant's tooling
-   refuses.
-3. **Run `SANOID.md`** on `.101` in full — now covering three datasets, including
-   the PGDATA zvol (`archive-pool/vm-104-disk-0`).
-4. **Run the restore drill** in `RESTORE.md`, then cut PostgREST over to
-   `postgres-cnpg-rw` as a separate commit.
+Two things were tested rather than assumed, which is the point of the phase:
 
-Only after 1 and 2 does `postgres-cnpg/ks.yaml` get added to
-`kubernetes/apps/sunfire/kustomization.yaml`. Rationale, measurements and the
-VolSync deferral: `GITOPS.md` Phase 5.
+- **Restore drill** (`RESTORE.md`) — recovered into a scratch namespace in 56s,
+  row counts matched exactly, `authenticator`'s SCRAM hash fingerprint was
+  identical to the source, and PITR landed *between* two marker writes rather
+  than merely somewhere after the base backup. The drill wrote nothing to the
+  backup bucket and left no orphans.
+- **Snapshot rollback** (`SANOID.md` §4) — both clone tests passed. The zvol
+  clone returned the same filesystem UUID it was created with, and the
+  `minio-data` clone contained the Postgres backups as well as the guide media.
 
-> ⚠️ Step 1 retires an invariant repeated across these docs: *"no VM disk is on
-> ZFS, so `archive-pool` can be destroyed without touching a VM."* Once the zvol
-> exists, destroying or rebuilding that pool takes `k3s-worker2`'s database disk
-> with it, and pool work needs the VM stopped first.
+PostgREST was cut over to `postgres-cnpg-rw` afterwards, verified end to end
+(`HTTP 206`, `Content-Range: 0-0/57`; `401` anonymous). **No Cloudflare Worker
+change was needed** — `PGRST_DB_URI` is cluster-only, and the JWT signing key,
+`POSTGREST_URL`, the Access service token and every `MINIO_*` value were
+untouched.
+
+> ⚠️ Phase 5 retired an invariant repeated across these docs: *"no VM disk is on
+> ZFS, so `archive-pool` can be destroyed without touching a VM."* Now that the
+> zvol exists, destroying or rebuilding that pool takes `k3s-worker2`'s database
+> disk with it, and pool work needs the VM stopped first.
+
+**Phase 6 has started.** Reloader is deployed and proven — a Secret change now
+restarts the workloads that reference it, which the CNPG cutover showed was a
+correctness gap rather than a convenience. Still open in Phase 6: converting
+cloudflared to a locally-managed tunnel so ingress routing lives in git, the
+OpenTofu module for Cloudflare, and importing the five Proxmox VMs into OpenTofu
+state.
+
+Deliberately still open, with reasoning in `GITOPS.md`: the old `postgres`
+Deployment keeps running as the rollback path, VolSync is deferred for want of a
+destination that is not the source pool, and pinning `sanoid` in host config
+waits for that layer to exist.
