@@ -1,0 +1,62 @@
+---
+# Reloader restarts a workload when a Secret or ConfigMap it references changes.
+#
+# This is a CORRECTNESS item, not a convenience one. Environment variables
+# sourced from a secretKeyRef are read once at container start, so a rotated
+# Secret changes nothing until the pod restarts -- and every status signal says
+# the change landed. That bit during the Phase 5 CNPG cutover on 2026-09-04:
+# Flux reported sunfire-postgrest Ready at the new revision, the in-cluster
+# Secret held the new database host, and PostgREST went on serving from the OLD
+# database for as long as its 84-minute-old pod kept running. See GITOPS.md
+# Phase 5.
+#
+# The failure mode generalises to every secret this cluster holds: the PostgREST
+# JWT signing key, the scoped MinIO Worker credentials, the cloudflared tunnel
+# token. Each would report a successful rotation and keep using the old value.
+#
+# CNPG is deliberately NOT covered by this. Its Cluster is not a Deployment, and
+# the operator watches its own secrets through the cnpg.io/reload label -- the
+# authenticator secret already carries it. Annotating anything CNPG owns would
+# be two controllers reconciling one rollout.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reloader
+  namespace: reloader
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: reloader
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    reloader:
+      # Opt-in only: a workload is reloaded because it carries
+      # reloader.stakater.com/auto: "true", never because it merely references a
+      # changed Secret. Keeps the blast radius of a secret edit legible.
+      watchGlobally: true
+      # `default` patches an annotation on the pod template to trigger a normal
+      # rolling update. It does NOT fight Flux: server-side apply only removes
+      # fields its own field manager owns, and this annotation belongs to
+      # Reloader's, so the two do not contend over the Deployment.
+      reloadStrategy: default
+      deployment:
+        # Single hypervisor -- replicas beyond 1 are theater, same reasoning as
+        # CNPG instances: 1 and cert-manager above.
+        replicas: 1
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+      # Nothing scrapes metrics yet (Phase 7). Left off rather than shipping a
+      # ServiceMonitor no Prometheus will read.
+      serviceMonitor:
+        enabled: false

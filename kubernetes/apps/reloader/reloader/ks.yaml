@@ -1,0 +1,23 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: reloader
+  namespace: flux-system
+spec:
+  interval: 30m
+  timeout: 5m
+  path: ./kubernetes/apps/reloader/reloader/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  wait: true
+  # No dependsOn. Reloader watches ConfigMaps and Secrets through the API and
+  # needs nothing else in the cluster to exist first -- deliberately kept out of
+  # the sunfire and cnpg dependency graphs so a problem here cannot wedge them.
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: reloader
+      namespace: reloader

@@ -3,6 +3,14 @@ kind: Deployment
 metadata:
   name: postgres
   namespace: sunfire
+  annotations:
+    # Restart this Deployment when a Secret or ConfigMap it references changes.
+    # Env vars from secretKeyRef are read once at container start, so without
+    # this a rotated Secret reports success and changes nothing.
+    # Consumes postgres-credentials. Retained while this Deployment is the
+    # rollback path for the CNPG migration; harmless once it is retired. Recreate
+    # applies here too, for the reason spelled out below.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   # Recreate, never RollingUpdate: the data directory is a single-writer store on

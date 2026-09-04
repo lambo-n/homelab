@@ -3,6 +3,14 @@ kind: Deployment
 metadata:
   name: minio
   namespace: sunfire
+  annotations:
+    # Restart this Deployment when a Secret or ConfigMap it references changes.
+    # Env vars from secretKeyRef are read once at container start, so without
+    # this a rotated Secret reports success and changes nothing.
+    # Consumes minio-credentials (root user/password). Note the Recreate
+    # strategy below: a Reloader-triggered rollout stops the old pod before
+    # starting the new one, which is what the single-writer NFS backend requires.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   # Recreate, never RollingUpdate: the data directory is a single-writer store on

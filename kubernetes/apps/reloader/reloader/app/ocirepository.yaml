@@ -1,0 +1,20 @@
+---
+# Chart source. OCIRepository rather than HelmRepository so there is no
+# index.yaml poll and the tag below is the whole pin -- Renovate's
+# home-operations preset parses this kind directly.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: reloader
+  namespace: reloader
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    # Chart 2.2.16 carries appVersion v1.4.21. Pinned by CHART, as everywhere
+    # else in this repo -- the chart is what Flux installs and the two move
+    # independently.
+    tag: 2.2.16
+  url: oci://ghcr.io/stakater/charts/reloader

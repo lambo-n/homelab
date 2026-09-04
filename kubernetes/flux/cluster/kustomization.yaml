@@ -8,4 +8,5 @@ kind: Kustomization
 resources:
   - ../../apps/cert-manager
   - ../../apps/cnpg-system
+  - ../../apps/reloader
   - ../../apps/sunfire

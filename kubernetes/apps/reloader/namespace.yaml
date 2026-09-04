@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: reloader
+  annotations:
+    # Same hazard as the sunfire and cert-manager namespaces: the parent
+    # flux-system Kustomization runs prune: true and this Namespace sits in its
+    # inventory, so dropping it from git would delete it and cascade. Deleting
+    # it stays a manual act.
+    kustomize.toolkit.fluxcd.io/prune: disabled

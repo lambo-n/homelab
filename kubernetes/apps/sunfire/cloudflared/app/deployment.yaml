@@ -3,6 +3,14 @@ kind: Deployment
 metadata:
   name: cloudflared
   namespace: sunfire
+  annotations:
+    # Restart this Deployment when a Secret or ConfigMap it references changes.
+    # Env vars from secretKeyRef are read once at container start, so without
+    # this a rotated Secret reports success and changes nothing.
+    # Consumes cloudflared-token. A tunnel-token rotation is exactly the
+    # kind of change that looks applied and is not -- the connector keeps its old
+    # credential until the pod restarts.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   selector:

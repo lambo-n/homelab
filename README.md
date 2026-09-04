@@ -38,6 +38,7 @@ kubernetes/apps/cert-manager/       cert-manager   (exists only for the barman p
 kubernetes/apps/cnpg-system/
   ├── cloudnative-pg/      CNPG operator
   └── plugin-barman-cloud/ Barman Cloud CNPG-I plugin (must share the operator's namespace)
+kubernetes/apps/reloader/         restarts workloads when their Secrets change
 kubernetes/apps/sunfire/
   ├── namespace.yaml
   ├── storage/       PV + PVC on NFS archive-pool  (prune permanently disabled)

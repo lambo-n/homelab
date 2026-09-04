@@ -782,9 +782,11 @@ down" posture is inbound-only).
 
 - [ ] Convert cloudflared to a **locally-managed** tunnel — `config.yaml` in a ConfigMap, ingress
       routing in git
-- [ ] **Deploy Reloader** (`reloader.stakater.com/auto: "true"`) so secret rotation restarts pods
-      — **promoted 2026-09-04**: the CNPG cutover proved a Secret change reports success while
-      changing nothing until the pod is restarted by hand. See Phase 5
+- [x] ~~**Deploy Reloader** (`reloader.stakater.com/auto: "true"`) so secret rotation restarts
+      pods~~ — **done 2026-09-04**, chart `2.2.16` (appVersion `v1.4.21`), own namespace, no
+      `dependsOn` so it cannot wedge the sunfire graph. All four sunfire Deployments annotated.
+      Promoted from convenience to correctness by the CNPG cutover, which reported success while
+      PostgREST went on serving from the old database — see Phase 5
 - [ ] OpenTofu module for Cloudflare: DNS, tunnel routes, the MinIO CORS Transform Rule
 - [ ] Import the 5 existing Proxmox VMs into OpenTofu state **without recreating them**
 

@@ -3,6 +3,15 @@ kind: Deployment
 metadata:
   name: postgrest
   namespace: sunfire
+  annotations:
+    # Restart this Deployment when a Secret or ConfigMap it references changes.
+    # Env vars from secretKeyRef are read once at container start, so without
+    # this a rotated Secret reports success and changes nothing.
+    # Consumes postgrest-config (PGRST_DB_URI, PGRST_JWT_SECRET) via
+    # secretKeyRef. This is the Deployment that proved the point on 2026-09-04:
+    # the CNPG cutover changed the Secret, Flux reported Ready, and this pod kept
+    # serving from the old database until it was restarted by hand.
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   selector:
