@@ -40,12 +40,72 @@ Add **Transform Rules : Edit** *only* if the MinIO CORS rule turns out to be
 needed — see `cloudflare-transform.tf.example`, which argues it may be
 vestigial and should perhaps be deleted rather than codified.
 
-Then:
+### Creating it
+
+1. **dash.cloudflare.com → My Profile → API Tokens → Create Token → Create Custom Token.**
+2. Permissions — all three, exactly:
+
+   | Type | Resource | Level |
+   |---|---|---|
+   | Account | Cloudflare Tunnel | Edit |
+   | Zone | DNS | Edit |
+   | Zone | Zone | Read |
+
+3. **Account Resources:** Include → Sunfire.
+   **Zone Resources:** Include → Specific zone → `sunosrs.cc`.
+4. Continue → Create. **The token is shown once.**
+
+### Loading it — without writing it to disk
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars   # gitignored
-$EDITOR terraform.tfvars                       # token + zone id
+read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
 ```
+
+`read -rs` keeps it out of shell history. The provider reads
+`CLOUDFLARE_API_TOKEN` natively, so nothing needs to go in `terraform.tfvars`.
+
+### Verify it before using it
+
+```bash
+curl -s https://api.cloudflare.com/client/v4/user/tokens/verify \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.success, .result.status'
+```
+
+Expect `true` and `"active"`. A token missing a scope still verifies — the
+scopes are checked at use, so a later 403 on a specific call means a missing
+permission, not a bad token.
+
+### The two IDs the config needs
+
+```bash
+# Zone id
+curl -s "https://api.cloudflare.com/client/v4/zones?name=sunosrs.cc" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result[0].id'
+
+# DNS record ids -- these replace REPLACE_WITH_RECORD_ID in cloudflare-dns.tf
+ZONE=<zone id from above>
+for h in minio-api db; do
+  printf '%s ' "$h"
+  curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?name=$h.sunosrs.cc" \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result[0].id'
+done
+```
+
+Put the zone id in `terraform.tfvars` (it is not secret) and paste each record
+id into the matching `import` block.
+
+### Worth reading before the apply
+
+```bash
+curl -s "https://api.cloudflare.com/client/v4/accounts/1b0e61d1024b78dd4bf289271823192f/cfd_tunnel/b42c20c1-2d20-43ee-a17c-15f9849e5f13/configurations" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.result.config'
+```
+
+That is the dashboard ingress the connector is using today. It should match
+`kubernetes/apps/sunfire/cloudflared/app/configmap.yaml` rule for rule, modulo
+the `warp-routing` key that only exists in the remote schema. **If it does not
+match, stop** -- the local rules are what take over the moment `config_src`
+flips, and a difference here is a difference in live routing.
 
 ## Order of operations
 

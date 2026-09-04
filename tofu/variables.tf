@@ -2,10 +2,15 @@ variable "cloudflare_api_token" {
   description = <<-EOT
     Cloudflare API token. NOT the wrangler OAuth token, NOT an Access service
     token, NOT the tunnel token -- none of those can manage configuration.
-    Required scopes are listed in README.md.
+    Required scopes are in README.md.
+
+    Leave this null and export CLOUDFLARE_API_TOKEN instead: the provider reads
+    that natively, and the token then never lands on disk in terraform.tfvars.
+    Set it here only if you have a reason to.
   EOT
   type        = string
   sensitive   = true
+  default     = null
 }
 
 variable "cloudflare_account_id" {
@@ -32,8 +37,13 @@ variable "proxmox_endpoint" {
 }
 
 variable "proxmox_api_token" {
-  description = "Proxmox API token, formatted user@realm!tokenid=uuid. Separate from the Cloudflare token and independently obtainable."
+  description = <<-EOT
+    Proxmox API token, formatted user@realm!tokenid=uuid. Separate from the
+    Cloudflare token and independently obtainable.
+
+    Same advice: leave null and export PROXMOX_VE_API_TOKEN.
+  EOT
   type        = string
   sensitive   = true
-  default     = ""
+  default     = null
 }

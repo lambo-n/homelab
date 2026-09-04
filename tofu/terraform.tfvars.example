@@ -1,6 +1,10 @@
-# Copy to terraform.tfvars (gitignored) and fill in.
-cloudflare_api_token = "..."  # see README.md for the exact scopes
-cloudflare_zone_id   = "..."  # sunosrs.cc; readable from the dashboard or `GET /zones`
+# Copy to terraform.tfvars (gitignored) ONLY if you cannot use environment
+# variables. Preferred instead:
+#
+#   export CLOUDFLARE_API_TOKEN=...      # read natively by the provider
+#   export PROXMOX_VE_API_TOKEN=...
+#
+# which keeps both tokens off disk entirely. The one value you do need here is
+# the zone id, which is not secret.
 
-# Only needed for the Proxmox import. Independent of the Cloudflare token.
-proxmox_api_token = "root@pam!opentofu=00000000-0000-0000-0000-000000000000"
+cloudflare_zone_id = "..."  # sunosrs.cc -- see README.md step 3
