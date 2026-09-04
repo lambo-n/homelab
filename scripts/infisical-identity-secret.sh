@@ -63,6 +63,32 @@ printf '\n'
 [ -n "$CLIENT_ID" ]     || { echo "!! empty client id -- nothing written";     exit 1; }
 [ -n "$CLIENT_SECRET" ] || { echo "!! empty client secret -- nothing written"; exit 1; }
 
+# Shape checks. These exist because a terminal paste of a long value is not
+# reliably a paste of that value: the first real run stored the 64-char secret
+# TWICE, joined by a backslash at position 64, from line-wrapping. It encrypted
+# and committed cleanly and would have failed only as a Pending InfisicalSecret
+# in the cluster, which is this operator's silent failure mode.
+#
+# Nothing here prints a value -- only what is wrong with it.
+CLIENT_ID="$CLIENT_ID" CLIENT_SECRET="$CLIENT_SECRET" python3 - <<'PYCHECK' || exit 1
+import os, re, sys
+cid, sec = os.environ["CLIENT_ID"], os.environ["CLIENT_SECRET"]
+bad = []
+if not re.fullmatch(r"[0-9a-f-]{36}", cid):
+    bad.append("client id is not a 36-char UUID (got %d chars)" % len(cid))
+if "\\" in sec or any(c.isspace() for c in sec):
+    bad.append("client secret contains a backslash or whitespace -- almost certainly a wrapped paste")
+half = len(sec) // 2
+if len(sec) % 2 == 0 and half and sec[:half] == sec[half:]:
+    bad.append("client secret is the same value twice -- a doubled paste")
+if not re.fullmatch(r"[0-9a-f]{64}", sec):
+    bad.append("client secret is not 64 lowercase hex chars (got %d)" % len(sec))
+if bad:
+    sys.stderr.write("!! refusing to write:\n" + "".join("   - %s\n" % b for b in bad))
+    sys.stderr.write("   re-run and paste again; nothing was written.\n")
+    sys.exit(1)
+PYCHECK
+
 # The operator reads these two keys by these exact names; they are not
 # arbitrary. See the credentialsRef in infisicalsecret.yaml.
 CLIENT_ID="$CLIENT_ID" CLIENT_SECRET="$CLIENT_SECRET" python3 -c '
