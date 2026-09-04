@@ -46,7 +46,7 @@ kubernetes/apps/sunfire/
   ├── namespace.yaml
   ├── storage/       PV + PVC on NFS archive-pool  (prune permanently disabled)
   ├── minio/         S3 object storage             → minio-api.sunosrs.cc
-  ├── postgres/      PostgreSQL 16                 (rollback path, still running)
+  ├── postgres/      legacy credential only        (Deployment retired 2026-09-04)
   ├── postgres-cnpg/ CNPG Cluster + ObjectStore    (live since 2026-09-04)
   ├── postgrest/     REST over Postgres            → db.sunosrs.cc
   └── cloudflared/   locally-managed tunnel        (routing in configmap.yaml)
@@ -63,14 +63,22 @@ Each app is `ks.yaml` (a Flux `Kustomization`) + `app/` (the plain manifests).
 Ordering is expressed with `dependsOn`:
 
 ```
-storage ─┬─ minio ──────┬─ cloudflared
-         └─ postgres ── postgrest ─┘
-
+storage ─┬─ minio ────────────────────┬─ cloudflared
+         └─ postgres ── postgrest ────┘
+                     └─ postgres-cnpg ─┬─ (also minio, plugin-barman-cloud)
 cert-manager ──────┬─ plugin-barman-cloud
 cloudnative-pg ────┘
 
+infisical-secrets-operator ── sunfire-infisical
 kube-prometheus-stack ── flux-monitoring
 ```
+
+> The `postgres` node is no longer a database — since 2026-09-04 that
+> Kustomization holds only the `postgres-credentials` Secret. The two edges into
+> it survive for different reasons: `postgres-cnpg` genuinely needs that Secret
+> for its `externalClusters` reference, while `postgrest`'s edge is vestigial and
+> should point at `postgres-cnpg`. Harmless — a secret-only Kustomization is
+> always Ready — but worth correcting the next time that file is touched.
 
 `reloader` and `kube-prometheus-stack` deliberately have no `dependsOn` at all:
 nothing in the cluster depends on either, so neither can wedge the sunfire or
@@ -271,15 +279,16 @@ as healthy), and k3s serves the apiserver's metrics on the kubelet endpoint, so
 43% of the TSDB was the control plane stored twice. Both are written up under
 `GITOPS.md` Phase 7.
 
-The legacy `postgres` Deployment was **scaled to zero on 2026-09-04** — the
-reversible half of retiring it. Object, Service and PVC are all kept, so rolling
-back is `replicas: 1` plus flipping `PGRST_DB_URI`. Note that the CNPG Cluster's
-bootstrap still names that Service as an import source; it is read once at
-creation and never again, but recreating the Cluster from git would run it
-against a zero-replica source.
+The legacy `postgres` Deployment and Service were **retired on 2026-09-04** —
+scaled to zero first, then deleted and pruned, with PostgREST serving from
+`postgres-cnpg-rw` throughout at 0 restarts. The `postgres-credentials` Secret
+is kept on purpose: `postgres-cnpg`'s `cluster.yaml` names it as the
+`externalClusters` password, so deleting it would leave the live CNPG spec
+referencing a Secret that is not there. Reviving the legacy database is now a
+git-history operation, and its NFS PV/PVC are still bound and `Retain`.
 
-Deliberately still open, with reasoning in `GITOPS.md`: deleting the legacy
-`postgres` Deployment and its NFS PV/PVC, VolSync is deferred for want of a
+Deliberately still open, with reasoning in `GITOPS.md`: retiring the legacy NFS
+PV/PVC, VolSync is deferred for want of a
 destination that is not the source pool, pinning `sanoid` in host config waits
 for that layer to exist, and there is no log aggregation — Loki needs its own
 storage answer before the third Flux dashboard is worth deploying.

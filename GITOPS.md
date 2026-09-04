@@ -526,13 +526,22 @@ down" posture is inbound-only).
 - [x] ~~**Cut PostgREST over** to `postgres-cnpg-rw.sunfire.svc.cluster.local`~~ — **done
       2026-09-04**, after the restore drill passed. Verified end to end: `HTTP 206`,
       `Content-Range: 0-0/57` through PostgREST, `401` anonymous. No Worker change was needed
-- [ ] Retire the old `postgres` Deployment and its NFS PV/PVC — **scaled to `replicas: 0`
-      2026-09-04**, the reversible half. The object, its Service and its PVC are all kept, so
-      rolling back is `replicas: 1` plus flipping `PGRST_DB_URI`. Verified at the time: Flux
-      stayed Ready (kstatus treats a zero-replica Deployment as Current, so the health check
-      and the two dependent Kustomizations were unaffected), and PostgREST kept serving from
-      `postgres-cnpg-rw` with 0 restarts. Deleting the Deployment, and separately the PV/PVC,
-      is still open — see the two cautions below
+- [x] ~~Retire the old `postgres` **Deployment**~~ — **done 2026-09-04, in two steps.**
+      Scaled to `replicas: 0` first (Flux stayed Ready throughout — kstatus treats a
+      zero-replica Deployment as Current, so the health check and the two dependent
+      Kustomizations were unaffected), then the Deployment and Service were deleted and
+      pruned. PostgREST served from `postgres-cnpg-rw` across both, 0 restarts. Two things
+      had to be kept back: the `postgres-credentials` Secret, because
+      `postgres-cnpg/app/cluster.yaml` names it as the `externalClusters` password and
+      deleting it would leave the live CNPG spec pointing at a Secret that is not there; and
+      the `ks.yaml` healthCheck had to be **removed in the same commit** — a healthCheck on a
+      deleted object fails its Kustomization, and `sunfire-postgrest` and
+      `sunfire-postgres-cnpg` both `dependsOn` this one, so it would have wedged them
+- [ ] Retire the legacy NFS **PV/PVC** (`postgres-pvc` → `postgres-pv`, 100 GiB, `Retain`) —
+      still bound, still holding the pre-cutover data, deliberately. They live in
+      `sunfire-storage` where prune is permanently disabled, so removing them is a manual act
+      and not something a git edit can do by accident. Do it when the legacy data is no longer
+      wanted at all — see the decay caution below
 - [x] ~~**Test a restore into a scratch namespace**~~ — **run and passed 2026-09-04**. Restored
       to healthy in 56s, row counts matched exactly, `authenticator`'s SCRAM hash fingerprint
       was identical to the source, and PITR landed between two marker writes rather than merely
@@ -549,15 +558,27 @@ down" posture is inbound-only).
 > imports from it. That is read **once at cluster creation and never again**;
 > `postgres-cnpg` is `Initialized`, so it will not reach for it. But deleting and
 > recreating that Cluster from git — which is exactly what a naive "let Flux
-> rebuild it" would do — would run the bootstrap against a Deployment scaled to
-> zero and fail. Scale it back to 1 first, or rebuild from the barman backups,
-> which is the path with a passing restore drill behind it.
+> rebuild it" would do — would run the bootstrap against a hostname that no
+> longer resolves, since the Service was deleted on 2026-09-04. **Rebuild from
+> the barman backups instead**, which is the path with a passing restore drill
+> behind it. Reviving the legacy source is now a git-history operation: recover
+> `deployment.yaml` and `service.yaml` from the commit that removed them. The
+> live Cluster is unaffected either way — verified `healthy` with the dangling
+> reference in place.
 >
 > ⚠️ **The rollback value decays, so this is a soft deadline rather than none.**
 > The legacy data is frozen at the 2026-09-04 cutover. Every write CNPG takes
 > since makes rolling back to it a data-loss event rather than a recovery, and at
 > some point the honest recovery path is the backups, not this. Near-zero today
-> only because the new Worker does not exist yet.
+> only because the new Worker does not exist yet. This is the clock the PV/PVC
+> item above is waiting on — when rolling back would lose more than it saves,
+> there is nothing left to keep them for.
+>
+> **Loose end, not urgent:** `sunfire-postgrest` still `dependsOn:
+> sunfire-postgres`, which now resolves to a Kustomization holding one Secret.
+> Harmless — it is always Ready — but the edge no longer means what it says.
+> PostgREST's real dependency is `sunfire-postgres-cnpg`. Worth correcting the
+> next time that file is touched, not on its own.
 
 > ✅ **Reloader deployed and proven 2026-09-04** (Phase 6, pulled forward). Not
 > assumed to work — tested the same way the backups were. A throwaway
