@@ -11,7 +11,15 @@
 # its routing from the edge anyway -- silently, with nothing in the logs saying
 # the local rules were ignored. See GITOPS.md Phase 6.
 #
-# Flipping this one attribute is what makes the ConfigMap live routing.
+# 🛑 AND IT CANNOT BE FLIPPED IN PLACE. Discovered 2026-09-04 by running the
+# plan: the provider marks config_src ForceNew, so setting it to "local" here
+# planned `-/+ must be replaced ... this will destroy the imported resource`.
+# Replacing the tunnel mints a NEW UUID, which orphans both CNAMEs (they point
+# at b42c20c1-....cfargotunnel.com) and invalidates the credentials.json the
+# cluster is running. That is a self-inflicted outage, not a conversion.
+#
+# So config_src is left unmanaged and this resource is import-and-hold only.
+# Closing the item needs a different route -- see GITOPS.md Phase 6.
 #
 # Verified 2026-09-04, once the token existed: the live remote ingress read
 #   minio-api.sunosrs.cc -> http://minio.sunfire.svc.cluster.local:9000
@@ -29,12 +37,24 @@ import {
 
 resource "cloudflare_zero_trust_tunnel_cloudflared" "sunfire" {
   account_id = var.cloudflare_account_id
-  name       = "sunfire"
 
-  # THE change. Everything else in this file is import-and-hold.
-  config_src = "local"
+  # Real name, read from the API 2026-09-04. It is "sunfire-homelab", not
+  # "sunfire" as this file first guessed.
+  name = "sunfire-homelab"
+
+  # config_src is DELIBERATELY NOT SET HERE. See the block comment above:
+  # the provider treats it as ForceNew, so declaring "local" plans a
+  # destroy-and-recreate of the live tunnel rather than an in-place flip.
+  # Leaving it unmanaged imports the tunnel and holds it without proposing
+  # anything.
 
   lifecycle {
+    # A tunnel replacement changes the UUID, which orphans both CNAMEs and
+    # invalidates the credentials.json running in the cluster. There is no
+    # legitimate reason for an apply here to destroy this resource, so make it
+    # impossible rather than rely on reading the plan carefully every time.
+    prevent_destroy = true
+
     # The tunnel secret is not managed here. It exists as a SOPS-encrypted
     # credentials.json in the cluster, derived from the original token, and
     # rotating it is a deliberate act -- not something an apply should do
