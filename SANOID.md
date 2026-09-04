@@ -101,6 +101,12 @@ GITOPS.md:
 	use_template = archival
 	recursive = no
 
+# The PGDATA zvol (STORAGE.md). A zvol does not appear in a plain `zfs list` --
+# use `zfs list -t volume` -- which is the usual reason this stanza gets left out.
+[archive-pool/vm-104-disk-0]
+	use_template = archival
+	recursive = no
+
 [template_archival]
 	frequently = 0
 	hourly = 24
@@ -137,6 +143,8 @@ GITOPS.md is emphatic here and it is the step people skip. **Do not test with
 `zfs rollback` on live data.** Clone the snapshot and inspect the clone; that
 proves the snapshot is readable and complete without risking the original.
 
+**For `minio-data`** (a filesystem dataset — the clone mounts itself):
+
 ```bash
 SNAP=$(zfs list -t snapshot -o name -s creation -H -r archive-pool/minio-data | tail -1)
 echo "$SNAP"
@@ -146,6 +154,27 @@ ls -la /archive-pool/restore-test
 du -sh /archive-pool/restore-test
 zfs destroy archive-pool/restore-test
 ```
+
+**For the PGDATA zvol, the same procedure does not apply.** A zvol clone is a
+*block device*, not a directory — there is nothing to `ls`. It appears under
+`/dev/zvol/` and carries the ext4 filesystem from `STORAGE.md` §3:
+
+```bash
+SNAP=$(zfs list -t snapshot -o name -s creation -H -r archive-pool/vm-104-disk-0 | tail -1)
+echo "$SNAP"
+zfs clone "$SNAP" archive-pool/pgdata-restore-test
+udevadm settle
+blkid /dev/zvol/archive-pool/pgdata-restore-test
+# expect: TYPE="ext4" LABEL="pgdata"
+zfs destroy archive-pool/pgdata-restore-test
+```
+
+`blkid` recognising the filesystem is the right stopping point. **Do not mount
+it to look inside.** The snapshot is crash-consistent — taken while Postgres was
+running — so the ext4 journal is dirty and mounting would replay it, and mounting
+a live database's filesystem image on the hypervisor is a good way to confuse
+yourself about which copy is real. If you ever genuinely need the contents, mount
+`-o ro,norecovery` and treat what you see as a crash image.
 
 Record the date you did this. An untested snapshot is a belief, not a backup.
 
