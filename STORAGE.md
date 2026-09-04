@@ -408,3 +408,31 @@ substitutes for the other, and `RESTORE.md` is still non-optional.
 `kubernetes/apps/sunfire/kustomization.yaml`. Add it once §5 verifies and
 `scripts/minio-barman-account.sh` has created the backup bucket — those are the
 two remaining blockers. Order does not matter between them; both must be done.
+
+## Appendix — `/mnt/sas1`, and why nothing else in this repo mentions it
+
+The `tailscale-gateway` LXC (CTID 100, `192.168.50.102`) bind-mounts
+`/mnt/sas1/tailscale-gateway-logs` from the Proxmox host. It surfaced 2026-09-04
+when the guest was imported into OpenTofu (`tofu/proxmox-container.tf`), and it
+is a third storage location alongside `local-lvm` and `archive-pool` that no
+other document here refers to.
+
+**It holds Tailscale SSH session recordings** — evidence for the question "did
+anyone get unrestricted access to the VMs". It predates k3s and was set up by
+hand, which is why it is in none of the GitOps material: it is older than the
+thing that would have captured it.
+
+Two consequences worth stating rather than leaving implicit:
+
+- **It is a security control with no reconciler and no alert.** If that
+  filesystem fills, fails or is unmounted, recording stops silently and the
+  first sign is an empty directory at the moment someone wants the evidence.
+  Nothing in Flux, tofu or sanoid watches it. `SANOID.md` covers
+  `archive-pool` only; these recordings are not snapshotted.
+- **`tofu` describes the mount, not the data.** The import captured the
+  `mount_point` block because it is part of the container's config. That is a
+  description of where the volume is attached — it says nothing about the
+  contents, and `prevent_destroy` on the container does not protect them.
+
+Left as-is deliberately. It is recorded here so the next person who finds the
+path does not have to ask what it is.
