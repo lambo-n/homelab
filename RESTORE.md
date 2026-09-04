@@ -244,7 +244,39 @@ file when the drill passes:
 
 | Date | Base backup restored | WAL replayed | PITR target hit | Roles verified |
 |---|---|---|---|---|
-| *not yet run* | — | — | — | — |
+| 2026-09-04 | ✅ 56s to healthy | ✅ | ✅ exact | ✅ hash-matched |
+
+**2026-09-04 — first run, passed on every check.**
+
+- `pg-drill` recovered from `s3://sunfire-postgres-backups/` and reached
+  `Cluster in healthy state` in 56 seconds. Pod came up `1/1`, not `2/2` — no
+  plugin sidecar, confirming §2's rule held: the drill never became an archiver.
+- **Row counts matched exactly**: 57 in the restored database, 57 in the source.
+- All four roles present with correct attributes, and the `SET ROLE` chain
+  resolved `authenticator → sunfire_readwrite`.
+- **`authenticator`'s password survived.** `pg_authid.rolpassword` is
+  `SCRAM-SHA-256$…` in both, and the md5 fingerprints are identical
+  (`a7080c9c9a705d645a62302e072aef79`), so it authenticates exactly as the source
+  does. This was the check worth designing for — CNPG dumps roles without their
+  hashes, so a NULL password here looks like a perfectly healthy cluster until
+  PostgREST tries to connect. Verified by comparing fingerprints, never by
+  handling the plaintext.
+- **PITR proved exact**, not approximate. Two marker rows were written to a
+  throwaway `pitr_test` schema at `01:06:20.46` and `01:06:41.07`, WAL was
+  switched, and a second cluster (`pg-drill-pitr`) recovered with
+  `targetTime: 01:06:30+00`. It came up holding **only** marker 1 — it stopped
+  between the two writes. The first drill cluster, restored to an earlier point,
+  correctly had no `pitr_test` schema at all. Two different recovery points from
+  one catalogue, each landing where asked.
+- **The drill wrote nothing.** The bucket contains only the `postgres-cnpg/`
+  prefix; no `pg-drill*` objects exist.
+- Teardown was clean: namespace deleted, no orphaned PVs, and the zvol went back
+  to 62.01 GiB free of 62.44. The `pitr_test` schema was dropped from the source
+  and `guide_media_assets` still reads 57 rows.
+
+> The probe schema was deliberately **not** `public`. `PGRST_DB_SCHEMAS=public`,
+> so a probe table in `public` would have entered PostgREST's schema cache and
+> become visible over the tunnel the moment the cutover happened.
 
 An untested backup is a belief. A backup tested once, a year ago, against a
 schema that has since changed, is a slightly older belief.

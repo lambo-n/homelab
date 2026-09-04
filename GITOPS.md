@@ -510,9 +510,11 @@ down" posture is inbound-only).
       an on-demand base backup are verified against MinIO
 - [ ] **Cut PostgREST over** to `postgres-cnpg-rw.sunfire.svc.cluster.local` and retire the old
       `postgres` Deployment — a deliberate, separate commit. Do the restore drill first
-- [ ] **Test a restore into a scratch namespace** — untested backups aren't backups.
-      Runbook written (`RESTORE.md`); **now unblocked** — a completed backup and archived WAL
-      both exist, and the zvol has 62 GiB free for the drill's second PGDATA
+- [x] ~~**Test a restore into a scratch namespace**~~ — **run and passed 2026-09-04**. Restored
+      to healthy in 56s, row counts matched exactly, `authenticator`'s SCRAM hash fingerprint
+      was identical to the source, and PITR landed between two marker writes rather than merely
+      "somewhere after the base backup". Drill wrote nothing to the bucket; teardown left no
+      orphans. Full record in `RESTORE.md` §7
 - [ ] ~~VolSync for the MinIO PVC~~ — **deferred, see below.** There is no destination for it
       on this cluster today that is not either the source volume or the source pool
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
