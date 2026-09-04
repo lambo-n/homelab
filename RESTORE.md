@@ -196,7 +196,8 @@ into a shell variable — do not paste it into a command line that lands in
 history.
 
 > ⚠️ **`kubectl exec` is refused by the assistant's tooling** (see the memory
-> note and GITOPS.md Phase 5, "Two steps are yours"). Every command in this
+> note and GITOPS.md → "k3s / storage substrate", "Three steps are yours").
+> Every command in this
 > section is yours to run.
 
 ## 5. PITR — the thing base backups alone cannot do
