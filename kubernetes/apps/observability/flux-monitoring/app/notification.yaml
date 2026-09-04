@@ -67,4 +67,10 @@ spec:
     - kind: HelmRepository
       name: '*'
       namespace: '*'
-  summary: "flux reconcile error on k3s-homelab"
+  # `.spec.summary` is deprecated in v1beta3 -- notification-controller logs a
+  # warning on every dispatch and points here instead. Each key becomes a label
+  # on the alert Alertmanager receives, alongside the ones the event already
+  # carries (alertname, kind, name, namespace, reason, revision, severity).
+  eventMetadata:
+    summary: "flux reconcile error"
+    cluster: k3s-homelab
