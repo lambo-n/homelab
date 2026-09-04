@@ -30,38 +30,18 @@
 # remote schema only. So nothing is dropped when local rules take over -- that
 # was the one thing that could not be checked when the ConfigMap was written,
 # because it was transcribed from a connector log line rather than the API.
-import {
-  to = cloudflare_zero_trust_tunnel_cloudflared.sunfire
-  id = "${var.cloudflare_account_id}/${var.tunnel_id}"
-}
-
-resource "cloudflare_zero_trust_tunnel_cloudflared" "sunfire" {
-  account_id = var.cloudflare_account_id
-
-  # Real name, read from the API 2026-09-04. It is "sunfire-homelab", not
-  # "sunfire" as this file first guessed.
-  name = "sunfire-homelab"
-
-  # config_src is DELIBERATELY NOT SET HERE. See the block comment above:
-  # the provider treats it as ForceNew, so declaring "local" plans a
-  # destroy-and-recreate of the live tunnel rather than an in-place flip.
-  # Leaving it unmanaged imports the tunnel and holds it without proposing
-  # anything.
-
-  lifecycle {
-    # A tunnel replacement changes the UUID, which orphans both CNAMEs and
-    # invalidates the credentials.json running in the cluster. There is no
-    # legitimate reason for an apply here to destroy this resource, so make it
-    # impossible rather than rely on reading the plan carefully every time.
-    prevent_destroy = true
-
-    # The tunnel secret is not managed here. It exists as a SOPS-encrypted
-    # credentials.json in the cluster, derived from the original token, and
-    # rotating it is a deliberate act -- not something an apply should do
-    # because a field drifted.
-    ignore_changes = [tunnel_secret]
-  }
-}
+# ⚠️ The tunnel object itself is NOT managed here. Removed 2026-09-04 after an
+# apply failed on it with:
+#
+#   PATCH /accounts/{acct}/cfd_tunnel/{tunnel}
+#   404 {"code":1002,"message":"Tunnel not found"}
+#
+# on a tunnel the provider had imported successfully seconds earlier. Nothing
+# declared on it differed from reality -- name matched, config_src was left
+# unset -- so the provider attempted a write for computed drift alone and the
+# API rejected it. Managing this object buys nothing: its identity is the only
+# thing that matters and must never change. The configuration resource below is
+# a different object and is where the useful field lives.
 
 # ---------------------------------------------------------------------------
 # The actual route to local management.

@@ -126,6 +126,34 @@ flips, and a difference here is a difference in live routing.
    `1033` means the origin map is wrong. `sunfire/DATA-ACCESS.md` has the full
    status-code decoder.
 
+## Gotchas hit on the first real apply (2026-09-04)
+
+Both are provider-side, and both are recorded because the next person will hit
+them identically.
+
+**The tunnel object cannot be managed.** `cloudflare_zero_trust_tunnel_cloudflared`
+imported fine and then failed its update with `PATCH … 404 {"code":1002,"message":
+"Tunnel not found"}` — on a tunnel it had read seconds earlier. Nothing declared
+on it differed from reality, so it attempted a write for computed drift alone.
+It is no longer in this config. If it is still in your state from an earlier
+run, `tofu state rm cloudflare_zero_trust_tunnel_cloudflared.sunfire` — removing
+a resource from config while it remains in state makes the next plan propose
+**destroying** it, and the `prevent_destroy` guard leaves with the block.
+
+**`config_src` is ForceNew on the tunnel, and unusable.** Declaring it plans a
+destroy-and-recreate, which mints a new UUID and orphans both CNAMEs plus the
+cluster's `credentials.json`. The same field is `source` on the *configuration*
+resource, which is a separate object — that is the one to use.
+
+**Setting `source` without `config` trips a provider bug:** `Value Conversion
+Error … Received unknown value, however the target type cannot handle unknown
+values. Path: config`. The provider cannot represent an unknown nested `config`,
+so the attribute has to be given explicitly rather than left to be computed.
+
+Nothing user-facing broke through any of it: both hostnames stayed at `HTTP 403`
+and the connector never restarted, because none of the failures reached the
+edge's serving config.
+
 ## Proxmox
 
 Separate token, independently obtainable, and **not** required for the
