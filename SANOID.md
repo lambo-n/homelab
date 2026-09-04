@@ -123,8 +123,22 @@ it and a space-indented key is silently ignored rather than rejected.
 Dry-run before letting the timer near it:
 
 ```bash
-sanoid --configdir=/etc/sanoid --cron --dry-run --verbose
+sanoid --configdir=/etc/sanoid --cron --readonly --verbose
 ```
+
+The flag is `--readonly`, **not** `--dry-run` — sanoid rejects the latter with a
+bare usage dump, which reads like a config error and is not one.
+
+Confirm the indentation actually became tabs before trusting any of it. A
+space-indented key is silently ignored, so a config that *looks* right can
+produce no snapshots at all:
+
+```bash
+grep -Pc '^\t' /etc/sanoid/sanoid.conf     # expect 13
+```
+
+If that prints 0, the substitution did not take — fall back to
+`perl -i -pe 's/^ +/\t/' /etc/sanoid/sanoid.conf` and re-check.
 
 Then enable:
 
