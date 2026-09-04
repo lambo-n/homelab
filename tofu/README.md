@@ -193,21 +193,24 @@ Nothing user-facing broke through any of it: both hostnames stayed at `HTTP 403`
 and the connector never restarted, because none of the failures reached the
 edge's serving config.
 
-## Proxmox — the last open item in Phase 6
+## Proxmox
 
-**Run 2026-09-04, and it half worked.** One of the five guests is in state; the
-other four are blocked on a Proxmox privilege rather than on anything missing
-here. `192.168.50.101` accepts no key from this VM
+**Done 2026-09-04 — all five guests, clean plan.** It took two passes: the LXC
+imported under `PVEAuditor`, the four VMs needed one extra privilege, granted
+briefly and revoked. `192.168.50.101` accepts no key from this VM
 (`Permission denied (publickey)`), so the token and the `pveum` commands come
 from someone with a console or a password there — everything after that is API.
 
 | Guest | Kind | State |
 |---|---|---|
-| `tailscale-gateway` (CTID 100, `.102`) | LXC | **imported**, `proxmox-container.tf`, clean plan |
-| `dev` (101, `.103`) | QEMU | blocked — `VM.Config.Disk` |
-| `k3s-control` (102, `.104`) | QEMU | blocked — `VM.Config.Disk` |
-| `k3s-worker1` (103, `.105`) | QEMU | blocked — `VM.Config.Disk` |
-| `k3s-worker2` (104, `.106`) | QEMU | blocked — `VM.Config.Disk` |
+| `tailscale-gateway` (CTID 100, `.102`) | LXC | imported — `proxmox-container.tf` |
+| `dev` (101, `.103`) | QEMU | imported — `proxmox-vms.tf`; hosts this state file |
+| `k3s-control` (102, `.104`) | QEMU | imported — `proxmox-vms.tf` |
+| `k3s-worker1` (103, `.105`) | QEMU | imported — `proxmox-vms.tf`; minio |
+| `k3s-worker2` (104, `.106`) | QEMU | imported — `proxmox-vms.tf`; PGDATA zvol as `archive-pool:vm-104-disk-0`, scsi1, 64 GiB |
+
+All five carry `prevent_destroy`. A config that ever proposes replacing one of
+them fails the plan rather than running it.
 
 The fifth guest was `vpn-gateway` at an unknown CTID in the earlier draft here.
 It is `tailscale-gateway` at CTID 100 — outside the 101–104 run the VMs use, so
@@ -215,7 +218,7 @@ the "VMID + 2 = last octet" pattern is a coincidence of the VMs and not a rule.
 Both facts came from one API call, which is the argument for reading before
 writing an id.
 
-### The privilege that blocks the four VMs
+### The privilege that blocked the four VMs
 
 `PVEAuditor` is not enough, and the reason is worth stating precisely because
 "read-only cannot read it" sounds like a contradiction:
@@ -233,20 +236,31 @@ endpoint on `VM.Config.Disk` — the privilege that permits **changing** disk
 configuration. The data is readable; the provider asks for it by a route that
 requires write authority.
 
-That is a direct conflict with the read-only decision in `GITOPS.md` Phase 6,
-and `proxmox-vms.tf.example` carries the trade-off and the grant/revoke
-commands. The short version: `VM.Config.Disk` would let a token on this VM
-detach or resize the disks of the guests it is describing, `archive-pool:vm-104-disk-0`
-— the PGDATA zvol — among them. It would still **not** permit replacing a
-guest; that needs `VM.Allocate`, withheld either way.
-
 The LXC did not hit this: PVE gates container volume reads on `Datastore.Audit`,
 which `PVEAuditor` has.
 
-### Issue the token read-only — but know what that does and does not buy
+**How it was resolved, and how to repeat it.** A role holding *only* that one
+privilege, stacked on `PVEAuditor` and removed straight after:
 
-*(Read the privilege finding below before acting on this section: read-only is
-enough for the LXC and not for the four VMs.)*
+```bash
+# on 192.168.50.101, as root
+pveum role add TofuDisk --privs VM.Config.Disk
+pveum acl modify / --users tofu@pve --roles PVEAuditor,TofuDisk
+#   ...generate, review, import from this VM...
+pveum acl delete / --users tofu@pve --roles TofuDisk
+```
+
+Stacking beats editing the base role: the revoke removes one narrow grant rather
+than re-asserting a broad one, and it is checkable from here without SSH —
+
+```bash
+curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
+  https://192.168.50.101:8006/api2/json/access/permissions | jq '.data["/"]'
+```
+
+`VM.Allocate` was never granted at any point, so even inside the window the
+token could not replace a guest. Re-granting is needed only to regenerate a
+body; ordinary `tofu plan -refresh=false` makes no Proxmox API call at all.
 
 ### The argument for read-only
 
@@ -259,7 +273,10 @@ which is a diff to read. With a write-capable token the worst outcome is that
 apply carries it out and takes the PGDATA zvol with it.
 
 Widen the token later if a change genuinely needs to write, deliberately, for
-that change. Do not pre-authorize it.
+that change. Do not pre-authorize it. That is exactly how the `VM.Config.Disk`
+problem above was handled — one privilege, granted for one generation, revoked
+straight after — and `prevent_destroy` on all five resources is the belt to that
+token's braces: it does not depend on the token being read-only at all.
 
 ### On `192.168.50.101`, as root
 
@@ -304,10 +321,12 @@ curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
 Import IDs are `<node>/<vmid>` for both kinds; the node is `pve`. As of
 2026-09-04 it returns exactly the five rows in the table above.
 
-### The sequence
+### The sequence — for the next guest, or to regenerate an existing body
+
+All five are imported, so this is the procedure to repeat rather than a to-do.
+Write the `import` block first, with no resource body, then:
 
 ```bash
-mv proxmox-vms.tf.example proxmox-vms.tf           # import blocks only, no bodies
 tofu plan -refresh=false -generate-config-out=proxmox-generated.tf
 ```
 
@@ -322,22 +341,41 @@ Then **read** `proxmox-generated.tf` before anything else — it is gitignored
 precisely so a generated file cannot be committed unreviewed. Fold what is worth
 keeping into a real `.tf` file, delete the noise, and run `tofu plan` again.
 
-**That second plan must say "No changes."** Anything else means the config does
-not yet describe the machines — with one exception, already met once and worth
-recognising rather than chasing. The generated body sets `timeout_* = null` for
-attributes that have schema defaults, which produces a permanent "update
-in-place" whose entire diff is those timeouts. They are *this client's*
-patience, not anything Proxmox stores, so no apply against the host could ever
-settle them. `proxmox-container.tf` ignores them in a `lifecycle` block, with
-the reasoning inline. Two more generation artifacts came up there too:
-`entrypoint = ""` is emitted and then rejected by the provider's own validator,
-while `template_file_id = ""` looks identical and cannot be removed because the
-schema marks it required.
+**Expect the generated file not to validate.** Five attributes were emitted as
+empty or zero values for unset optionals and then rejected by the provider's
+*own* validators — generation and validation disagree, which is a provider bug
+rather than a fact about the hypervisor. Delete the attribute and let the schema
+default stand:
 
-Beyond that exception, anything else is real. Fix the config; never the machine. A generated
-body carries every computed attribute the provider felt like emitting, and some
-of them — disk layout above all — plan a **replacement** rather than an update
-when they are even slightly wrong. On `k3s-worker2` that is the database.
+| Attribute | What the validator says |
+|---|---|
+| `affinity = ""` | must contain numbers or number ranges separated by `,` |
+| `hugepages = ""` | expected one of `["1024" "2" "any"]` |
+| `units = 0` | expected units in the range (1 - 262144) |
+| `entrypoint = ""` (LXC) | Disallow Invalid Characters |
+
+`template_file_id = ""` looks like one of these and is not: the schema marks it
+required, so removing it fails with "Missing required argument". Keep it.
+
+`timeout_*` is the subtle one — it validates fine and is still wrong. Those
+attributes are *this client's* patience, not anything Proxmox stores, so import
+reads them as null, the schema defaults re-add them, and you get a permanent
+"update in-place" whose entire diff is timeouts: a diff no apply against the
+host could ever settle. `proxmox-container.tf` ignores them in a `lifecycle`
+block; the VM bodies omit them.
+
+One warning is expected and unfixable: `network_device.enabled` is deprecated,
+and the provider's advice ("remove the block instead") does not apply to an
+interface that is enabled and real. Deleting just the attribute fails with
+"Incorrect attribute value type" — `network_device` is a typed object list, so
+every attribute must be present.
+
+**Then the plan must say "No changes."** Anything else is real. Fix the config;
+never the machine. A generated body carries every computed attribute the
+provider felt like emitting, and some of them — disk layout above all — plan a
+**replacement** rather than an update when they are even slightly wrong. On
+`k3s-worker2` that is the database, which is why all five resources carry
+`prevent_destroy`: the guard turns that mistake into a failed plan.
 
 Two things the bpg provider will not do over an API token alone, neither of
 which this import needs: file uploads and some disk operations want root SSH to

@@ -227,9 +227,19 @@ addresses `minio-api.sunosrs.cc` — guide images are served same-origin by the
 Worker, which is the only S3 client. Delete the rule in the dashboard; nothing
 about it belongs in `tofu/`.
 
-**One item is left in Phase 6:** importing the five Proxmox guests into OpenTofu
-state, read-only. It needs a PVE API token, which — unlike the Cloudflare one —
-this operator can issue. `tofu/README.md` → "Proxmox" has the commands.
+**Phase 6 is closed.** All five Proxmox guests are in OpenTofu state — four VMs
+and the `tailscale-gateway` LXC — each body generated from the live guest and
+reviewed rather than hand-written, each carrying `prevent_destroy`. The plan is
+clean.
+
+Getting there turned up one thing worth knowing before repeating it:
+`PVEAuditor` cannot import a QEMU guest. The provider re-resolves every disk
+through a storage endpoint that PVE gates on `VM.Config.Disk` — a *write*
+privilege — even though the same disk string is already readable in the VM
+config. It was granted as a one-privilege `TofuDisk` role stacked on
+`PVEAuditor` for the generation and revoked immediately after; `VM.Allocate` was
+never granted at all, so replacing a guest was never something the token could
+do. `tofu/README.md` has the detail.
 
 Deliberately still open, with reasoning in `GITOPS.md`: the old `postgres`
 Deployment keeps running as the rollback path, VolSync is deferred for want of a

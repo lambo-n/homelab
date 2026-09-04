@@ -805,7 +805,7 @@ down" posture is inbound-only).
 > not deferred — sanoid protects the *volume*, barman protects the *database*.
 > Neither one substitutes for the other.
 
-### Phase 6 — Close the clickops gaps
+### Phase 6 — Close the clickops gaps ✅ *done 2026-09-04*
 
 - [x] ~~Convert cloudflared to a **locally-managed** tunnel~~ — **done 2026-09-04.** Ingress
       routing now lives in `configmap.yaml` and is read by the connector; the edge serves no
@@ -837,54 +837,73 @@ down" posture is inbound-only).
       want of the service token, so the rule's headers could never be exercised. Deleting it is
       a dashboard action, not a tofu one — codifying a rule in order to delete it later is
       strictly more work
-- [~] Import the 5 existing Proxmox guests into OpenTofu state **without recreating them** —
-      **1 of 5 done 2026-09-04.** A `tofu@pve!import` token was issued with `PVEAuditor` and
-      the `tailscale-gateway` LXC (CTID **100**, `.102`) is in state and planning clean —
-      `tofu/proxmox-container.tf`, body generated from the live container and reviewed, not
-      hand-written. The four QEMU guests are **blocked on a privilege, not on the token**: see
-      below. Also corrected two guesses in the old scaffold — the fifth guest is
+- [x] ~~Import the 5 existing Proxmox guests into OpenTofu state **without recreating them**~~
+      — **done 2026-09-04, all five, `0 to change, 0 to destroy`.** `tofu/proxmox-vms.tf`
+      (dev 101, control 102, workers 103/104) and `tofu/proxmox-container.tf`
+      (`tailscale-gateway`, CTID **100**). Every body was generated from the live guest with
+      `-generate-config-out` and then reviewed — none hand-written. All five carry
+      `prevent_destroy`, so a config that ever proposes replacing one fails the plan instead
+      of running it. Corrected two guesses in the old scaffold: the fifth guest is
       `tailscale-gateway`, not `vpn-gateway`, and CTID 100 sits outside the 101–104 run, so
-      "VMID + 2 = last octet" is a coincidence of the VMs rather than a rule
+      "VMID + 2 = last octet" holds for the VMs by coincidence rather than as a rule
 
-> ⚠️ **`PVEAuditor` cannot import a QEMU guest, and the reason is not what the error
-> says** *(found 2026-09-04)*. Every VM fails generation with
+> ⚠️ **`PVEAuditor` cannot import a QEMU guest, and the error names the wrong cause**
+> *(found 2026-09-04)*. Generation failed on every VM with
 > `403 Permission check failed (/vms/102, VM.Config.Disk)`.
 >
 > The VM config itself reads fine — `GET /nodes/pve/qemu/102/config` returns
 > `scsi0 = "local-lvm:vm-102-disk-0,iothread=1,size=15G"`, disk string and all. It is the
 > *second* call that fails: bpg/proxmox re-resolves every volume through
 > `GET /nodes/pve/storage/{store}/content/{volume}`, and PVE gates that endpoint on
-> `VM.Config.Disk` — the privilege that permits **changing** disk configuration. The
-> information is readable by a token that already has it; the provider asks for it by a
-> route that requires write authority. So "read-only cannot read it" is not a
-> contradiction, it is an authorization model that does not separate those two things at
-> that endpoint.
+> `VM.Config.Disk` — the privilege that permits **changing** disk configuration. The data
+> is readable by a token that already has it; the provider asks for it by a route that
+> requires write authority. "Read-only cannot read it" is not a contradiction, it is an
+> authorization model that does not separate those two things at that endpoint.
 >
-> The LXC was unaffected: PVE gates container volume reads on `Datastore.Audit`, which
-> `PVEAuditor` has. That asymmetry is the whole reason one of five landed.
+> The LXC was unaffected — PVE gates container volume reads on `Datastore.Audit`, which
+> `PVEAuditor` has — which is why one of five landed before the rest.
 >
-> **This puts the read-only decision below in direct conflict with finishing the import**,
-> and that is a real trade-off rather than an oversight to route around. `VM.Config.Disk`
-> would let a token sitting on `.103` detach or resize the disks of the guests it is
-> describing — `archive-pool:vm-104-disk-0`, the PGDATA zvol, among them. It would still
-> not permit *replacing* a guest: that needs `VM.Allocate`, withheld either way. Grant and
-> revoke commands are in `tofu/proxmox-vms.tf.example`; generation is a one-time need, so
-> the privilege does not have to outlive it.
+> **Resolved by a scoped, temporary grant rather than by weakening the rule.** A `TofuDisk`
+> role holding *only* `VM.Config.Disk` was stacked on `PVEAuditor` for the generation and
+> removed immediately after:
+>
+> ```
+> pveum role add TofuDisk --privs VM.Config.Disk
+> pveum acl modify / --users tofu@pve --roles PVEAuditor,TofuDisk
+> ...generate, review, import...
+> pveum acl delete / --users tofu@pve --roles TofuDisk
+> ```
+>
+> Stacking a one-privilege role beats editing the base role: the revoke removes a narrow
+> grant instead of re-asserting a broad one, and `/access/permissions` shows plainly
+> whether it is in effect. Re-granting is needed only to regenerate a body — day-to-day
+> `tofu plan -refresh=false` makes no Proxmox API call at all.
+>
+> `VM.Allocate` was never granted, at any point. Even mid-window, replacing a guest was not
+> something this token could do.
 
 > **Why the Proxmox token is read-only.** The whole point of this import is to get the
 > guests *described* in code — it is not a step toward reconciling them. GITOPS.md already
 > rejects a reconciler that can delete the VMs it runs on; a write-capable token sitting on
 > this VM is a weaker version of the same hazard, since `.103` is itself one of the guests
-> in state. `PVEAuditor` makes the failure mode "plan proposes a replacement and cannot
-> carry it out" instead of "apply replaces `k3s-worker2` and takes the PGDATA zvol with
-> it". The finding above is the first real bill for that choice, and it is worth paying
-> deliberately rather than by default in either direction.
+> in state. The finding above was the first real bill for that choice, and it was paid
+> deliberately and briefly rather than by permanently widening the token.
 
-> **Both providers share one root module, so every plan needs both tokens.** A Proxmox-only
+> **Generated bodies need editing before they validate.** Four attributes came out of
+> `-generate-config-out` as empty or zero values for unset optionals and were then rejected
+> by the provider's *own* validators: `affinity = ""`, `hugepages = ""`, `units = 0`, and
+> `timeout_* ` (client-side patience Proxmox does not store, which otherwise produces a
+> permanent phantom "update in-place"). The container added `entrypoint = ""`, rejected the
+> same way, while `template_file_id = ""` looks identical and *cannot* be removed because
+> the schema marks it required. Generation and validation disagreeing is a provider bug,
+> not a fact about the hypervisor — delete the attribute and let the default stand.
+
+> **Both providers share one root module, so every plan wants both tokens.** A Proxmox-only
 > plan still refreshes the two Cloudflare DNS records and dies on
 > `9106 Missing X-Auth-Key, X-Auth-Email or Authorization headers`. `-refresh=false` is the
-> workaround and is now written into the runbook; separate root modules with separate state
-> is the fix, and has not been done.
+> workaround and is written into the runbook; separate root modules with separate state is
+> the fix, and has not been done.
+
 
 > ✅ **Locally-managed tunnel, done 2026-09-04 — and it took a new tunnel.**
 > `config_src` is **immutable after creation**, which Cloudflare reports as

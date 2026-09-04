@@ -102,6 +102,8 @@ resource "proxmox_virtual_environment_container" "tailscale_gateway" {
   # ever settle. Ignoring them is what makes "the plan must be clean" a rule
   # that can actually be enforced here.
   lifecycle {
+    prevent_destroy = true
+
     ignore_changes = [
       timeout_clone,
       timeout_create,
