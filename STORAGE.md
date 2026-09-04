@@ -230,6 +230,12 @@ systemctl start k3s-agent
 >
 > `tee` rather than `>` because `sudo cmd > file` performs the redirect as the
 > invoking user, not root, and fails on a root-owned directory.
+>
+> ⚠️ **`[Unit]` is case-sensitive.** `[UNIT]` parses as an unknown section and
+> `RequiresMountsFor=` is discarded — with no error, and `k3s-agent` starts
+> perfectly well without the guard. This happened on the first attempt here. The
+> `systemctl show` line above is what catches it: an empty result means the
+> drop-in is not registering, however correct the file looks when you `cat` it.
 
 Note the deliberate combination: `nofail` in fstab **and** `RequiresMountsFor`
 here. Without `nofail` a missing volume drops the box into an emergency shell
