@@ -495,11 +495,15 @@ down" posture is inbound-only).
 - [ ] Verify a snapshot rollback actually works before relying on it — `SANOID.md` §4
 - [x] ~~Deploy CNPG operator + `plugin-barman-cloud`~~ — done 2026-09-03, plus cert-manager,
       which the plugin hard-requires
-- [ ] Provision the PGDATA zvol on `archive-pool` and attach it to `k3s-worker2` — runbook
-      written (`STORAGE.md`); **yours to run**, `.101` has no SSH key for this VM
+- [x] ~~Provision the PGDATA zvol on `archive-pool` and attach it to `k3s-worker2`~~ — done
+      2026-09-04. `archive-pool/vm-104-disk-0`, 64G, `volblocksize` 8K, thick
+      (`refreservation` 66.0G), ext4 at `/var/lib/rancher/k3s/storage`; all three guards in
+      `STORAGE.md` §5 verified and the mount survives a reboot
+- [x] ~~Grow the worker root filesystems~~ — done 2026-09-03, 9.75 → 17.83 GiB each; the Ubuntu
+      installer had left 8.22 GiB unallocated in the VG, so no Proxmox resize was needed
 - [ ] Migrate `postgres` Deployment → CNPG `Cluster` (`instances: 1`) — manifests written and
-      validated against the live CRDs; **not wired into the root kustomization**, and blocked
-      on the zvol above and the backup bucket below
+      validated against the live CRDs; **not wired into the root kustomization**. The zvol is
+      now in place, so the only remaining blocker is the backup bucket below
 - [ ] `ObjectStore` → local MinIO; daily `ScheduledBackup` — written; blocked on the bucket +
       scoped service account (`scripts/minio-barman-account.sh`, **yours to run**)
 - [ ] **Test a restore into a scratch namespace** — untested backups aren't backups.

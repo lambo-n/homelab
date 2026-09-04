@@ -184,12 +184,11 @@ Renovate runs daily at 10:00 UTC against `home-operations/renovate-presets`
 operator and `plugin-barman-cloud` are installed and Ready. What remains is
 blocked on three things that only a human can do, in this order:
 
-1. **Run `STORAGE.md`** §1–5 on `.101` — create the 64 GiB PGDATA zvol on
-   `archive-pool`, attach it to `k3s-worker2` (VMID 104), mount it at
-   `/var/lib/rancher/k3s/storage`, and install the three guards that stop
-   `local-path` silently provisioning onto the root disk instead.
-   *(§6, worker root-disk growth for image churn, is **done** — both workers are
-   at 17.83 GiB with ~10.4 GiB free as of 2026-09-03.)*
+1. ~~**Run `STORAGE.md`**~~ — **done 2026-09-04.** The PGDATA zvol
+   (`archive-pool/vm-104-disk-0`, 64G, 8K blocks, thick) is mounted on
+   `k3s-worker2` at `/var/lib/rancher/k3s/storage` with all three guards
+   verified and surviving a reboot. Worker root filesystems grew 9.75 → 17.83
+   GiB. Only §7, the sanoid stanza, is outstanding.
 2. **Run `scripts/minio-barman-account.sh`** — creates the backup bucket and a
    scoped service account, writing the credential into the repo already
    SOPS-encrypted. It needs `kubectl exec`, which the assistant's tooling

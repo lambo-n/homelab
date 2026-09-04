@@ -4,6 +4,16 @@
 few steps inside `k3s-worker2`. The dev VM has no SSH key on `.101` and no route
 to the pool, so none of it can be run from there. See GITOPS.md Phase 5.
 
+> ✅ **§1–6 completed and verified 2026-09-03/04.** The zvol
+> `archive-pool/vm-104-disk-0` (64G, `volblocksize` 8K, `refreservation` 66.0G)
+> is attached to `k3s-worker2` as `/dev/sdb`, ext4 labelled `pgdata`, mounted at
+> `/var/lib/rancher/k3s/storage`. All three guards verified, including the
+> canary write being refused while unmounted and `systemctl show` reporting
+> `var-lib-rancher-k3s-storage.mount`. The mount reassembled by itself across a
+> reboot and the node returned `Ready`; `allocatable.ephemeral-storage`
+> refreshed from 9.26 GiB to 16.94 GiB at the same time. Both workers' root
+> filesystems are 17.83 GiB. §7 (sanoid) is still outstanding.
+
 Two independent jobs, and they are not the same job:
 
 | Job | Why | Where the data goes |
@@ -381,12 +391,13 @@ going to live on `local-path` and be unsnapshottable. Add the new volume beside
 the two datasets:
 
 ```ini
-[archive-pool/vm-<VMID>-disk-0]
+[archive-pool/vm-104-disk-0]
 	use_template = archival
 	recursive = no
 ```
 
-Substitute the real name from §2. Same caveat as everywhere else in this repo:
+That is the real name as built; confirm with `zfs list -t volume -r archive-pool`
+after a rebuild, since the VMID is in it. Same caveat as everywhere else in this repo:
 **a snapshot of a live Postgres is crash-consistent, not a backup.** It is a
 fast rollback for the volume; barman is what protects the database. Neither
 substitutes for the other, and `RESTORE.md` is still non-optional.
