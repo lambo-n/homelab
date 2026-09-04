@@ -271,8 +271,15 @@ as healthy), and k3s serves the apiserver's metrics on the kubelet endpoint, so
 43% of the TSDB was the control plane stored twice. Both are written up under
 `GITOPS.md` Phase 7.
 
-Deliberately still open, with reasoning in `GITOPS.md`: the old `postgres`
-Deployment keeps running as the rollback path, VolSync is deferred for want of a
+The legacy `postgres` Deployment was **scaled to zero on 2026-09-04** — the
+reversible half of retiring it. Object, Service and PVC are all kept, so rolling
+back is `replicas: 1` plus flipping `PGRST_DB_URI`. Note that the CNPG Cluster's
+bootstrap still names that Service as an import source; it is read once at
+creation and never again, but recreating the Cluster from git would run it
+against a zero-replica source.
+
+Deliberately still open, with reasoning in `GITOPS.md`: deleting the legacy
+`postgres` Deployment and its NFS PV/PVC, VolSync is deferred for want of a
 destination that is not the source pool, pinning `sanoid` in host config waits
 for that layer to exist, and there is no log aggregation — Loki needs its own
 storage answer before the third Flux dashboard is worth deploying.

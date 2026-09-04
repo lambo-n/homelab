@@ -526,9 +526,13 @@ down" posture is inbound-only).
 - [x] ~~**Cut PostgREST over** to `postgres-cnpg-rw.sunfire.svc.cluster.local`~~ — **done
       2026-09-04**, after the restore drill passed. Verified end to end: `HTTP 206`,
       `Content-Range: 0-0/57` through PostgREST, `401` anonymous. No Worker change was needed
-- [ ] Retire the old `postgres` Deployment and its NFS PV/PVC — deliberately still running as
-      the rollback path. Retiring it is a separate decision once the new cluster has run under
-      real traffic for a while
+- [ ] Retire the old `postgres` Deployment and its NFS PV/PVC — **scaled to `replicas: 0`
+      2026-09-04**, the reversible half. The object, its Service and its PVC are all kept, so
+      rolling back is `replicas: 1` plus flipping `PGRST_DB_URI`. Verified at the time: Flux
+      stayed Ready (kstatus treats a zero-replica Deployment as Current, so the health check
+      and the two dependent Kustomizations were unaffected), and PostgREST kept serving from
+      `postgres-cnpg-rw` with 0 restarts. Deleting the Deployment, and separately the PV/PVC,
+      is still open — see the two cautions below
 - [x] ~~**Test a restore into a scratch namespace**~~ — **run and passed 2026-09-04**. Restored
       to healthy in 56s, row counts matched exactly, `authenticator`'s SCRAM hash fingerprint
       was identical to the source, and PITR landed between two marker writes rather than merely
@@ -538,6 +542,22 @@ down" posture is inbound-only).
       on this cluster today that is not either the source volume or the source pool
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
+
+> ⚠️ **The CNPG bootstrap still names the legacy Service, and that is not a live
+> dependency — until it is.** `cluster.yaml` declares
+> `externalClusters: postgres-legacy` at `postgres.sunfire.svc.cluster.local` and
+> imports from it. That is read **once at cluster creation and never again**;
+> `postgres-cnpg` is `Initialized`, so it will not reach for it. But deleting and
+> recreating that Cluster from git — which is exactly what a naive "let Flux
+> rebuild it" would do — would run the bootstrap against a Deployment scaled to
+> zero and fail. Scale it back to 1 first, or rebuild from the barman backups,
+> which is the path with a passing restore drill behind it.
+>
+> ⚠️ **The rollback value decays, so this is a soft deadline rather than none.**
+> The legacy data is frozen at the 2026-09-04 cutover. Every write CNPG takes
+> since makes rolling back to it a data-loss event rather than a recovery, and at
+> some point the honest recovery path is the backups, not this. Near-zero today
+> only because the new Worker does not exist yet.
 
 > ✅ **Reloader deployed and proven 2026-09-04** (Phase 6, pulled forward). Not
 > assumed to work — tested the same way the backups were. A throwaway
