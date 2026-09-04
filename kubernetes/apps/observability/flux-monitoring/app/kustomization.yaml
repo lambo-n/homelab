@@ -12,6 +12,22 @@ configMapGenerator:
   #
   # `logs.json` from the same upstream set is deliberately absent: it queries
   # Loki, and there is no Loki here.
+  #
+  # ⚠️ `cluster.json` IS PATCHED, and will look untouched in a diff against
+  # upstream unless you know to check. It ships querying `gotk_resource_info`
+  # with a `customresource_kind` label and `suspended="true"`; none of the
+  # three exist on Flux v2.9 -- see prometheusrule.yaml for the finding. Three
+  # substitutions were applied and every resulting query verified against the
+  # live Prometheus on 2026-09-04 (21 Kustomizations/HelmReleases, 7 sources,
+  # 0 failing):
+  #
+  #     gotk_resource_info   -> flux_resource_info    (10 occurrences)
+  #     customresource_kind  -> kind                  (15 occurrences)
+  #     suspended="true"     -> suspended="True"      (1 occurrence)
+  #
+  # Re-apply them when refreshing the file from upstream. `control-plane.json`
+  # is verbatim -- it queries controller_runtime_* and workqueue_*, which the
+  # controllers do still export.
   - name: flux-grafana-dashboards
     namespace: observability
     files:

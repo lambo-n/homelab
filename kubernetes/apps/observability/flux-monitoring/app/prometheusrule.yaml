@@ -1,6 +1,30 @@
 ---
 # Metric-based half of Flux alerting. The event-based half is in
 # notification.yaml -- see the note there for why both exist.
+#
+# ⚠️ THE ALERT EVERY GUIDE GIVES YOU DOES NOT WORK ON FLUX v2.9.
+# Upstream's example, the Flux docs, and every blog post derived from them
+# alert on `gotk_reconcile_condition{type="Ready",status="False"}`. That metric
+# does not exist here. Verified 2026-09-04 against kustomize-controller's raw
+# /metrics: the only gotk_ families it exports are
+# gotk_reconcile_duration_seconds, gotk_event_http_* and gotk_token_cache*.
+# Neither gotk_reconcile_condition nor gotk_suspend_status is among them, and
+# no flag turns them on -- the controllers stopped exporting per-resource
+# status gauges.
+#
+# It fails SILENTLY. A PrometheusRule over a metric that returns no series is
+# `health: ok, state: inactive` -- indistinguishable, on every screen
+# Prometheus offers, from a cluster where nothing is wrong. That is worth more
+# than the usual amount of paranoia: the alert that tells you Flux is broken is
+# itself the thing most likely to be quietly broken.
+#
+# Per-resource status now comes from FLUX-OPERATOR, not from Flux, as
+# `flux_resource_info` -- one series per Flux object with `ready`, `suspended`
+# and `reason` as labels. Confirmed covering all 8 kinds this cluster uses
+# (Kustomization, HelmRelease, GitRepository, OCIRepository, HelmRepository,
+# HelmChart, Alert, Provider). A consequence worth naming: these alerts depend
+# on flux-operator, which GITOPS.md chose over `flux bootstrap`. Swap the
+# install method and this file goes blind -- hence FluxControllerDown below.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -13,34 +37,32 @@ spec:
   groups:
     - name: flux-system
       rules:
-        # `exported_namespace`, not `namespace`. The PodMonitor above scrapes
-        # pods, so prometheus-operator attaches the POD's namespace as
-        # `namespace` (always flux-system) and the metric's own namespace label
-        # is renamed out of the collision. Writing `namespace` here produces a
-        # rule that never groups correctly and is the usual reason a
-        # copy-pasted Flux alert appears to work and never fires usefully.
+        # `exported_namespace`, not `namespace`. The PodMonitor scrapes pods, so
+        # prometheus-operator attaches the POD's namespace as `namespace`
+        # (always flux-system) and the metric's own namespace label is renamed
+        # out of the collision. Writing `namespace` here produces a rule that
+        # groups every resource in the cluster under one label value.
         - alert: FluxReconciliationFailure
-          # Reads as: Ready=False (1) and not being deleted (0 * 2). A resource
-          # mid-deletion scores 2 or 3 and is excluded -- otherwise every
-          # deliberate `flux delete` would page.
-          expr: |
-            max(gotk_reconcile_condition{type="Ready",status="False"}) by (exported_namespace, name, kind)
-              + on(exported_namespace, name, kind)
-            (max(gotk_reconcile_condition{type="Deleted",status="True"}) by (exported_namespace, name, kind)) * 2
-              == 1
+          # `!= "True"` rather than `== "False"`, so a resource wedged in
+          # Unknown -- reconciliation started and never finished, which is what
+          # a hung Helm upgrade looks like -- is caught too. A resource being
+          # deleted drops out of the series entirely, so unlike the old
+          # gotk_ expression this needs no guard against alerting on a
+          # deliberate `flux delete`.
+          expr: flux_resource_info{ready!="True"} == 1
           # 15m, not upstream's 10m. Every Kustomization here reconciles on a
           # 30m interval with a 5m-15m timeout, and cert-manager and
           # kube-prometheus-stack legitimately spend minutes not-Ready on a
-          # first install. 15m is past a slow install and well short of a
-          # 30m interval, so a genuinely stuck resource still fires before its
-          # next attempt.
+          # first install. 15m is past a slow install and well short of a 30m
+          # interval, so a genuinely stuck resource still fires before its next
+          # attempt.
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: >-
               {{ $labels.kind }} {{ $labels.exported_namespace }}/{{ $labels.name }}
-              has been failing to reconcile for 15 minutes
+              has not been Ready for 15 minutes ({{ $labels.reason }})
             description: >-
               Run `flux get all -A --status-selector ready=false` and
               `flux logs --level=error --all-namespaces` on the dev VM.
@@ -48,8 +70,8 @@ spec:
         - alert: FluxSuspendedResource
           # Suspending is how you stop Flux fighting a manual change. It is also
           # how a resource silently stops being managed after someone forgets to
-          # resume it. Info, not warning -- this is a reminder, not a fault.
-          expr: max(gotk_suspend_status) by (exported_namespace, name, kind) == 1
+          # resume it. Info, not warning -- a reminder, not a fault.
+          expr: flux_resource_info{suspended="True"} == 1
           for: 12h
           labels:
             severity: info
@@ -61,16 +83,17 @@ spec:
               `flux resume {{ $labels.kind | toLower }} -n {{ $labels.exported_namespace }} {{ $labels.name }}`
 
         - alert: FluxControllerDown
-          # Covers the case the two alerts above cannot: if a controller is not
-          # running, its gotk_ metrics stop arriving entirely and every
-          # condition-based Flux alert goes quiet rather than firing. Absence of
-          # a signal is not health.
+          # The alert that covers the two above. Every Flux status alert here is
+          # built on a metric that VANISHES when its exporter stops, and an
+          # expression over an empty vector is inactive, not firing. So if
+          # flux-operator dies, FluxReconciliationFailure goes quiet at exactly
+          # the moment it is most needed. This fires on the absence instead.
           expr: up{job=~"observability/flux-.*"} == 0
           for: 10m
           labels:
             severity: critical
           annotations:
-            summary: Flux controller {{ $labels.pod }} is not being scraped
+            summary: Flux pod {{ $labels.pod }} is not being scraped
             description: >-
-              While this is firing, FluxReconciliationFailure cannot fire --
-              its input metric is gone. Check `kubectl -n flux-system get pods`.
+              While this is firing, the other Flux alerts cannot fire -- their
+              input metrics are gone. Check `kubectl -n flux-system get pods`.
