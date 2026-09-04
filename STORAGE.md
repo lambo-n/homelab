@@ -207,11 +207,16 @@ cleared by the `systemctl daemon-reload` in the next step.
 
 **c. Refuse to start k3s without it.**
 
+Short lines on purpose — see the note below.
+
 ```bash
 mkdir -p /etc/systemd/system/k3s-agent.service.d
-printf '[Unit]\nRequiresMountsFor=/var/lib/rancher/k3s/storage\n' \
-  | tee /etc/systemd/system/k3s-agent.service.d/10-pgdata-mount.conf
+cd /etc/systemd/system/k3s-agent.service.d
 
+echo '[Unit]' | tee 10-pgdata-mount.conf
+echo 'RequiresMountsFor=/var/lib/rancher/k3s/storage' | tee -a 10-pgdata-mount.conf
+
+cat 10-pgdata-mount.conf        # both lines must be present
 systemctl daemon-reload
 
 # RequiresMountsFor expands into a real dependency on the generated .mount unit.
@@ -222,11 +227,18 @@ systemctl show k3s-agent -p Requires -p After | tr ' ' '\n' | grep -i storage
 systemctl start k3s-agent
 ```
 
-> Deliberately a `printf` one-liner rather than a heredoc. A `<<'EOF'` block
-> pasted from a document usually arrives indented, and a heredoc terminator must
-> sit flush at column 0 — indented, bash never recognises it and the shell hangs
-> on a continuation prompt. (`<<-EOF` strips leading *tabs*, not spaces, so it
-> does not rescue a space-indented paste either.)
+> **Written this way because long lines do not survive being pasted.** Two
+> failures happened here before it stuck:
+>
+> - A `<<'EOF'` heredoc arrives indented when copied out of a document, and a
+>   heredoc terminator must sit flush at column 0 — indented, bash never
+>   recognises it and the shell hangs on a continuation prompt. (`<<-EOF` strips
+>   leading *tabs*, not spaces, so it does not rescue a space-indented paste.)
+> - A single `printf … | tee /very/long/path` wrapped mid-command, so `tee` ran
+>   with no filename and merely echoed to the terminal, while the path was
+>   executed as a command — `Permission denied`, and no file written. `cat` the
+>   result rather than trusting that it worked; the second `echo` needs `-a` or
+>   it overwrites the first.
 >
 > `tee` rather than `>` because `sudo cmd > file` performs the redirect as the
 > invoking user, not root, and fails on a root-owned directory.
