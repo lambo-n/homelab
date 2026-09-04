@@ -30,11 +30,16 @@ spec:
           # Cloudflare API -- routing that no manifest here described and no
           # `kubectl diff` could show.
           #
-          # Same tunnel, same UUID, same DNS: the token decoded to exactly the
-          # three fields a credentials file needs ({a,t,s} ->
-          # {AccountTag,TunnelID,TunnelSecret}), so nothing at the edge changed
-          # and no CNAME was touched. `cloudflared-token` is deliberately kept in
-          # git as the rollback path -- reverting this file restores it.
+          # The tunnel is `sunfire-local` (1ac59ce2-...), created with
+          # config_src: "local" by scripts/cloudflared-new-local-tunnel.sh.
+          # A new tunnel was unavoidable: config_src cannot be changed after
+          # creation, so the original remotely-managed tunnel could never be
+          # converted. See GITOPS.md Phase 6.
+          #
+          # The old `cloudflared-token` Secret is gone. It held credentials for
+          # a tunnel that has since been deleted, so it was not a rollback path
+          # any more -- just a live-looking secret for something that no longer
+          # exists.
           args:
             - tunnel
             - --no-autoupdate

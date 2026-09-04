@@ -4,6 +4,3 @@ resources:
   - configmap.yaml
   - credentials.sops.yaml
   - deployment.yaml
-  # Kept after the switch to local management: nothing references it now, but it
-  # is the rollback path back to `run --token`. Removing it is a later decision.
-  - secret.sops.yaml

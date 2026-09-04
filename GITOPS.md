@@ -849,6 +849,12 @@ down" posture is inbound-only).
 > both CNAMEs. End state: new tunnel `local`/`healthy`/4 connections, old tunnel
 > `down`/0, kept as the rollback path.
 >
+> ✅ **Verified end to end by the Worker 2026-09-04**: upload, fetch and delete
+> against MinIO all work through the new tunnel. That is the test that counts,
+> since the Worker holds the Access service token and is the only client able to
+> traverse edge → Access → tunnel → origin. The old tunnel was deleted only
+> after that passed.
+>
 > Proof it is genuinely local: the connector's startup log has **no
 > `Updated to new configuration` line**. That line is what a remotely-configured
 > connector emits when the edge pushes its ingress map, and its absence is the

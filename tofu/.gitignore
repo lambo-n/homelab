@@ -10,5 +10,9 @@
 *.tfvars
 !*.tfvars.example
 
+# Saved plans. They embed the full resource state, including anything the
+# providers marked sensitive, and go stale the moment anything changes.
+*.tfplan
+
 # Generated during the import flow; review then fold into a real file.
 proxmox-generated.tf
