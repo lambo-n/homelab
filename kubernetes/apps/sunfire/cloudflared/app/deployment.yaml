@@ -7,9 +7,10 @@ metadata:
     # Restart this Deployment when a Secret or ConfigMap it references changes.
     # Env vars from secretKeyRef are read once at container start, so without
     # this a rotated Secret reports success and changes nothing.
-    # Consumes cloudflared-token. A tunnel-token rotation is exactly the
-    # kind of change that looks applied and is not -- the connector keeps its old
-    # credential until the pod restarts.
+    # Consumes cloudflared-credentials and the cloudflared-config ConfigMap.
+    # This one earns its keep twice over: a credential rotation looks applied and
+    # is not until the pod restarts, and now that ingress routing lives in a
+    # ConfigMap, an ingress edit has exactly the same property.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -24,18 +25,31 @@ spec:
       containers:
         - name: cloudflared
           image: cloudflare/cloudflared:2026.8.3@sha256:51c9cefcb4569df44e1ad403ab1d3d8065aa8e84339bcfc6aee75502e1140339
+          # Locally-managed as of 2026-09-04. Previously `run --token $(...)`,
+          # which made the connector fetch its entire ingress map from the
+          # Cloudflare API -- routing that no manifest here described and no
+          # `kubectl diff` could show.
+          #
+          # Same tunnel, same UUID, same DNS: the token decoded to exactly the
+          # three fields a credentials file needs ({a,t,s} ->
+          # {AccountTag,TunnelID,TunnelSecret}), so nothing at the edge changed
+          # and no CNAME was touched. `cloudflared-token` is deliberately kept in
+          # git as the rollback path -- reverting this file restores it.
           args:
             - tunnel
             - --no-autoupdate
+            - --config
+            - /etc/cloudflared/config.yaml
             - run
-            - --token
-            - $(TUNNEL_TOKEN)
-          env:
-            - name: TUNNEL_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: cloudflared-token
-                  key: token
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared
+              readOnly: true
+            # Deliberately NOT nested under /etc/cloudflared: a Secret mounted
+            # inside a ConfigMap's mountpoint is a needless ordering dependency.
+            - name: creds
+              mountPath: /etc/cloudflared-creds
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -43,3 +57,10 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: creds
+          secret:
+            secretName: cloudflared-credentials

@@ -1,0 +1,54 @@
+---
+# Tunnel ingress routing, in git.
+#
+# Until 2026-09-04 this lived only in the Cloudflare dashboard: the connector ran
+# with `--token` and pulled its entire ingress map from the API at startup and on
+# change, so `deployment.yaml` contained zero routing information. That is the
+# clickops gap GITOPS.md Phase 6 exists to close.
+#
+# It has already bitten once. sunfire/CUTOVER.md records a connector that was
+# connected and healthy with every route returning 502, because the dashboard
+# rules still pointed at the `bingo` namespace deleted during the rebrand. The
+# pod was Running, preflight passed, QUIC was up, and nothing in the cluster said
+# otherwise -- because nothing in the cluster knew the routes at all. With them
+# here, `kubectl diff` shows a wrong origin before it reaches the edge.
+#
+# Rules below were transcribed from the live connector's own log line
+# ("Updated to new configuration"), not from documentation, so they match what
+# the dashboard was actually serving.
+#
+# One deliberate omission: the dashboard config also carried
+# `"warp-routing":{"enabled":false}`. That key exists in the REMOTE config schema
+# only -- `cloudflared tunnel ingress validate` rejects it locally with
+# "field enabled not found in type config.WarpRoutingConfig". It is disabled by
+# default, so dropping it changes nothing; keeping it would have logged an
+# unused-key warning on every start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: sunfire
+data:
+  config.yaml: |
+    tunnel: b42c20c1-2d20-43ee-a17c-15f9849e5f13
+    credentials-file: /etc/cloudflared-creds/credentials.json
+
+    # No metrics scraper yet (Phase 7); bound anyway so `cloudflared tunnel
+    # ready` and the readiness probe below have somewhere to ask.
+    metrics: 0.0.0.0:2000
+
+    ingress:
+      # S3 API. The Worker signs SigV4 against this hostname, and the signature
+      # covers the Host header -- so this hostname must match the Worker's
+      # MINIO_ENDPOINT exactly or every request fails SignatureDoesNotMatch.
+      - hostname: minio-api.sunosrs.cc
+        service: http://minio.sunfire.svc.cluster.local:9000
+
+      # PostgREST. Points at the Service, not a pod, so the CNPG cutover and any
+      # future PostgREST restart are invisible here.
+      - hostname: db.sunosrs.cc
+        service: http://postgrest.sunfire.svc.cluster.local:3000
+
+      # Required terminal rule: cloudflared refuses to start without a catch-all
+      # that has no hostname. Matches what the dashboard served.
+      - service: http_status:404
