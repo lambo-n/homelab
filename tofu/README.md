@@ -140,7 +140,27 @@ run, `tofu state rm cloudflare_zero_trust_tunnel_cloudflared.sunfire` — removi
 a resource from config while it remains in state makes the next plan propose
 **destroying** it, and the `prevent_destroy` guard leaves with the block.
 
-**`config_src` is ForceNew on the tunnel, and unusable.** Declaring it plans a
+**`config_src` is immutable after tunnel creation — proven, not inferred.**
+Cloudflare reports it as `1002 Tunnel not found`, which reads like a broken id or
+a bad token and is neither. Verified against the live API with one token:
+
+| Call | Result |
+|---|---|
+| `GET /cfd_tunnel/{id}` | `success: true` |
+| `PATCH {"name":"sunfire-homelab"}` | `success: true` — writes are permitted |
+| `PATCH {"config_src":"local"}` | `1002 Tunnel not found` |
+
+Same endpoint, same token, same tunnel: a name change succeeds and `config_src`
+does not. So a remotely-created tunnel cannot become locally-managed. Reaching
+local management means creating a NEW tunnel with `config_src: "local"` and
+moving the CNAMEs to it.
+
+**The configurations endpoint will not store an empty config either.** With
+`source = "local"` and `config = {}` it returns `1056 Bad Configuration:
+Validation failed: The config file doesn't contain any ingress rules` — it
+demands ingress rules even in the case where the stored rules are ignored.
+
+**And `config_src` is ForceNew in the provider.** Declaring it plans a
 destroy-and-recreate, which mints a new UUID and orphans both CNAMEs plus the
 cluster's `credentials.json`. The same field is `source` on the *configuration*
 resource, which is a separate object — that is the one to use.
