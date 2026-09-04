@@ -74,4 +74,16 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "sunfire" {
 
   # Hand routing to the origin's YAML file. This is the whole change.
   source = "local"
+
+  # Explicitly empty, and NOT omitted. Leaving it out makes `config` unknown at
+  # plan time, and the provider cannot represent that -- the first apply died on
+  # "Value Conversion Error ... the target type cannot handle unknown values.
+  # Path: config". An empty object is known, so the bug does not fire.
+  #
+  # Empty is also the honest value: with source = "local" the edge serves no
+  # ingress map, and the rules live in
+  # kubernetes/apps/sunfire/cloudflared/app/configmap.yaml. Duplicating them
+  # here would put the same routing in two places and invite drift between
+  # them.
+  config = {}
 }
