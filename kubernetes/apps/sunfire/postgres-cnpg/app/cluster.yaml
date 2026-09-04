@@ -118,6 +118,25 @@ spec:
       # would fail authentication with a correct-looking config. Declaring it
       # here re-applies the password from the same value that is already inside
       # PGRST_DB_URI, so the two cannot drift.
+      # ⚠️ `anon` IS DELIBERATELY GRANTED NOTHING, and that is a security fix
+      # rather than an omission. Salvaged 2026-09-04 from the retired
+      # sunfire-backend/bootstrap-roles.sql, which was the only place it was
+      # written down.
+      #
+      # It previously received an automatic SELECT on every FUTURE table via
+      # ALTER DEFAULT PRIVILEGES. Combined with PGRST_DB_ANON_ROLE being set,
+      # that made each newly created table world-readable over the tunnel with
+      # no Authorization header at all -- a table became public by existing.
+      # Both halves were removed 2026-09-02; every request now needs a valid
+      # JWT. Re-grant only for a surface you intend to be public, and set
+      # PGRST_DB_ANON_ROLE consciously if you ever do.
+      #
+      # The matching default privilege for sunfire_readwrite DOES exist in the
+      # database (ALTER DEFAULT PRIVILEGES FOR ROLE sunfire IN SCHEMA public
+      # GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES). It came across in the
+      # bootstrap import; spec.managed.roles cannot express default privileges,
+      # so it is not reasserted here. A rebuild from backup carries it; a
+      # rebuild from an empty initdb would not.
       - name: anon
         ensure: present
         login: false

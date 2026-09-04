@@ -12,7 +12,11 @@ to the pool, so none of it can be run from there. See GITOPS.md Phase 5.
 > `var-lib-rancher-k3s-storage.mount`. The mount reassembled by itself across a
 > reboot and the node returned `Ready`; `allocatable.ephemeral-storage`
 > refreshed from 9.26 GiB to 16.94 GiB at the same time. Both workers' root
-> filesystems are 17.83 GiB. §7 (sanoid) is still outstanding.
+> filesystems are 17.83 GiB. **§7 (sanoid) is also done** — completed 2026-09-04
+> across three datasets (`minio-data`, `postgres-data` and the PGDATA zvol
+> `vm-104-disk-0`), 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active. The
+> rollback drill in `SANOID.md` §4 passed. Every section of this file is now
+> complete.
 
 Two independent jobs, and they are not the same job:
 

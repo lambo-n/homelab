@@ -1328,3 +1328,9 @@ surfaced two faults that every health signal called healthy — see
 > Chose `lambo-n` over the `Sunfire-Team` org: the cluster is personal infra, and
 > org members would otherwise inherit access to the encrypted tunnel token and DB
 > credentials.
+
+**Superseded 2026-09-04:** `~/sunfire-backend/` no longer exists. Every value in
+it was hash-verified against SOPS and Infisical first; the only two that were
+irrecoverable were already dead (a token for the deleted tunnel, and a
+pre-cutover `PGRST_DB_URI`). The rollback path is git history. `~/archive/` now
+holds the decommissioned bingo assets, `chmod 700`.

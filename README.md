@@ -343,7 +343,14 @@ Three trees on the dev VM, deliberately siblings and never nested:
 |---|---|---|
 | `~/homelab/` | **This repo.** Cluster desired state | `lambo-n/homelab` (private) |
 | `~/sunfire/` | The consuming app, cloned **for model context only** | `Sunfire-Team/sunfire` |
-| `~/sunfire-backend/` | Pre-GitOps hand-applied manifests + **plaintext** live secrets | untracked, `chmod 600` |
+| `~/archive/` | Decommissioned Sun Clan Bingo assets, read-only | untracked, `chmod 700` |
+
+> `~/sunfire-backend/` — the pre-GitOps manifests and plaintext copies of every
+> live secret — was **deleted 2026-09-04**, once every value in it had been
+> hash-verified as recoverable from SOPS or Infisical. The two that were not
+> recoverable were already dead: a token for the tunnel deleted at the cutover,
+> and a `PGRST_DB_URI` naming the retired `postgres` Deployment. Git history is
+> the rollback path now, and **there is no plaintext secret anywhere on this VM.**
 
 **Do not `git init` in `/home/dev` itself** — it would swallow the `~/sunfire/`
 clone, `~/.ssh` and `~/.claude.json`. Keeping them siblings also means the app repo

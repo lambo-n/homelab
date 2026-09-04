@@ -26,7 +26,7 @@ local and gitignored; it is backed up with this VM.
 | Tunnel credentials | Flux, SOPS-encrypted | a cluster secret, not an edge object |
 | Ingress routing | Flux, `cloudflared/app/configmap.yaml` | the entire point of the local-management conversion |
 | MinIO CORS Transform Rule | **nobody — delete it** | vestigial; no browser addresses that hostname. See "The CORS rule" below |
-| Proxmox guests | **tofu, read-only, not yet imported** | the last open Phase 6 item |
+| Proxmox guests | **tofu, read-only** | all five imported 2026-09-04, `0 to change, 0 to destroy`; each carries `prevent_destroy` |
 
 ## The Cloudflare token — kept out of disk, so re-created when needed
 
