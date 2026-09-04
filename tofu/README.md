@@ -8,13 +8,34 @@ circular dependency on a single host.
 **Applies are run by hand from this VM, never from inside the cluster.** State is
 local and gitignored; it is backed up with this VM.
 
-> **Nothing here has been applied.** As of 2026-09-04 there is no Cloudflare API
-> token — the account is not owned by this operator — so the whole directory is
-> written, validated (`tofu validate` → Success, providers resolved and locked)
-> and waiting. Everything below is the shortest path from "token exists" to
-> "Phase 6 closed".
+> **Applied 2026-09-04. State is real.** `serial: 4`, two managed resources —
+> `cloudflare_dns_record.minio_api` and `cloudflare_dns_record.db`. Both were
+> imported from the live zone rather than created, and the apply that moved
+> `var.tunnel_id` to `1ac59ce2-15bb-46df-967f-caa8b05881f7` is what cut live
+> traffic onto the locally-managed tunnel.
+>
+> **Only Proxmox is left**, and it needs a token this operator can issue
+> themselves. Skip to "Proxmox" at the bottom.
 
-## Why a new token is needed
+## What this directory does and does not own
+
+| Object | Owner | Why |
+|---|---|---|
+| `minio-api` / `db` CNAMEs | **tofu** (here) | `var.tunnel_id` is the cutover lever: change it, apply, and traffic moves between tunnels |
+| The tunnel itself | `scripts/cloudflared-new-local-tunnel.sh` | the provider cannot update the object at all, and `config_src` is immutable *and* ForceNew — see "Gotchas" |
+| Tunnel credentials | Flux, SOPS-encrypted | a cluster secret, not an edge object |
+| Ingress routing | Flux, `cloudflared/app/configmap.yaml` | the entire point of the local-management conversion |
+| MinIO CORS Transform Rule | **nobody — delete it** | vestigial; no browser addresses that hostname. See "The CORS rule" below |
+| Proxmox guests | **tofu, read-only, not yet imported** | the last open Phase 6 item |
+
+## The Cloudflare token — kept out of disk, so re-created when needed
+
+The token used on 2026-09-04 was exported into one shell and never written
+anywhere (`read -rs`, per below). That is deliberate and it has a cost: a future
+Cloudflare apply needs the token again — either the same one, if it was put in
+LastPass afterwards, or a fresh one made the same way.
+
+### Why an ordinary credential will not do
 
 None of the existing Cloudflare credentials can manage configuration, and it is
 worth being precise about why, because three of them look like they might:
@@ -26,36 +47,34 @@ worth being precise about why, because three of them look like they might:
 | Tunnel token | `{AccountTag,TunnelID,TunnelSecret}` | runs the tunnel, cannot configure it |
 | `~/.cloudflared/cert.pem` | would grant tunnel management | **does not exist** — no `cloudflared login` was ever run, because the tunnel was created in the dashboard |
 
-## The token to create
+### The token that was used
 
 Account **Sunfire** (`1b0e61d1024b78dd4bf289271823192f`), zone `sunosrs.cc`:
 
 | Scope | Level | Needed for |
 |---|---|---|
-| **Cloudflare Tunnel : Edit** | Account | flipping `config_src` — the one field blocking Phase 6 |
-| **DNS : Edit** | Zone (`sunosrs.cc`) | importing and holding the two CNAMEs |
+| **DNS : Edit** | Zone (`sunosrs.cc`) | importing and holding the two CNAMEs — the only writes tofu makes |
 | **Zone : Read** | Zone (`sunosrs.cc`) | resolving the zone |
+| **Cloudflare Tunnel : Edit** | Account | *was* requested to flip `config_src`. That turned out to be impossible at the API, and no tunnel object is managed here now — **a re-issued token does not need it** |
 
-Add **Transform Rules : Edit** *only* if the MinIO CORS rule turns out to be
-needed — see `cloudflare-transform.tf.example`, which argues it may be
-vestigial and should perhaps be deleted rather than codified.
+Do **not** add Transform Rules : Edit. The one Transform Rule in the account is
+the MinIO CORS rule, and the answer there is to delete it, not to manage it —
+see "The CORS rule" below.
 
-### Creating it
+#### Creating it
 
 1. **dash.cloudflare.com → My Profile → API Tokens → Create Token → Create Custom Token.**
-2. Permissions — all three, exactly:
+2. Permissions — both:
 
    | Type | Resource | Level |
    |---|---|---|
-   | Account | Cloudflare Tunnel | Edit |
    | Zone | DNS | Edit |
    | Zone | Zone | Read |
 
-3. **Account Resources:** Include → Sunfire.
-   **Zone Resources:** Include → Specific zone → `sunosrs.cc`.
+3. **Zone Resources:** Include → Specific zone → `sunosrs.cc`.
 4. Continue → Create. **The token is shown once.**
 
-### Loading it — without writing it to disk
+#### Loading it — without writing it to disk
 
 ```bash
 read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
@@ -64,7 +83,7 @@ read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
 `read -rs` keeps it out of shell history. The provider reads
 `CLOUDFLARE_API_TOKEN` natively, so nothing needs to go in `terraform.tfvars`.
 
-### Verify it before using it
+#### Verify it before using it
 
 ```bash
 curl -s https://api.cloudflare.com/client/v4/user/tokens/verify \
@@ -75,61 +94,61 @@ Expect `true` and `"active"`. A token missing a scope still verifies — the
 scopes are checked at use, so a later 403 on a specific call means a missing
 permission, not a bad token.
 
-### The two IDs the config needs
+## Running a Cloudflare apply now
+
+The zone id and both record ids are already in the config
+(`variables.tf`, `cloudflare-dns.tf`); the discovery `curl`s that used to live
+here are done. With the token exported:
 
 ```bash
-# Zone id
-curl -s "https://api.cloudflare.com/client/v4/zones?name=sunosrs.cc" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result[0].id'
-
-# DNS record ids -- these replace REPLACE_WITH_RECORD_ID in cloudflare-dns.tf
-ZONE=<zone id from above>
-for h in minio-api db; do
-  printf '%s ' "$h"
-  curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?name=$h.sunosrs.cc" \
-    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result[0].id'
-done
+tofu plan     # must be "No changes." unless you changed something on purpose
 ```
 
-Put the zone id in `terraform.tfvars` (it is not secret) and paste each record
-id into the matching `import` block.
+**A plan that proposes changes to a DNS record is a warning, not a to-do.** The
+records are the live routing for both public hostnames. A diff means the config
+has drifted from the zone — fix the config to match reality first, and only then
+decide whether reality should change.
 
-### Worth reading before the apply
+The one deliberate change this directory exists to make:
 
-```bash
-curl -s "https://api.cloudflare.com/client/v4/accounts/1b0e61d1024b78dd4bf289271823192f/cfd_tunnel/b42c20c1-2d20-43ee-a17c-15f9849e5f13/configurations" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.result.config'
-```
+- **Moving traffic between tunnels** — set `var.tunnel_id` and apply. Both
+  records' `content` derives from it, so a single apply re-points both
+  hostnames. That is exactly how the 2026-09-04 cutover was done, and it is the
+  rollback path too: the old tunnel id is recorded in `variables.tf`, though the
+  old tunnel itself has since been deleted.
 
-That is the dashboard ingress the connector is using today. It should match
-`kubernetes/apps/sunfire/cloudflared/app/configmap.yaml` rule for rule, modulo
-the `warp-routing` key that only exists in the remote schema. **If it does not
-match, stop** -- the local rules are what take over the moment `config_src`
-flips, and a difference here is a difference in live routing.
+Verify from outside afterwards with the Worker, **not with `curl`**: both
+hostnames return `HTTP 403` to anything without the Access service token,
+whether the origin is healthy, broken or absent. `sunfire/DATA-ACCESS.md` has
+the full status-code decoder.
 
-## Order of operations
+## The CORS rule
 
-1. **`tofu plan`** — expect it to fail on the DNS `import` blocks, whose IDs are
-   `REPLACE_WITH_RECORD_ID` placeholders. Record IDs are unreadable without the
-   token, which is exactly why they are placeholders rather than guesses. Fill
-   them from `GET /zones/{zone_id}/dns_records`.
-2. **`tofu plan` again** — this must report the tunnel's `config_src` changing
-   `cloudflare` → `local`, the two DNS records importing with **no** changes,
-   and nothing else. A DNS record showing changes means the resource body does
-   not match reality; fix the config, never the zone.
-3. **`tofu apply`.** The moment `config_src` flips, the already-validated
-   `kubernetes/apps/sunfire/cloudflared/app/configmap.yaml` becomes live
-   routing. Reloader restarts the connector on the next ConfigMap change from
-   then on.
-4. **Verify from outside**: both hostnames should still return `HTTP 403`
-   (Cloudflare Access rejecting at the edge — the healthy signal). `502` or
-   `1033` means the origin map is wrong. `sunfire/DATA-ACCESS.md` has the full
-   status-code decoder.
+`GITOPS.md` listed "MinIO CORS handled by a Cloudflare Transform Rule" as a
+clickops gap. **Resolved 2026-09-04: the rule is vestigial — delete it in the
+dashboard rather than codify it here.** Nothing about it belongs in tofu, so
+there is no resource and no `.example` for it.
+
+The evidence, in the app repo:
+
+- every rendered `<img>` in a guide points at `/api/guides/media/<hash>.<ext>`
+  on the Worker, same origin (`worker/api/guidesMedia.ts`, `src/lib/api.ts`)
+- the Worker is the only S3 client and says so in its own header comment
+  (`worker/lib/objectStore.ts`) — "the browser never signs anything and never
+  talks to MinIO"
+- there is no presign or signed-URL code anywhere in `worker/`, `shared/` or
+  `src/`, so no browser-reachable MinIO URL is ever minted
+- `minio-api.sunosrs.cc` appears in the app only as a Worker var in
+  `wrangler.jsonc` — never in frontend source
+
+And even if something did try: Access rejects a browser at the edge for want of
+the service token, so the rule's response headers could never be exercised.
+
 
 ## Gotchas hit on the first real apply (2026-09-04)
 
-Both are provider-side, and both are recorded because the next person will hit
-them identically.
+All five are provider- or API-side, and all are recorded because the next person
+will hit them identically.
 
 **The tunnel object cannot be managed.** `cloudflare_zero_trust_tunnel_cloudflared`
 imported fine and then failed its update with `PATCH … 404 {"code":1002,"message":
@@ -174,13 +193,92 @@ Nothing user-facing broke through any of it: both hostnames stayed at `HTTP 403`
 and the connector never restarted, because none of the failures reached the
 edge's serving config.
 
-## Proxmox
+## Proxmox — the last open item in Phase 6
 
-Separate token, independently obtainable, and **not** required for the
-Cloudflare work above. See `proxmox-import.tf.example` — the guests must be
-imported with `-generate-config-out` rather than hand-written bodies, because a
-mismatched attribute here proposes replacing a running k3s node rather than
-showing a cosmetic diff.
+Separate token, independent of the Cloudflare one, and **issuable by this
+operator** (unlike the Cloudflare account, which is not owned here). Nothing
+below has been run: `192.168.50.101` accepts no key from this VM
+(`Permission denied (publickey)`), so both the token and the `pveum` commands
+have to come from someone with a console or a password there.
+
+### Issue the token read-only. Not "for now" — as the design.
+
+Everything this import does is a read: `import` blocks, `-generate-config-out`,
+and the plan that must come back clean. A token that cannot write is the thing
+that makes those reads safe, because `.103` — this VM, the one holding the state
+file — is itself one of the five guests being imported. With `PVEAuditor` the
+worst outcome of a wrong attribute is *"plan proposes replacing `k3s-worker2`"*,
+which is a diff to read. With a write-capable token the worst outcome is that
+apply carries it out and takes the PGDATA zvol with it.
+
+Widen the token later if a change genuinely needs to write, deliberately, for
+that change. Do not pre-authorize it.
+
+### On `192.168.50.101`, as root
+
+```bash
+pveum user add tofu@pve --comment "OpenTofu, read-only (homelab/tofu)"
+pveum acl modify / --users tofu@pve --roles PVEAuditor
+pveum user token add tofu@pve import --privsep 0
+```
+
+`--privsep 0` makes the token inherit the user's privileges — which are
+auditor-only, so this is not a widening. The command prints the secret **once**;
+it is a UUID, and the provider wants it joined to the token's full name.
+
+### Back on this VM
+
+```bash
+read -rs PROXMOX_VE_API_TOKEN && export PROXMOX_VE_API_TOKEN
+# paste exactly:  tofu@pve!import=<uuid>
+```
+
+`providers.tf` leaves `api_token` null so the provider picks this up from the
+environment; the endpoint is already a default in `variables.tf`. Verify before
+using it — this also confirms 8006 is reachable, which is the one port that is:
+
+```bash
+curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
+  https://192.168.50.101:8006/api2/json/version | jq .data.version
+```
+
+### Get the fifth guest's ID without SSH
+
+`proxmox-import.tf.example` has the four VMIDs confirmed by `qm list`, but the
+`.102` vpn-gateway is an LXC and does not appear there. The API returns both
+kinds at once:
+
+```bash
+curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
+  'https://192.168.50.101:8006/api2/json/cluster/resources?type=vm' \
+  | jq -r '.data[] | "\(.type)\t\(.vmid)\t\(.node)\t\(.name)"' | sort
+```
+
+`lxc` rows go in the commented `proxmox_virtual_environment_container` block;
+`qemu` rows should match the four VMIDs already written down. Import IDs are
+`<node>/<vmid>` for both.
+
+### The sequence
+
+```bash
+mv proxmox-import.tf.example proxmox-import.tf     # import blocks only, no bodies
+tofu plan -generate-config-out=proxmox-generated.tf
+```
+
+Then **read** `proxmox-generated.tf` before anything else — it is gitignored
+precisely so a generated file cannot be committed unreviewed. Fold what is worth
+keeping into a real `.tf` file, delete the noise, and run `tofu plan` again.
+
+**That second plan must say "No changes."** Anything else means the config does
+not yet describe the machines. Fix the config; never the machine. A generated
+body carries every computed attribute the provider felt like emitting, and some
+of them — disk layout above all — plan a **replacement** rather than an update
+when they are even slightly wrong. On `k3s-worker2` that is the database.
+
+Two things the bpg provider will not do over an API token alone, neither of
+which this import needs: file uploads and some disk operations want root SSH to
+the node. If a future change hits that wall, that is a separate decision about a
+separate credential — not a reason to widen this one.
 
 ## Versions
 

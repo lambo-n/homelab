@@ -1,9 +1,14 @@
 # The two public hostnames, as CNAMEs onto the tunnel.
 #
-# These already exist and already point at <tunnel-id>.cfargotunnel.com -- the
-# local-management conversion did not touch them, because it reused the same
-# tunnel UUID. These blocks exist to bring them under management WITHOUT
-# recreating them, which is what the import blocks are for.
+# Both records predate this config. The import blocks brought them under
+# management WITHOUT recreating them -- imported and applied 2026-09-04, and
+# they are now in state. The blocks stay because they are a no-op once the
+# resource is in state, and they are the documentation of where these came from.
+#
+# The apply that followed is what actually performed the tunnel cutover: the
+# local-management conversion needed a NEW tunnel (config_src is immutable), so
+# `content` moved from the old UUID to the new one on both records at once.
+# That is why var.tunnel_id is a variable and not a literal.
 #
 # Both are proxied. That is load-bearing, not cosmetic: an unproxied record
 # would expose the origin directly and bypass the Cloudflare Access policy that

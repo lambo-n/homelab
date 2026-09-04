@@ -71,7 +71,7 @@ Reference repo: [perryhuynh/homelab](https://github.com/perryhuynh/homelab/tree/
 - [ ] No monitoring/observability
 - [x] ~~`kubectl` v1.30 vs server v1.35~~ — mise pins `kubectl` 1.35.8
 - [x] ~~cloudflared tunnel is **remote-managed** — ingress routing lives in the Cloudflare dashboard, outside git~~ — closed 2026-09-04. Routing is a ConfigMap reconciled by Flux; credentials are SOPS-encrypted; DNS is managed in `tofu/`
-- [ ] MinIO CORS handled by a Cloudflare Transform Rule — also clickops. **May be vestigial**: `HOMELAB.md` records that only browser-direct access needs it, and the Worker is the only client. Establish whether any browser fetches `minio-api.sunosrs.cc` directly before codifying it — the answer may be to delete the rule instead (`tofu/cloudflare-transform.tf.example`)
+- [x] ~~MinIO CORS handled by a Cloudflare Transform Rule — also clickops~~ — **resolved 2026-09-04 by deleting the question, not codifying the rule.** It is vestigial: no browser ever addresses `minio-api.sunosrs.cc`. Guide images are `<img src="/api/guides/media/<hash>.<ext>">` against the Worker, same origin; the Worker is the only S3 client and there is no presign path in `worker/`, `shared/` or `src/`; and Access would reject a browser at the edge anyway. The rule should be **deleted in the dashboard** — a one-off action, after which nothing about it belongs in `tofu/`. See Phase 6
 - [x] ~~**Local dev inherits production vars but feature credentials**~~ — resolved 2026-09-02 by unifying the media store (below); local dev's feature credentials now authorize the one shared bucket. Original finding: (found 2026-09-02, lives in `sunfire/`, not this repo). `npm run preview` runs `wrangler dev` with **no `--env`**, so it takes top-level config — `MINIO_BUCKET=sunfire-guide-media`, `POSTGREST_SCHEMA=public`. But `.dev.vars` holds the **feature** MinIO keys, whose embedded policy allows only `sunfire-guide-media-feature/*`. After tunnel cutover that combination is a guaranteed `AccessDenied`. Masked today only because `MINIO_ENDPOINT` is `.invalid`. Fix is `wrangler dev --env feature` (preferred — local dev should not touch the production bucket), *not* swapping in prod keys
 - [x] ~~**Unified media store — cluster not yet converted**~~ — converted and verified 2026-09-02 (policy re-scoped, `PGRST_DB_SCHEMAS=public`, `sunfire_feature` dropped, feature bucket removed)
 - [ ] **`minio-worker-credentials` is a filing cabinet, not a workload secret** — verified 2026-09-02 that *no* Deployment references it; it sits in the cluster purely as a store for Cloudflare Worker keys. Moves to Infisical and is then deleted from the cluster
@@ -817,19 +817,44 @@ down" posture is inbound-only).
       `dependsOn` so it cannot wedge the sunfire graph. All four sunfire Deployments annotated.
       Promoted from convenience to correctness by the CNPG cutover, which reported success while
       PostgREST went on serving from the old database — see Phase 5
-- [~] OpenTofu module for Cloudflare — **written and validated 2026-09-04, not applied.** `tofu/`
-      holds the tunnel (`config_src = "local"`, the field that closes the item above), both DNS
-      CNAMEs as imports, pinned providers and a committed lock file. `tofu validate` passes.
-      **Blocked on a Cloudflare API token**: the account is not owned by this operator, and none
-      of the existing credentials can manage configuration — `tofu/README.md` says exactly which
-      scopes to request and why wrangler's OAuth token, the Access service token and the tunnel
-      token each cannot substitute
+- [x] ~~OpenTofu module for Cloudflare~~ — **applied 2026-09-04.** A token was issued, both DNS
+      CNAMEs were imported without recreation, and the apply that set `var.tunnel_id` to
+      `1ac59ce2…` is what actually cut live traffic to the locally-managed tunnel. State
+      (`serial: 4`) holds exactly two resources: `cloudflare_dns_record.minio_api` and
+      `.db`. **No tunnel object is managed, deliberately** — the provider cannot update it
+      (`1002` on a tunnel it read seconds earlier) and `config_src` is both immutable and
+      ForceNew, so declaring it would propose minting a new UUID and orphaning both CNAMEs.
+      `tofu/cloudflare-tunnel.tf` is a comment block recording that, and the tunnel stays owned
+      by `scripts/cloudflared-new-local-tunnel.sh`
+- [x] ~~Decide the MinIO CORS Transform Rule: codify or delete~~ — **answered 2026-09-04: delete
+      it, do not codify.** It is vestigial. The browser never addresses
+      `minio-api.sunosrs.cc` at all — every `<img>` in a guide hits
+      `/api/guides/media/<hash>.<ext>` on the Worker, same origin, and the Worker is the only
+      S3 client (`sunfire/worker/lib/objectStore.ts`). There is no presign path anywhere in
+      `worker/`, `shared/` or `src/`, and the hostname appears in the app only as a Worker var
+      in `wrangler.jsonc`. Even if something tried, Access rejects a browser at the edge for
+      want of the service token, so the rule's headers could never be exercised. Deleting it is
+      a dashboard action, not a tofu one — codifying a rule in order to delete it later is
+      strictly more work
 - [~] Import the 5 existing Proxmox guests into OpenTofu state **without recreating them** —
       scaffolded as `tofu/proxmox-import.tf.example` with the confirmed VMIDs (101 dev, 102
       control, 103/104 workers, plus one LXC). Deliberately **not** hand-written resource
       bodies: use `tofu plan -generate-config-out`, because a mismatched attribute here proposes
-      replacing a running k3s node rather than showing a cosmetic diff. Needs a Proxmox API
-      token, which is independent of the Cloudflare one
+      replacing a running k3s node rather than showing a cosmetic diff. **The only thing left in
+      this phase**, and the only thing blocking it is a Proxmox API token — which this operator
+      can issue, unlike the Cloudflare one. Issue it **read-only (`PVEAuditor`)**: import,
+      `-generate-config-out` and the confirming plan are all reads, and a token that cannot
+      write is a token that cannot replace a running k3s node no matter what the config says.
+      `tofu/README.md` → "Proxmox" has the two `pveum` commands and the sequence
+
+> **Why the Proxmox token is read-only and stays that way.** The whole point of this
+> import is to get the guests *described* in code — it is not a step toward reconciling
+> them. GITOPS.md already rejects a reconciler that can delete the VMs it runs on; a
+> write-capable token sitting on this VM is a weaker version of the same hazard, since
+> `.103` is itself one of the guests in state. `PVEAuditor` makes the failure mode
+> "plan proposes a replacement and cannot carry it out" instead of "apply replaces
+> `k3s-worker2` and takes the PGDATA zvol with it". If a future change genuinely needs
+> to write, that is the moment to widen the token — deliberately, for that change.
 
 > ✅ **Locally-managed tunnel, done 2026-09-04 — and it took a new tunnel.**
 > `config_src` is **immutable after creation**, which Cloudflare reports as

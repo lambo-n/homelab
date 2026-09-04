@@ -218,16 +218,18 @@ swapping to a new tunnel (`sunfire-local`), because `config_src` is immutable
 after creation — the old one is retained, `down`, as the rollback path. DNS for
 both hostnames is managed in `tofu/`, applied by hand from this VM.
 
-Still open in Phase 6: the Proxmox guest import (scaffolded, needs a PVE token)
-and a decision on the MinIO CORS Transform Rule, which may be vestigial rather
-than worth codifying.
+Reloader is deployed and proven — a Secret change now restarts the workloads
+that reference it, which the CNPG cutover showed was a correctness gap rather
+than a convenience.
 
-Reloader is deployed and proven — a Secret change now
-restarts the workloads that reference it, which the CNPG cutover showed was a
-correctness gap rather than a convenience. Still open in Phase 6: converting
-cloudflared to a locally-managed tunnel so ingress routing lives in git, the
-OpenTofu module for Cloudflare, and importing the five Proxmox VMs into OpenTofu
-state.
+The MinIO CORS Transform Rule turned out to be **vestigial**: no browser ever
+addresses `minio-api.sunosrs.cc` — guide images are served same-origin by the
+Worker, which is the only S3 client. Delete the rule in the dashboard; nothing
+about it belongs in `tofu/`.
+
+**One item is left in Phase 6:** importing the five Proxmox guests into OpenTofu
+state, read-only. It needs a PVE API token, which — unlike the Cloudflare one —
+this operator can issue. `tofu/README.md` → "Proxmox" has the commands.
 
 Deliberately still open, with reasoning in `GITOPS.md`: the old `postgres`
 Deployment keeps running as the rollback path, VolSync is deferred for want of a

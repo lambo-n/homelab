@@ -31,16 +31,19 @@ variable "tunnel_id" {
     applying moves live traffic from one tunnel to the other, because the DNS
     records' content is derived from it.
 
-    Currently the original remotely-managed tunnel. After
-    scripts/cloudflared-new-local-tunnel.sh has created the locally-managed
-    replacement and the cluster is running its credentials, set this to the new
-    id and apply -- that is the moment routing changes hands.
+    Currently `sunfire-local`, the locally-managed tunnel created by
+    scripts/cloudflared-new-local-tunnel.sh and cut over 2026-09-04.
+
+    To move to another tunnel: create it, get its credentials into the cluster
+    (SOPS -> Flux -> Reloader restarts the connector), and only then change this
+    value and apply. Doing it in the other order points DNS at a tunnel with no
+    connector on it.
   EOT
   type        = string
-  # Cut over 2026-09-04 from b42c20c1-2d20-43ee-a17c-15f9849e5f13 (the original
-  # remotely-managed tunnel, kept alive as the rollback path) to the
-  # locally-managed replacement created by
-  # scripts/cloudflared-new-local-tunnel.sh.
+  # Cut over 2026-09-04 from b42c20c1-2d20-43ee-a17c-15f9849e5f13, the original
+  # remotely-managed tunnel. That one was kept as the rollback path until the
+  # Worker had verified upload/fetch/delete through the new one, then deleted --
+  # so this id is no longer a two-way switch, it is the only tunnel that exists.
   default = "1ac59ce2-15bb-46df-967f-caa8b05881f7"
 }
 
