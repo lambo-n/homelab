@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# NOT a .tf file on purpose. Rename to proxmox-import.tf only when running the
+# generate step below.
+#
+# The five guests must come into state WITHOUT being recreated. Hand-writing
+# `proxmox_virtual_environment_vm` bodies to match four live VMs is guesswork,
+# and a mismatched attribute is not a cosmetic diff here -- it is a plan that
+# proposes replacing a running k3s node.
+#
+# So do not hand-write them. Let OpenTofu generate the config from the live
+# objects:
+#
+#   mv proxmox-import.tf.example proxmox-import.tf
+#   tofu plan -generate-config-out=proxmox-generated.tf
+#
+# Then READ proxmox-generated.tf, fold what you want into a real file, and only
+# afterwards run a plan that must report **no changes**. If it proposes anything
+# destructive, the config does not match reality yet -- fix the config, never
+# the machine.
+#
+# Import IDs for bpg/proxmox VMs are "<node>/<vmid>"; containers use the
+# container resource. VMIDs confirmed 2026-09-04 via `qm list` -- note they do
+# NOT track the IP last octet (VMID + 2 = last octet here).
+# ---------------------------------------------------------------------------
+
+import {
+  to = proxmox_virtual_environment_vm.dev
+  id = "pve/101" # 192.168.50.103 -- this dev VM
+}
+
+import {
+  to = proxmox_virtual_environment_vm.k3s_control
+  id = "pve/102" # 192.168.50.104 -- control plane
+}
+
+import {
+  to = proxmox_virtual_environment_vm.k3s_worker1
+  id = "pve/103" # 192.168.50.105 -- minio
+}
+
+import {
+  to = proxmox_virtual_environment_vm.k3s_worker2
+  id = "pve/104" # 192.168.50.106 -- postgres; holds the PGDATA zvol on scsi1
+}
+
+# The fifth guest, 192.168.50.102 (vpn-gateway), is an LXC and does not appear
+# in `qm list` -- use `pct list` for its ID, then:
+#
+# import {
+#   to = proxmox_virtual_environment_container.vpn_gateway
+#   id = "pve/<ctid>"
+# }

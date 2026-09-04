@@ -211,7 +211,12 @@ untouched.
 > zvol exists, destroying or rebuilding that pool takes `k3s-worker2`'s database
 > disk with it, and pool work needs the VM stopped first.
 
-**Phase 6 has started.** Reloader is deployed and proven — a Secret change now
+**Phase 6 is partly done.** `tofu/` holds the OpenTofu layer — Cloudflare tunnel,
+DNS and the Proxmox import scaffolding — written, validated and provider-locked
+but **not applied**, because it needs a Cloudflare API token the operator cannot
+currently issue. `tofu/README.md` lists the exact scopes to request.
+
+Reloader is deployed and proven — a Secret change now
 restarts the workloads that reference it, which the CNPG cutover showed was a
 correctness gap rather than a convenience. Still open in Phase 6: converting
 cloudflared to a locally-managed tunnel so ingress routing lives in git, the

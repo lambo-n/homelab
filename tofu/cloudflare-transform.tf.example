@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# NOT a .tf file on purpose -- see the warning below.
+#
+# GITOPS.md lists "MinIO CORS handled by a Cloudflare Transform Rule" as a
+# clickops gap. It is deliberately NOT scaffolded here, for two reasons.
+#
+# 1. The rule cannot be read without an API token, so anything written now would
+#    be a guess. Applying a guessed Transform Rule would overwrite the real one
+#    with something untested -- strictly worse than leaving it in the dashboard.
+#    Transcribe the live rule first, then encode it.
+#
+# 2. It may not be needed at all. sunfire/HOMELAB.md records: "Only
+#    browser-direct access needs this; server-side callers don't." The Worker is
+#    the only client of MinIO -- end users never touch the origin
+#    (sunfire/homelab/README.md, "the access model") -- so if nothing fetches
+#    bucket objects directly from a browser, this rule is vestigial and the
+#    right move is to DELETE it rather than codify it.
+#
+# Decide which of those it is before writing a resource. The question to answer:
+# does any browser fetch minio-api.sunosrs.cc directly, or does every byte go
+# through the Worker?
+# ---------------------------------------------------------------------------

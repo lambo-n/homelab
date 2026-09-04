@@ -70,12 +70,12 @@ Reference repo: [perryhuynh/homelab](https://github.com/perryhuynh/homelab/tree/
 - [ ] No backups of any kind (no snapshots, no logical DB dumps)
 - [ ] No monitoring/observability
 - [x] ~~`kubectl` v1.30 vs server v1.35~~ — mise pins `kubectl` 1.35.8
-- [ ] cloudflared tunnel is **remote-managed** — ingress routing lives in the Cloudflare dashboard, outside git
-- [ ] MinIO CORS handled by a Cloudflare Transform Rule — also clickops
+- [~] cloudflared tunnel was **remote-managed** — credentials are now in git (SOPS) and the ingress rules are written and validated in a ConfigMap, but the tunnel's `config_src` is still `cloudflare`, so the dashboard still serves routing. Blocked on a Cloudflare API token; `tofu/` is written and waiting
+- [ ] MinIO CORS handled by a Cloudflare Transform Rule — also clickops. **May be vestigial**: `HOMELAB.md` records that only browser-direct access needs it, and the Worker is the only client. Establish whether any browser fetches `minio-api.sunosrs.cc` directly before codifying it — the answer may be to delete the rule instead (`tofu/cloudflare-transform.tf.example`)
 - [x] ~~**Local dev inherits production vars but feature credentials**~~ — resolved 2026-09-02 by unifying the media store (below); local dev's feature credentials now authorize the one shared bucket. Original finding: (found 2026-09-02, lives in `sunfire/`, not this repo). `npm run preview` runs `wrangler dev` with **no `--env`**, so it takes top-level config — `MINIO_BUCKET=sunfire-guide-media`, `POSTGREST_SCHEMA=public`. But `.dev.vars` holds the **feature** MinIO keys, whose embedded policy allows only `sunfire-guide-media-feature/*`. After tunnel cutover that combination is a guaranteed `AccessDenied`. Masked today only because `MINIO_ENDPOINT` is `.invalid`. Fix is `wrangler dev --env feature` (preferred — local dev should not touch the production bucket), *not* swapping in prod keys
 - [x] ~~**Unified media store — cluster not yet converted**~~ — converted and verified 2026-09-02 (policy re-scoped, `PGRST_DB_SCHEMAS=public`, `sunfire_feature` dropped, feature bucket removed)
 - [ ] **`minio-worker-credentials` is a filing cabinet, not a workload secret** — verified 2026-09-02 that *no* Deployment references it; it sits in the cluster purely as a store for Cloudflare Worker keys. Moves to Infisical and is then deleted from the cluster
-- [ ] **`PGRST_OPENAPI_SERVER_PROXY_URI` is stale** — the live `postgrest` Deployment still points at `https://db.sunfirebingo.com`; the production domain is `db.sunosrs.cc`. Ported verbatim into `~/homelab` (with a `TODO`) so adoption stays a no-op — fix it as a deliberate commit, not inside the migration
+- [x] ~~**`PGRST_OPENAPI_SERVER_PROXY_URI` is stale**~~ — fixed in `6d51959` and verified live 2026-09-04 (`https://db.sunosrs.cc`). Original finding: — the live `postgrest` Deployment still points at `https://db.sunfirebingo.com`; the production domain is `db.sunosrs.cc`. Ported verbatim into `~/homelab` (with a `TODO`) so adoption stays a no-op — fix it as a deliberate commit, not inside the migration
 
 ---
 
@@ -821,8 +821,19 @@ down" posture is inbound-only).
       `dependsOn` so it cannot wedge the sunfire graph. All four sunfire Deployments annotated.
       Promoted from convenience to correctness by the CNPG cutover, which reported success while
       PostgREST went on serving from the old database — see Phase 5
-- [ ] OpenTofu module for Cloudflare: DNS, tunnel routes, the MinIO CORS Transform Rule
-- [ ] Import the 5 existing Proxmox VMs into OpenTofu state **without recreating them**
+- [~] OpenTofu module for Cloudflare — **written and validated 2026-09-04, not applied.** `tofu/`
+      holds the tunnel (`config_src = "local"`, the field that closes the item above), both DNS
+      CNAMEs as imports, pinned providers and a committed lock file. `tofu validate` passes.
+      **Blocked on a Cloudflare API token**: the account is not owned by this operator, and none
+      of the existing credentials can manage configuration — `tofu/README.md` says exactly which
+      scopes to request and why wrangler's OAuth token, the Access service token and the tunnel
+      token each cannot substitute
+- [~] Import the 5 existing Proxmox guests into OpenTofu state **without recreating them** —
+      scaffolded as `tofu/proxmox-import.tf.example` with the confirmed VMIDs (101 dev, 102
+      control, 103/104 workers, plus one LXC). Deliberately **not** hand-written resource
+      bodies: use `tofu plan -generate-config-out`, because a mismatched attribute here proposes
+      replacing a running k3s node rather than showing a cosmetic diff. Needs a Proxmox API
+      token, which is independent of the Cloudflare one
 
 > ⚠️ **Local config does not beat remote config — `config_src` decides**
 > *(found 2026-09-04)*. Converting cloudflared to local management is two

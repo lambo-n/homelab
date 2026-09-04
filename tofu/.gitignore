@@ -1,0 +1,14 @@
+# State contains every attribute of every managed object, including values the
+# providers mark sensitive. It stays on this VM and is backed up with it
+# (GITOPS.md Phase 6).
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.tfstate.lock.info
+
+# Real variable values -- the API tokens.
+*.tfvars
+!*.tfvars.example
+
+# Generated during the import flow; review then fold into a real file.
+proxmox-generated.tf
