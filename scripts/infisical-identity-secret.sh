@@ -12,6 +12,10 @@
 #
 #   ./scripts/infisical-identity-secret.sh
 #
+# It can be run from anywhere -- it cd's into the repo itself, because the
+# toolchain pins live in ./mise.toml and the sops shim resolves to "No version
+# is set for shim: sops" from any other directory.
+#
 # Values are read into variables, piped straight into sops, and never printed,
 # never written in plaintext and never placed in argv -- same discipline as
 # cloudflared-new-local-tunnel.sh and minio-barman-account.sh.
@@ -26,10 +30,30 @@ set -euo pipefail
 REPO="$HOME/homelab"
 OUT="$REPO/kubernetes/apps/sunfire/infisical/app/credentials.sops.yaml"
 
+# Staged here first; $OUT is only written once the payload is verified encrypted.
+TMP="$(mktemp)"
+chmod 600 "$TMP"
+trap 'rm -f "$TMP"' EXIT
+
 export SOPS_AGE_KEY_FILE="$REPO/age.key"
-command -v sops >/dev/null || { echo "!! sops not on PATH -- run from a mise-activated shell"; exit 1; }
+
+# mise resolves tool versions from the config in the CURRENT directory tree.
+# sops is pinned in $REPO/mise.toml, so from anywhere else the shim exists on
+# PATH and then fails at runtime with "No version is set for shim: sops".
+cd "$REPO"
+
+# Check that sops RUNS, not merely that something named sops is on PATH --
+# those are different questions when shims are involved, and the difference
+# only shows up after the prompt has already consumed a one-shot credential.
+sops --version >/dev/null 2>&1 || {
+  echo "!! sops is not runnable here. If this says 'No version is set for shim',"
+  echo "   the mise config was not picked up: run 'mise install' in $REPO."
+  exit 1
+}
 [ -t 0 ] || { echo "!! no TTY -- run this in a real terminal, not behind the '!' prefix"; exit 1; }
 
+# Everything above must pass BEFORE prompting. The client secret is shown once
+# by Infisical; failing after reading it costs the user a rotation.
 printf 'Infisical machine identity Client ID: '
 IFS= read -r CLIENT_ID
 printf 'Infisical machine identity Client Secret (hidden): '
@@ -49,18 +73,24 @@ body = {"apiVersion": "v1", "kind": "Secret",
         "stringData": {"clientId":     os.environ["CLIENT_ID"],
                        "clientSecret": os.environ["CLIENT_SECRET"]}}
 sys.stdout.write(yaml.safe_dump(body, sort_keys=False))
-' | sops -e --input-type yaml --output-type yaml --filename-override "$OUT" /dev/stdin > "$OUT"
+' | sops -e --input-type yaml --output-type yaml --filename-override "$OUT" /dev/stdin > "$TMP"
 unset CLIENT_SECRET CLIENT_ID
 
-# Prove both values encrypted. A plaintext credential committed to a private
-# repo is still a plaintext credential.
+# Prove both values encrypted BEFORE the file reaches its destination. Writing
+# the redirect straight at $OUT is what the first version did, and it truncates
+# the target before sops has run -- so a mid-pipeline failure leaves either an
+# empty file or, if sops fails after python has written, a plaintext one sitting
+# at a path the next commit would pick up.
 for key in clientId clientSecret; do
-  n=$(grep -cE "^[[:space:]]+${key}: ENC\[" "$OUT" || true)
+  n=$(grep -cE "^[[:space:]]+${key}: ENC\[" "$TMP" || true)
   if [ "$n" != 1 ]; then
-    echo "!! $key is not encrypted in $OUT -- do NOT commit it"
+    echo "!! $key is not encrypted -- refusing to write $OUT"
     exit 1
   fi
 done
+
+mv "$TMP" "$OUT"
+chmod 600 "$OUT"
 
 echo "   wrote $OUT (both values ENC[...])"
 echo "   next: wire it in -- add infisical/ks.yaml to kubernetes/apps/sunfire/kustomization.yaml"
