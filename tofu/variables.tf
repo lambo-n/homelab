@@ -37,7 +37,11 @@ variable "tunnel_id" {
     id and apply -- that is the moment routing changes hands.
   EOT
   type        = string
-  default     = "b42c20c1-2d20-43ee-a17c-15f9849e5f13"
+  # Cut over 2026-09-04 from b42c20c1-2d20-43ee-a17c-15f9849e5f13 (the original
+  # remotely-managed tunnel, kept alive as the rollback path) to the
+  # locally-managed replacement created by
+  # scripts/cloudflared-new-local-tunnel.sh.
+  default = "1ac59ce2-15bb-46df-967f-caa8b05881f7"
 }
 
 variable "proxmox_endpoint" {

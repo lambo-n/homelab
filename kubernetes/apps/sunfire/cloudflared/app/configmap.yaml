@@ -42,7 +42,7 @@ metadata:
   namespace: sunfire
 data:
   config.yaml: |
-    tunnel: b42c20c1-2d20-43ee-a17c-15f9849e5f13
+    tunnel: 1ac59ce2-15bb-46df-967f-caa8b05881f7
     credentials-file: /etc/cloudflared-creds/credentials.json
 
     # No metrics scraper yet (Phase 7); bound anyway so `cloudflared tunnel
