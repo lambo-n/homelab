@@ -209,13 +209,27 @@ cleared by the `systemctl daemon-reload` in the next step.
 
 ```bash
 mkdir -p /etc/systemd/system/k3s-agent.service.d
-cat > /etc/systemd/system/k3s-agent.service.d/10-pgdata-mount.conf <<'EOF'
-[Unit]
-RequiresMountsFor=/var/lib/rancher/k3s/storage
-EOF
+printf '[Unit]\nRequiresMountsFor=/var/lib/rancher/k3s/storage\n' \
+  | tee /etc/systemd/system/k3s-agent.service.d/10-pgdata-mount.conf
+
 systemctl daemon-reload
+
+# RequiresMountsFor expands into a real dependency on the generated .mount unit.
+# This proves that happened; `cat`-ing the file only proves the file exists.
+systemctl show k3s-agent -p Requires -p After | tr ' ' '\n' | grep -i storage
+# expect: var-lib-rancher-k3s-storage.mount
+
 systemctl start k3s-agent
 ```
+
+> Deliberately a `printf` one-liner rather than a heredoc. A `<<'EOF'` block
+> pasted from a document usually arrives indented, and a heredoc terminator must
+> sit flush at column 0 — indented, bash never recognises it and the shell hangs
+> on a continuation prompt. (`<<-EOF` strips leading *tabs*, not spaces, so it
+> does not rescue a space-indented paste either.)
+>
+> `tee` rather than `>` because `sudo cmd > file` performs the redirect as the
+> invoking user, not root, and fails on a root-owned directory.
 
 Note the deliberate combination: `nofail` in fstab **and** `RequiresMountsFor`
 here. Without `nofail` a missing volume drops the box into an emergency shell
