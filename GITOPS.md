@@ -508,8 +508,12 @@ down" posture is inbound-only).
 - [x] ~~`ObjectStore` → local MinIO; daily `ScheduledBackup`~~ — `scripts/minio-barman-account.sh`
       created the bucket and scoped account 2026-09-04; both objects live, and WAL archiving plus
       an on-demand base backup are verified against MinIO
-- [ ] **Cut PostgREST over** to `postgres-cnpg-rw.sunfire.svc.cluster.local` and retire the old
-      `postgres` Deployment — a deliberate, separate commit. Do the restore drill first
+- [x] ~~**Cut PostgREST over** to `postgres-cnpg-rw.sunfire.svc.cluster.local`~~ — **done
+      2026-09-04**, after the restore drill passed. Verified end to end: `HTTP 206`,
+      `Content-Range: 0-0/57` through PostgREST, `401` anonymous. No Worker change was needed
+- [ ] Retire the old `postgres` Deployment and its NFS PV/PVC — deliberately still running as
+      the rollback path. Retiring it is a separate decision once the new cluster has run under
+      real traffic for a while
 - [x] ~~**Test a restore into a scratch namespace**~~ — **run and passed 2026-09-04**. Restored
       to healthy in 56s, row counts matched exactly, `authenticator`'s SCRAM hash fingerprint
       was identical to the source, and PITR landed between two marker writes rather than merely
@@ -519,6 +523,34 @@ down" posture is inbound-only).
       on this cluster today that is not either the source volume or the source pool
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
+
+> ⚠️ **A Secret change does not restart the pod — the cutover silently no-opped
+> at first** *(found 2026-09-04)*. After the `PGRST_DB_URI` commit, Flux reported
+> `sunfire-postgrest` Ready at the new revision and the in-cluster Secret held the
+> new host — but `kubectl get pods` showed the PostgREST pod still **84 minutes
+> old**. Env vars from `secretKeyRef` are read once at container start, so
+> PostgREST was still connected to the *old* database while every status signal
+> said the cutover had landed. A `kubectl rollout restart` fixed it, and the logs
+> then named `postgres-cnpg-rw` explicitly.
+>
+> This is the sharpest argument yet for **Reloader**, which sits in Phase 6 as a
+> convenience item. It is not a convenience: without it, every future secret
+> rotation — the JWT signing key, the MinIO Worker credentials, the tunnel token —
+> reports success and changes nothing until someone notices. Worth promoting.
+> Until it lands, treat "rolled a Secret" as an incomplete action: check pod AGE,
+> not Kustomization status.
+>
+> Cutover verification, for the record: PostgREST logs name
+> `postgres-cnpg-rw.sunfire.svc.cluster.local:5432` and load a schema cache of 1
+> relation; the CNPG cluster shows `authenticator` connected from the PostgREST
+> pod; and a signed request returns `HTTP 206` with `Content-Range: 0-0/57` while
+> an anonymous one returns `401`.
+>
+> **No Cloudflare Worker maintenance was required**, as predicted:
+> `PGRST_JWT_SECRET` was untouched (sha256 identical before and after), and
+> `POSTGREST_URL`, `POSTGREST_SCHEMA`, the Access service token and every
+> `MINIO_*` value are unaffected. `PGRST_DB_URI` is cluster-only; the Worker never
+> sees it. No Wrangler push, no app redeploy.
 
 > ✅ **CNPG is live and verified 2026-09-04.** Bootstrapped in 76 seconds from the
 > live Deployment via `bootstrap.initdb.import` (monolith). Verified, not assumed:
@@ -750,7 +782,9 @@ down" posture is inbound-only).
 
 - [ ] Convert cloudflared to a **locally-managed** tunnel — `config.yaml` in a ConfigMap, ingress
       routing in git
-- [ ] Deploy Reloader (`reloader.stakater.com/auto: "true"`) so secret rotation restarts pods
+- [ ] **Deploy Reloader** (`reloader.stakater.com/auto: "true"`) so secret rotation restarts pods
+      — **promoted 2026-09-04**: the CNPG cutover proved a Secret change reports success while
+      changing nothing until the pod is restarted by hand. See Phase 5
 - [ ] OpenTofu module for Cloudflare: DNS, tunnel routes, the MinIO CORS Transform Rule
 - [ ] Import the 5 existing Proxmox VMs into OpenTofu state **without recreating them**
 

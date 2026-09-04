@@ -48,11 +48,12 @@ kubernetes/apps/sunfire/
   └── cloudflared/   remote-managed tunnel
 ```
 
-`postgres-cnpg/` went live 2026-09-04. Its PGDATA sits on a 64 GiB zvol on
-`archive-pool`, mounted at `/var/lib/rancher/k3s/storage` on `k3s-worker2`, and it
-archives WAL continuously plus a daily base backup into MinIO. **It is not yet the
-database PostgREST reads** — that cutover is a separate commit, to be made after
-the `RESTORE.md` drill.
+`postgres-cnpg/` went live 2026-09-04 and **is now the database PostgREST reads**.
+Its PGDATA sits on a 64 GiB zvol on `archive-pool`, mounted at
+`/var/lib/rancher/k3s/storage` on `k3s-worker2`; it archives WAL continuously plus
+a daily base backup into MinIO, and a full restore drill (`RESTORE.md`) passed
+before the cutover. The old `postgres` Deployment is still running as the rollback
+path.
 
 Each app is `ks.yaml` (a Flux `Kustomization`) + `app/` (the plain manifests).
 Ordering is expressed with `dependsOn`:
