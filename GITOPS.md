@@ -807,8 +807,15 @@ down" posture is inbound-only).
 
 ### Phase 6 — Close the clickops gaps
 
-- [ ] Convert cloudflared to a **locally-managed** tunnel — `config.yaml` in a ConfigMap, ingress
-      routing in git
+- [~] Convert cloudflared to a **locally-managed** tunnel — **half done 2026-09-04**. The
+      credential half works: the connector runs from a SOPS-encrypted `credentials.json` built
+      out of the existing token, with no `--token`, same tunnel UUID and no DNS change. The
+      ingress half does **not** yet: the tunnel's `config_src` is still `cloudflare`, so the
+      dashboard's map wins and `configmap.yaml` is inert. Flipping `config_src` to `local` is a
+      Cloudflare API action — see below
+- [ ] Flip the tunnel's `config_src` from `cloudflare` to `local` so the ConfigMap governs.
+      Candidate for the OpenTofu module below (`cloudflare_zero_trust_tunnel_cloudflared` takes
+      `config_src`), which would close both items at once
 - [x] ~~**Deploy Reloader** (`reloader.stakater.com/auto: "true"`) so secret rotation restarts
       pods~~ — **done 2026-09-04**, chart `2.2.16` (appVersion `v1.4.21`), own namespace, no
       `dependsOn` so it cannot wedge the sunfire graph. All four sunfire Deployments annotated.
@@ -816,6 +823,37 @@ down" posture is inbound-only).
       PostgREST went on serving from the old database — see Phase 5
 - [ ] OpenTofu module for Cloudflare: DNS, tunnel routes, the MinIO CORS Transform Rule
 - [ ] Import the 5 existing Proxmox VMs into OpenTofu state **without recreating them**
+
+> ⚠️ **Local config does not beat remote config — `config_src` decides**
+> *(found 2026-09-04)*. Converting cloudflared to local management is two
+> changes, not one, and only the first is a Kubernetes change.
+>
+> The credential half went cleanly. The token decodes to `{a,t,s}`, which maps
+> exactly onto `{AccountTag,TunnelID,TunnelSecret}` — so a `credentials.json`
+> built from it runs the *same* tunnel, with no new tunnel, no DNS edit, no
+> Access change and no Worker secret. `cloudflared-token` stays in git as the
+> rollback path.
+>
+> The ingress half did not. Given a `--config` file containing `ingress` rules
+> **and** a valid credentials file, cloudflared connects, then takes its routing
+> from the edge anyway and logs nothing about it. The only tell is content: the
+> config it logged carried `warp-routing`, which the local file does not. The
+> deciding field is `config_src` on the tunnel object — `cloudflare` (dashboard)
+> or `local` (YAML on the origin) — and it is set at the API, so no manifest in
+> this repo can change it.
+>
+> Consequence for sequencing: **the ConfigMap is inert until `config_src`
+> flips**, and it is worth flipping only with the local rules already verified,
+> which they are (`ingress validate` → OK; `ingress rule` resolves both
+> hostnames to the right services and everything else to the 404 catch-all).
+> The tidiest way to do it is the OpenTofu module below, whose
+> `cloudflare_zero_trust_tunnel_cloudflared` resource takes `config_src` — that
+> closes this item and the Cloudflare-clickops item together, rather than
+> spending a manual dashboard action on it now.
+>
+> Verified unaffected throughout: both hostnames returned `HTTP 403` before and
+> after (Access rejecting at the edge, which is the healthy signal — a broken
+> origin map would be `502`/`1033`), and all four QUIC connections re-registered.
 
 > `opentofu` is now pinned in `mise.toml` (1.12.6). Until this phase it is an
 > unused pin — the layer-split table under "Scope" named OpenTofu as the VM
