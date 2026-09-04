@@ -524,6 +524,30 @@ down" posture is inbound-only).
 - [ ] Pin `sanoid` in Ansible/host config once that layer exists — it is **host-level, not a
       Kubernetes object**, so neither Flux nor OpenTofu reconciles it
 
+> ✅ **Reloader deployed and proven 2026-09-04** (Phase 6, pulled forward). Not
+> assumed to work — tested the same way the backups were. A throwaway
+> `reloader-drill` namespace held a Deployment reading one value from a Secret
+> via `secretKeyRef`. Rotating the Secret `v1` → `v2`, **without touching the
+> Deployment at all**, produced a new pod serving `value=v2` in ~33 seconds, and
+> Reloader's own log named it:
+>
+> ```
+> Changes detected in 'probe' of type 'SECRET' in namespace 'reloader-drill';
+> updated 'probe' of type 'Deployment' in namespace 'reloader-drill'
+> ```
+>
+> Namespace torn down afterwards. All four sunfire Deployments now carry the
+> annotation, so the gap below is closed going forward.
+>
+> **Second-order finding: a manual `kubectl rollout restart` does not survive
+> Flux.** The restart annotation lands on the pod *template*, which Flux owns via
+> server-side apply — so the next reconcile strips it and rolls the Deployment
+> back to the git spec, restarting the pod a second time. Harmless here (the
+> Secret change is what actually persisted, and PostgREST came back on
+> `postgres-cnpg-rw` either way), but it means a hand-rolled restart is a
+> temporary state under GitOps, not a fix. With Reloader in place there is no
+> longer a reason to reach for one.
+
 > ⚠️ **A Secret change does not restart the pod — the cutover silently no-opped
 > at first** *(found 2026-09-04)*. After the `PGRST_DB_URI` commit, Flux reported
 > `sunfire-postgrest` Ready at the new revision and the in-cluster Secret held the
