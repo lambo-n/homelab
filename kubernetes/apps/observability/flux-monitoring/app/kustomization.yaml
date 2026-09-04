@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - podmonitor.yaml
+  - prometheusrule.yaml
+  - notification.yaml
+configMapGenerator:
+  # The dashboards Flux publishes, committed as JSON rather than pulled by
+  # gnetId at pod start -- a dashboard fetched from grafana.com at runtime is
+  # one more thing that has to work while the cluster is booting, and it is not
+  # in git.
+  #
+  # `logs.json` from the same upstream set is deliberately absent: it queries
+  # Loki, and there is no Loki here.
+  - name: flux-grafana-dashboards
+    namespace: observability
+    files:
+      - dashboards/cluster.json
+      - dashboards/control-plane.json
+    options:
+      labels:
+        # What the kube-prometheus-stack Grafana sidecar watches for, in every
+        # namespace (searchNamespace: ALL is the chart default).
+        grafana_dashboard: "1"
+        app.kubernetes.io/part-of: flux
+        app.kubernetes.io/component: monitoring
+      annotations:
+        # These JSON files are full of ${var} Grafana template expressions.
+        # Flux post-build substitution is not enabled on this Kustomization, but
+        # if it ever is, this keeps it from rewriting a dashboard into garbage.
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+generatorOptions:
+  # A hashed name would work -- the sidecar matches on the label, not the name.
+  # Kept stable so `kubectl get cm -n observability` reads sensibly and a
+  # dashboard edit shows as a diff on one object instead of a create + delete.
+  disableNameSuffixHash: true

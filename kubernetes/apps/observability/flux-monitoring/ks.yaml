@@ -1,0 +1,28 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flux-monitoring
+  namespace: flux-system
+spec:
+  interval: 30m
+  timeout: 5m
+  path: ./kubernetes/apps/observability/flux-monitoring/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  wait: true
+  dependsOn:
+    # The only real dependsOn in this namespace, and it is a CRD dependency, not
+    # an ordering preference: PodMonitor and PrometheusRule do not exist as
+    # kinds until the stack's CRDs are registered, and a Kustomization that
+    # applies an unknown kind fails rather than waiting.
+    #
+    # The Flux Provider and Alert have the opposite relationship -- their CRDs
+    # ship with Flux itself, and they will queue notifications at an
+    # Alertmanager that is not answering yet without erroring.
+    - name: kube-prometheus-stack
+  # No healthChecks: every object here is inert configuration read by another
+  # controller. There is no workload to be Ready, so `wait: true` reaching
+  # Applied is the whole signal available.

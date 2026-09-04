@@ -1,0 +1,296 @@
+---
+# Prometheus + Alertmanager + Grafana + node-exporter + kube-state-metrics.
+#
+# GITOPS.md "Known gaps" has carried "No monitoring/observability" since the
+# first revision of that list; this is the last entry in it. Phase 7.
+#
+# Three shaping constraints, all of them local to this cluster:
+#
+#  1. THE TSDB CANNOT GO ON NFS. Prometheus' storage docs are explicit that
+#     non-POSIX filesystems are unsupported, and NFS in practice is one --
+#     mmap and file locking are exactly what a TSDB leans on. So archive-pool,
+#     the redundant 1.68 TiB the rest of this cluster stores data on, is not
+#     available to it. That leaves local-path, which means a node's root disk.
+#
+#  2. IT MUST NOT SHARE A FILESYSTEM WITH PGDATA. k3s-worker2's local-path
+#     directory IS the PGDATA zvol (STORAGE.md sections 1-5 exist to make that
+#     true). local-path provisions a directory, not a quota, so a runaway TSDB
+#     there would fill the database's filesystem -- re-coupling the two things
+#     that document went to some length to separate. Prometheus is therefore
+#     pinned to k3s-worker1, whose only tenant is MinIO, and MinIO keeps its
+#     data on NFS. Worst case here is DiskPressure on worker1, not a dead
+#     database.
+#
+#  3. WORKER1'S ROOT DISK IS 17.83 GiB WITH ~9.8 GiB FREE, and it also holds
+#     the container image store. Hence retentionSize below, a 60s scrape
+#     interval, and no Thanos.
+#
+# ALERTING IS IN-CLUSTER ONLY, DELIBERATELY. Alertmanager keeps the chart's
+# default 'null' receiver -- alerts fire and are visible in the UI, and nothing
+# is pushed anywhere. AGENTS.md records that this cluster is "frequently powered
+# off / sleeping"; a webhook would deliver a storm of KubeNodeNotReady /
+# TargetDown / KubePodNotReady on every power cycle, which is how alerting gets
+# ignored. Add a receiver the day the cluster is expected to stay up.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: observability
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: kube-prometheus-stack
+  install:
+    # The chart ships its CRDs in a Helm `crds/` directory, which Helm installs
+    # once and then NEVER touches again on upgrade -- so a chart bump that adds
+    # a field to the Prometheus CRD would install a chart whose CRDs are older
+    # than its templates. CreateReplace is Flux doing what Helm will not.
+    crds: Create
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  values:
+    # --- default alert rules -------------------------------------------------
+    defaultRules:
+      create: true
+      rules:
+        # k3s runs the control plane as ONE process and binds these components'
+        # metrics to 127.0.0.1. Verified 2026-09-04 by probing .104 and .105:
+        # 10249 (kube-proxy), 10257 (controller-manager), 10259 (scheduler) and
+        # 2381 (etcd) are all closed from off-host. Their ServiceMonitors are
+        # disabled below, so these rule groups would evaluate against metrics
+        # that never arrive and sit permanently firing -- the classic way an
+        # alert console becomes furniture.
+        kubeControllerManager: false
+        kubeSchedulerAlerting: false
+        kubeSchedulerRecording: false
+        kubeProxy: false
+        # No etcd: this is a single-server k3s on sqlite, not embedded etcd.
+        etcd: false
+        # No Windows nodes.
+        windows: false
+      # Nothing else is disabled. On a null receiver a noisy alert costs a row
+      # in a UI, not a notification, so the usual reasons to prune the default
+      # set do not apply yet. Revisit alongside adding a receiver.
+
+    # --- Alertmanager --------------------------------------------------------
+    alertmanager:
+      enabled: true
+      alertmanagerSpec:
+        replicas: 1
+        retention: 120h
+        nodeSelector:
+          # Same node as Prometheus: its PVC is RWO on local-path, which binds
+          # to whichever node first schedules the pod. Pinning makes that
+          # deterministic instead of incidental.
+          kubernetes.io/hostname: k3s-worker1
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: local-path
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  # Nominal. local-path enforces no quota (same as the NFS PVs
+                  # -- GITOPS.md "Current State"), so this number is metadata.
+                  # Real usage is the notification log and silences: single
+                  # -digit MiB. It exists so a restart does not drop silences.
+                  storage: 1Gi
+      # The chart's default routing tree is kept verbatim: everything lands on
+      # the 'null' receiver and Watchdog is routed there explicitly. See the
+      # header -- this is the decision, not an oversight.
+
+    # --- Grafana -------------------------------------------------------------
+    grafana:
+      enabled: true
+      defaultDashboardsEnabled: true
+      defaultDashboardsTimezone: browser
+      # The chart leaves grafana.adminPassword unset, which falls through to the
+      # grafana subchart's literal default. Replaced with a SOPS-encrypted
+      # 32-char secret -- cluster-only, so SOPS and not Infisical, per the
+      # hybrid split in GITOPS.md.
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
+      # GF_SECURITY_ADMIN_PASSWORD is an env var from a secretKeyRef, read once
+      # at container start. Rotating the secret without this annotation reports
+      # success and changes nothing -- the exact failure Reloader was installed
+      # for in Phase 6.
+      annotations:
+        reloader.stakater.com/auto: "true"
+      deploymentStrategy:
+        # RWO PVC below: a RollingUpdate would deadlock waiting for the old pod
+        # to release the volume.
+        type: Recreate
+      persistence:
+        enabled: true
+        type: pvc
+        storageClassName: local-path
+        accessModes: ["ReadWriteOnce"]
+        size: 2Gi
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      ingress:
+        # LAN only. There is no ClusterIssuer in this cluster and no public
+        # hostname for this: Traefik already listens on 80/443 on all three
+        # node IPs via k3s' klipper LoadBalancer, and that is the whole
+        # exposure. Deliberately NOT added to the cloudflared tunnel -- that
+        # would put an admin UI on the public edge and grow the tunnel's blast
+        # radius for a service only ever used from this LAN.
+        #
+        # Nothing resolves homelab.lan; add to /etc/hosts on any machine that
+        # browses it:  192.168.50.104  grafana.homelab.lan
+        enabled: true
+        ingressClassName: traefik
+        hosts:
+          - grafana.homelab.lan
+        path: /
+        pathType: Prefix
+      additionalDataSources:
+        # Alertmanager has no authentication of its own, so it is NOT given an
+        # Ingress. Reaching it through Grafana means alerts and silences are
+        # behind the one login that exists. Direct access stays a port-forward.
+        - name: Alertmanager
+          type: alertmanager
+          uid: alertmanager
+          url: http://kube-prometheus-stack-alertmanager.observability.svc.cluster.local:9093
+          access: proxy
+          jsonData:
+            implementation: prometheus
+            handleGrafanaManagedAlerts: false
+
+    # --- what gets scraped ---------------------------------------------------
+    kubeApiServer:
+      enabled: true
+    kubelet:
+      enabled: true
+    coreDns:
+      enabled: true
+    kubeDns:
+      # k3s ships CoreDNS; the kube-dns Service name is a compatibility alias.
+      # Enabling both would scrape the same endpoint twice.
+      enabled: false
+    # All four bind to 127.0.0.1 under k3s -- see the defaultRules note above.
+    # Enabling them produces permanently-down targets, not data.
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+    kubeEtcd:
+      enabled: false
+
+    kubeStateMetrics:
+      enabled: true
+    kube-state-metrics:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+    nodeExporter:
+      enabled: true
+    prometheus-node-exporter:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
+
+    # --- operator ------------------------------------------------------------
+    prometheusOperator:
+      admissionWebhooks:
+        # The chart's own kube-webhook-certgen job, NOT cert-manager. This stack
+        # deliberately has no dependsOn (see ks.yaml); routing its webhook certs
+        # through cert-manager would create one, and would also need a
+        # ClusterIssuer this cluster does not have -- the only Issuer here is
+        # the self-signed one the barman plugin owns.
+        certManager:
+          enabled: false
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+
+    # --- Prometheus ----------------------------------------------------------
+    prometheus:
+      enabled: true
+      prometheusSpec:
+        replicas: 1
+        # Single hypervisor. Same reasoning as CNPG instances: 1 and reloader
+        # replicas: 1 -- a second replica here is theater, and would double the
+        # TSDB on the one disk that is short of space.
+        shards: 1
+        # 60s rather than the chart's 30s. Halves what lands on worker1's root
+        # disk, and 3 nodes / ~40 pods do not change fast enough for 30s to buy
+        # anything. Still 5 samples inside the rate([5m]) windows the default
+        # rules use.
+        scrapeInterval: 60s
+        evaluationInterval: 60s
+        retention: 15d
+        # THE REAL GUARD. `retention` is a promise about age; retentionSize is
+        # the one Prometheus enforces against the disk, dropping oldest blocks
+        # once the TSDB passes it. At ~40 pods and a 60s interval the 15d series
+        # come to roughly 1-2 GiB, so 4GiB is headroom, not a ceiling being
+        # leaned on -- and it leaves ~5.8 GiB of worker1's root disk for the OS
+        # and the image store.
+        retentionSize: 4GiB
+        walCompression: true
+        nodeSelector:
+          # See the header. This is the one placement decision in this file that
+          # is load-bearing: worker2's local-path directory is the PGDATA zvol.
+          kubernetes.io/hostname: k3s-worker1
+        # Select monitors and rules from ANY namespace, not just those carrying
+        # this release's label. Without this, every future ServiceMonitor in the
+        # cluster (reloader, the Infisical operator, cloudflared's metrics port)
+        # would need `release: kube-prometheus-stack` stamped on it and would be
+        # silently ignored when someone forgot. The namespace selectors are
+        # already {} = all namespaces by chart default.
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+        scrapeConfigSelectorNilUsesHelmValues: false
+        resources:
+          requests:
+            cpu: 200m
+            memory: 1Gi
+          limits:
+            # No CPU limit, on purpose: throttling a TSDB during compaction
+            # turns a slow compaction into a stalled one. Memory is capped
+            # because a runaway query should OOM one pod, not the node.
+            memory: 3Gi
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: local-path
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  # Nominal, like every other capacity in this cluster --
+                  # local-path does not enforce it. retentionSize above is what
+                  # actually bounds the TSDB.
+                  storage: 8Gi

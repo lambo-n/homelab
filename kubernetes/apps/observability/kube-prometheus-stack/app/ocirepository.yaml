@@ -1,0 +1,20 @@
+---
+# Chart source. OCIRepository rather than HelmRepository so there is no
+# index.yaml poll and the tag below is the whole pin -- same shape as
+# reloader, cert-manager and CNPG.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-prometheus-stack
+  namespace: observability
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    # Chart 89.2.0 carries appVersion v0.93.1 (prometheus-operator). Pinned by
+    # CHART, as everywhere else in this repo -- the chart and the operator move
+    # independently and the chart is what Flux installs.
+    tag: 89.2.0
+  url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack

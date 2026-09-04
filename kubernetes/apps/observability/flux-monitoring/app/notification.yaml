@@ -1,0 +1,70 @@
+---
+# Event-based half of Flux alerting.
+#
+# WHY BOTH THIS AND THE PROMETHEUSRULE. They fail in opposite directions, and
+# each covers the other's blind spot:
+#
+#   - This path is push. notification-controller sees the reconcile error as it
+#     happens and POSTs it to Alertmanager within seconds, carrying the actual
+#     error string -- "Helm upgrade failed: timed out waiting for the condition"
+#     rather than "Ready is False". But it is only as alive as
+#     notification-controller itself, and it says nothing about a resource that
+#     was already broken before this Alert existed.
+#
+#   - The PrometheusRule path is pull, and describes STATE rather than events.
+#     It notices a resource that has been failing since before Prometheus
+#     started, and it keeps firing for as long as the condition holds, so a
+#     missed notification does not mean a missed problem.
+#
+# Neither is a superset. A dropped POST loses an event permanently; a dead
+# scrape target loses the metric. Running both costs one Provider and one Alert.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: alertmanager
+  namespace: flux-system
+spec:
+  type: alertmanager
+  # In-cluster, cross-namespace, plain HTTP, no credential -- which is exactly
+  # why this destination needs no secret and works with the cluster offline.
+  # An external webhook would need a SOPS-encrypted URL and internet egress at
+  # the moment of failure; see the HelmRelease header for why there isn't one.
+  #
+  # notification-controller reaches it because the flux-operator's `allow-egress`
+  # NetworkPolicy permits all egress from flux-system, and the observability
+  # namespace runs no ingress policy of its own.
+  address: http://kube-prometheus-stack-alertmanager.observability.svc.cluster.local:9093/api/v2/alerts
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: alertmanager
+  namespace: flux-system
+spec:
+  providerRef:
+    name: alertmanager
+  # `error` only. `info` would forward every successful reconcile of every
+  # resource on a 30m interval -- roughly 700 events a day into an Alertmanager
+  # whose entire job is to show the handful that are not fine.
+  eventSeverity: error
+  eventSources:
+    # '*' in every namespace: this is deliberately a catch-all rather than a
+    # list of the apps that exist today, so a new app added under
+    # kubernetes/apps/ is alerted on without anyone remembering to come back
+    # here. The kinds are the exhaustive set this cluster actually creates.
+    - kind: Kustomization
+      name: '*'
+      namespace: flux-system
+    - kind: HelmRelease
+      name: '*'
+      namespace: '*'
+    - kind: GitRepository
+      name: '*'
+      namespace: '*'
+    - kind: OCIRepository
+      name: '*'
+      namespace: '*'
+    - kind: HelmRepository
+      name: '*'
+      namespace: '*'
+  summary: "flux reconcile error on k3s-homelab"

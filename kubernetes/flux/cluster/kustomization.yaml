@@ -9,5 +9,6 @@ resources:
   - ../../apps/cert-manager
   - ../../apps/cnpg-system
   - ../../apps/infisical
+  - ../../apps/observability
   - ../../apps/reloader
   - ../../apps/sunfire

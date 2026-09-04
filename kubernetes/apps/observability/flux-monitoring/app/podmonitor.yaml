@@ -1,0 +1,57 @@
+---
+# Flux exports Prometheus metrics on port 8080 of every controller; nothing
+# scrapes them until something asks. This is that ask.
+#
+# A PodMonitor rather than a ServiceMonitor because the Flux controllers have no
+# Service in front of their metrics port -- source-controller and
+# notification-controller have Services, but for artifact serving and webhooks,
+# on different ports.
+#
+# Reachable despite FluxInstance `networkPolicy: true`: the operator installs an
+# `allow-scraping` NetworkPolicy in flux-system that admits port 8080 from every
+# namespace. Verified 2026-09-04.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux-system
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: flux
+    app.kubernetes.io/component: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchLabels:
+      # Every controller the FluxInstance installs carries this. Upstream's
+      # example matches an explicit list of six `app` values including
+      # image-reflector-controller and image-automation-controller -- this
+      # cluster installs neither, deliberately (Renovate owns updates, see
+      # GITOPS.md), and an explicit list would quietly need editing on every
+      # component change.
+      app.kubernetes.io/part-of: flux
+  podMetricsEndpoints:
+    - port: http-prom
+---
+# flux-operator is not part of the FluxInstance it manages, so it carries none
+# of the labels above and names its port differently. Separate PodMonitor rather
+# than a matchExpression, because the two really are different things: one is
+# Flux, the other is what installs Flux.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux-operator
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: flux
+    app.kubernetes.io/component: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flux-operator
+  podMetricsEndpoints:
+    - port: http-metrics
