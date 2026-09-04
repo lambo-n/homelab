@@ -164,18 +164,15 @@ spec:
           - grafana.homelab.lan
         path: /
         pathType: Prefix
-      additionalDataSources:
-        # Alertmanager has no authentication of its own, so it is NOT given an
-        # Ingress. Reaching it through Grafana means alerts and silences are
-        # behind the one login that exists. Direct access stays a port-forward.
-        - name: Alertmanager
-          type: alertmanager
-          uid: alertmanager
-          url: http://kube-prometheus-stack-alertmanager.observability.svc.cluster.local:9093
-          access: proxy
-          jsonData:
-            implementation: prometheus
-            handleGrafanaManagedAlerts: false
+      # No additionalDataSources. Alertmanager has no authentication of its own,
+      # so it is NOT given an Ingress -- alerts and silences are meant to be
+      # reached through Grafana, behind the one login that exists, and direct
+      # access stays a port-forward. But the chart ALREADY provisions an
+      # Alertmanager datasource whenever alertmanager.enabled is true. Adding a
+      # second one named "Alertmanager" put two same-named entries in one
+      # provisioning file and Grafana silently kept one of them; found
+      # 2026-09-04 by reading the rendered datasource ConfigMap rather than the
+      # Grafana UI, which shows a working datasource either way.
 
     # --- what gets scraped ---------------------------------------------------
     kubeApiServer:
