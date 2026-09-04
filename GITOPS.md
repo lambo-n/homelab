@@ -811,7 +811,8 @@ down" posture is inbound-only).
       routing now lives in `configmap.yaml` and is read by the connector; the edge serves no
       map at all. Required a **new tunnel** (`sunfire-local`,
       `1ac59ce2-15bb-46df-967f-caa8b05881f7`) because `config_src` is immutable after creation
-      — see below. Old tunnel retained as the rollback path, `status: down`, 0 connections
+      — see below. The old tunnel was held as the rollback path until the Worker had verified
+      upload/fetch/delete through the new one, then **deleted**; its Secret went with it
 - [x] ~~**Deploy Reloader** (`reloader.stakater.com/auto: "true"`) so secret rotation restarts
       pods~~ — **done 2026-09-04**, chart `2.2.16` (appVersion `v1.4.21`), own namespace, no
       `dependsOn` so it cannot wedge the sunfire graph. All four sunfire Deployments annotated.
@@ -872,7 +873,8 @@ down" posture is inbound-only).
 > credentials and ConfigMap, **Reloader restarted the connector** (installed
 > earlier the same day for exactly this), and one pre-staged `tofu apply` moved
 > both CNAMEs. End state: new tunnel `local`/`healthy`/4 connections, old tunnel
-> `down`/0, kept as the rollback path.
+> `down`/0 and kept as the rollback path — until the verification below passed,
+> at which point it was deleted and `cloudflared-token` left the repo with it.
 >
 > ✅ **Verified end to end by the Worker 2026-09-04**: upload, fetch and delete
 > against MinIO all work through the new tunnel. That is the test that counts,
