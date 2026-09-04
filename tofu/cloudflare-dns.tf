@@ -11,12 +11,12 @@
 
 import {
   to = cloudflare_dns_record.minio_api
-  id = "${var.cloudflare_zone_id}/REPLACE_WITH_RECORD_ID"
+  id = "${var.cloudflare_zone_id}/963e0e236db13d9629adc61bd284a8e1"
 }
 
 resource "cloudflare_dns_record" "minio_api" {
   zone_id = var.cloudflare_zone_id
-  name    = "minio-api"
+  name    = "minio-api.sunosrs.cc"
   type    = "CNAME"
   content = "${var.tunnel_id}.cfargotunnel.com"
   proxied = true
@@ -26,12 +26,12 @@ resource "cloudflare_dns_record" "minio_api" {
 
 import {
   to = cloudflare_dns_record.db
-  id = "${var.cloudflare_zone_id}/REPLACE_WITH_RECORD_ID"
+  id = "${var.cloudflare_zone_id}/20bfe3eaabd1cc62870990a4c30ada7c"
 }
 
 resource "cloudflare_dns_record" "db" {
   zone_id = var.cloudflare_zone_id
-  name    = "db"
+  name    = "db.sunosrs.cc"
   type    = "CNAME"
   content = "${var.tunnel_id}.cfargotunnel.com"
   proxied = true

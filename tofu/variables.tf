@@ -20,8 +20,9 @@ variable "cloudflare_account_id" {
 }
 
 variable "cloudflare_zone_id" {
-  description = "Zone ID for sunosrs.cc. Look up once the token exists; there is no way to read it without one."
+  description = "Zone ID for sunosrs.cc. Not secret; resolved 2026-09-04 once the token existed."
   type        = string
+  default     = "23f3b72210cb478de18c5a8c4b75ae90"
 }
 
 variable "tunnel_id" {

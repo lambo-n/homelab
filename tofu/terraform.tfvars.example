@@ -1,10 +1,9 @@
-# Copy to terraform.tfvars (gitignored) ONLY if you cannot use environment
-# variables. Preferred instead:
+# You probably do not need this file at all any more.
 #
-#   export CLOUDFLARE_API_TOKEN=...      # read natively by the provider
+# The zone id is now a default in variables.tf (it is not secret), and both API
+# tokens are read from the environment:
+#
+#   export CLOUDFLARE_API_TOKEN=...
 #   export PROXMOX_VE_API_TOKEN=...
 #
-# which keeps both tokens off disk entirely. The one value you do need here is
-# the zone id, which is not secret.
-
-cloudflare_zone_id = "..."  # sunosrs.cc -- see README.md step 3
+# Copy this to terraform.tfvars (gitignored) only to override a default.
