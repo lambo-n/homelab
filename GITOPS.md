@@ -800,12 +800,13 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 
 > **Alerting is in-cluster only, deliberately.** Alertmanager keeps the chart's default
 > `null` receiver: alerts fire and are visible, and nothing is pushed anywhere. This
-> cluster is powered on and off by hand — `AGENTS.md` calls it "frequently powered off /
-> sleeping" — so a webhook would deliver a storm of `KubeNodeNotReady` / `TargetDown` /
-> `KubePodNotReady` on every power cycle, which is how an alert channel becomes something
-> nobody reads. The in-cluster destination also needs no secret and no internet egress at
-> the moment of failure, which is worth something for an alert about the cluster being
-> broken. **Add a receiver the day this cluster is expected to stay up**, not before.
+> cluster does not guarantee 100% uptime — `AGENTS.md` records that it is prone to
+> infrequent power outages and is taken down by hand for maintenance — so a webhook would
+> deliver a storm of `KubeNodeNotReady` / `TargetDown` / `KubePodNotReady` on every power
+> cycle, which is how an alert channel becomes something nobody reads. The in-cluster
+> destination also needs no secret and no internet egress at the moment of failure, which
+> is worth something for an alert about the cluster being broken. **Add a receiver the
+> day this cluster is expected to stay up**, not before.
 >
 > Alertmanager has no authentication of its own and so gets no Ingress; it is reached
 > through Grafana's provisioned Alertmanager datasource, behind the one login that exists,
@@ -1082,11 +1083,12 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 > PostgREST and the kubelet's image store.
 >
 > The WAL case is what makes this urgent rather than untidy. CNPG keeps
-> unarchived WAL in PGDATA until the archiver drains it, and this cluster is
-> *frequently powered off* — so MinIO being down is the normal state, not the
-> exception, and WAL accumulating against a 2.69 GiB ceiling is the expected
-> path, not a tail risk. There is no CNPG knob that bounds it without also
-> throwing away recoverability; the fix is a real device.
+> unarchived WAL in PGDATA until the archiver drains it, and this cluster does not
+> guarantee 100% uptime — power outages and by-hand maintenance both take it down,
+> so MinIO being unreachable is an expected state rather than an exception, and WAL
+> accumulating against a 2.69 GiB ceiling is a path to plan for, not a tail risk.
+> There is no CNPG knob that bounds it without also throwing away recoverability;
+> the fix is a real device.
 >
 > ✅ **Resolved by the zvol decision below, not by growing the root disk.**
 > Growing the root disk would have left the database sharing a filesystem with

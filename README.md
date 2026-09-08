@@ -1,23 +1,38 @@
 # Homelab
 
 A three-node k3s cluster on a single Proxmox host, reconciled by Flux from this
-repository. It exists to give a Cloudflare Worker somewhere to put things that do
-not belong on the edge: object storage and a database.
+repository. It is general-purpose infrastructure — somewhere to run whatever is
+better off on hardware in the house than on someone else's platform. The platform
+underneath (Flux, secrets, storage, observability, backups) is shared; the
+workloads on top of it come and go.
 
-This file describes **the hardware, what it is for, and what each piece of
-software actually does**. For the flags, gotchas and open items on any of those
-pieces, read [`GITOPS.md`](GITOPS.md) — it is organised by tool and holds
-everything that has already gone wrong here, with dates.
+This file describes **the hardware, the platform, and what each piece of software
+actually does**. For the flags, gotchas and open items on any of those pieces, read
+[`GITOPS.md`](GITOPS.md) — it is organised by tool and holds everything that has
+already gone wrong here, with dates.
 
 ---
 
-## What it is for
+## What runs on it
 
-**Primary use: backing the Sunfire Cloudflare Worker.**
+Everything currently deployed, one entry each. This is the section that grows as
+workloads are added; the shared platform components are described further down
+under [The stack](#the-stack).
+
+| Workload | What it is for | Namespace | Reached at |
+|---|---|---|---|
+| **Sunfire** | Object storage and relational data for the `sunosrs.cc` Cloudflare Worker | `sunfire` | `minio-api.sunosrs.cc`, `db.sunosrs.cc` |
+| **Observability** | Prometheus, Alertmanager and Grafana for the cluster itself | `observability` | `grafana.homelab.lan` (LAN only) |
+
+Adding one means a directory under `kubernetes/apps/`, its own `ks.yaml`, and a row
+above.
+
+### Sunfire — backing a Cloudflare Worker
+
 [`sunosrs.cc`](https://sunosrs.cc) is a React SPA plus a Cloudflare Worker for an
 Old School RuneScape clan. Cloudflare is a poor place to store a few hundred
 megabytes of guide screenshots and GIFs, and a worse place to keep relational
-data. So the Worker offloads both to this cluster:
+data, so the Worker offloads both here:
 
 | The Worker needs | This homelab provides | Reached at |
 |---|---|---|
@@ -27,21 +42,32 @@ data. So the Worker offloads both to this cluster:
 Both hostnames are Cloudflare Access–gated and reached through an outbound-only
 tunnel — there is no port forwarding and no inbound firewall rule anywhere.
 
-**The cluster is expected to be down a lot.** It is a machine in a house, powered
-on and off by hand. The Worker treats that as normal: when the homelab is
-unreachable it serves a graceful `503` rather than a `500`, and image components
-fall back cleanly. That single fact shapes an unusual number of decisions in
-`GITOPS.md` — it is why secrets that the cluster needs to boot stay in git rather
-than in a cloud vault, and why alerting deliberately pushes nothing anywhere.
-
-**Secondary use: this is where the GitOps practice happens.** The migration from
-hand-applied YAML to a fully reconciled cluster is recorded phase by phase at the
-bottom of `GITOPS.md`.
-
 > **History.** The original consumer was *Sun Clan Bingo*, decommissioned
 > 2026-09-02. MinIO and PostgreSQL were kept for a successor Worker and everything
 > was rebranded `bingo` → `sunfire`. The successor app does not exist yet, which is
 > why write volume is currently near zero.
+
+---
+
+## Operating assumptions
+
+These hold for anything deployed here, not just for what happens to be running today.
+
+**100% uptime is not guaranteed.** It is a machine in a house — prone to infrequent
+power outages, and taken down by hand for maintenance. Consumers have to treat an
+unreachable cluster as a normal state rather than an incident: the Sunfire Worker
+serves a graceful `503` rather than a `500` and falls its image components back
+cleanly. That single fact shapes an unusual number of decisions in `GITOPS.md`: it
+is why secrets the cluster needs to boot stay in git rather than in a cloud vault,
+and why alerting deliberately pushes nothing anywhere.
+
+**Nothing is exposed inbound.** Public reachability is opt-in per workload, through
+the cloudflared tunnel and behind Cloudflare Access. LAN-only services (Grafana
+today) stay on Traefik and are deliberately kept off the tunnel.
+
+**The repository is the desired state, and it is also the practice.** The migration
+from hand-applied YAML to a fully reconciled cluster is recorded phase by phase at
+the bottom of `GITOPS.md`; new workloads are expected to arrive the same way.
 
 ---
 
@@ -110,7 +136,10 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
 
 ---
 
-## How a request reaches the homelab
+## How a public request reaches a workload
+
+Sunfire is the only workload on the tunnel today, so its path is the worked example;
+anything published later joins the same chain.
 
 ```
 browser ──▶ Cloudflare edge ──▶ Access ──▶ tunnel ──▶ cloudflared pod
@@ -217,7 +246,8 @@ not a dashboard setting.
 → `kubernetes/apps/sunfire/cloudflared/`
 
 **Traefik** `3.6.13` and **klipper-lb** — k3s' bundled ingress controller and
-service LoadBalancer. Used for exactly one thing: serving Grafana on the LAN.
+service LoadBalancer. Used today for exactly one thing: serving Grafana on the LAN.
+Any future LAN-only UI goes here rather than on the tunnel.
 → ships with k3s, not managed here
 
 **OpenTofu** `1.12.6` — declares the two Cloudflare DNS records and all five
@@ -296,7 +326,7 @@ kubernetes/apps/
   │     ├── kube-prometheus-stack/  Prometheus, Alertmanager, Grafana, exporters
   │     └── flux-monitoring/        PodMonitors, Flux alerts, Flux dashboards
   ├── reloader/           restarts workloads when their Secrets change
-  └── sunfire/            the application namespace
+  └── sunfire/            a workload namespace — one directory per workload
         ├── storage/       NFS PV + PVC          (prune permanently disabled)
         ├── minio/         S3 object storage     → minio-api.sunosrs.cc
         ├── postgres/      legacy credential only (Deployment retired 2026-09-04)

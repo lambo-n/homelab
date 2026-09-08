@@ -15,7 +15,7 @@ Having this repository locally gives models complete visibility into:
 1. **How the Application Uses the Homelab:**
    - **PostgREST HTTP queries:** [`sunfire/worker/lib/postgrest.ts`](sunfire/worker/lib/postgrest.ts) and [`sunfire/worker/data/guideMedia.ts`](sunfire/worker/data/guideMedia.ts).
    - **MinIO S3 storage calls:** [`sunfire/worker/lib/objectStore.ts`](sunfire/worker/lib/objectStore.ts) (SigV4 via `aws4fetch`, path-style URLs, scoped permissions without bucket listing).
-   - **Error handling & availability contract:** [`sunfire/worker/lib/homelab.ts`](sunfire/worker/lib/homelab.ts). The homelab cluster is frequently powered off / sleeping. When unreachable, the Worker serves a graceful 503 instead of 500 or crashing, and image components fall back cleanly.
+   - **Error handling & availability contract:** [`sunfire/worker/lib/homelab.ts`](sunfire/worker/lib/homelab.ts). The homelab cluster does not guarantee 100% uptime — it is prone to infrequent power outages and is taken down by hand for maintenance. When unreachable, the Worker serves a graceful 503 instead of 500 or crashing, and image components fall back cleanly.
 2. **Authoritative Database Schemas & Policies:**
    - **Dynamic SQL Migrations:** [`sunfire/homelab/postgres/0001_guide_media.sql`](sunfire/homelab/postgres/0001_guide_media.sql) (schema-agnostic DDL for both `public` and feature branch schemas).
    - **Security Roles & Grants:** [`sunfire/homelab/postgres/0002_grants.sql`](sunfire/homelab/postgres/0002_grants.sql) (strictly limits access to `sunfire_readwrite` and revokes `anon`).
