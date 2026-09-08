@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitops-canary
+  # Deliberately NO kustomize.toolkit.fluxcd.io/prune: disabled, unlike every
+  # other namespace in this repo. The other namespaces hold state that a GC
+  # cascade would destroy, so their deletion is kept a manual act. This one
+  # holds a single stateless pod and exists only to prove that a push to main
+  # reaches the cluster -- being prunable is the point: deleting this directory
+  # from git must be enough to remove it, with nothing left to clean up by hand.
