@@ -2,13 +2,22 @@ name: Validate manifests
 
 # Builds every Kustomization in the repo. This is the pre-merge gate that
 # Renovate automerge waits on -- before it existed, the only check here was
-# GitGuardian secret scanning, so a dependency bump reached the cluster with
-# nothing having read the manifests it changed.
+# GitGuardian secret scanning, which is PR-only (verified 2026-09-08: it posts a
+# check on a PR head but not on a push to main), so a dependency bump could
+# reach the cluster with nothing having read the manifests it changed.
 #
-# It runs on `renovate/**` branches as well as PRs because automerge uses
-# `automergeType: branch`: Renovate merges the branch itself and never opens a
-# PR, so a check that only ran on `pull_request` would never run on the updates
-# that merge automatically.
+# **No `paths:` filter, deliberately.** Every push to a `renovate/**` branch must
+# produce a check. Filtering by path would leave a branch that touches only
+# mise.toml, tofu/ or .github/ with *no* check at all, and how Renovate reads a
+# commit carrying zero checks is not something to bet on -- green means it merges
+# unvalidated, yellow means it silently never merges. Neither is acceptable, and
+# a 12s run on every push is cheaper than finding out which. Same reasoning for
+# `pull_request`: an update that touches no manifests still needs a green check to
+# merge. GitHub Actions cannot scope `paths` per branch anyway.
+#
+# The `renovate/**` push trigger stays even though automerge now uses
+# `automergeType: pr`: Renovate pushes the branch before it opens the PR, and this
+# way the check exists regardless of whether a PR is ever created.
 #
 # What this does NOT do: render Helm charts. A HelmRelease points at an
 # OCIRepository tag, so a chart bump changes one string and still builds
@@ -17,16 +26,10 @@ name: Validate manifests
 
 on:
   pull_request:
-    paths:
-      - kubernetes/**
-      - .github/workflows/validate-manifests.yaml
   push:
     branches:
       - main
       - renovate/**
-    paths:
-      - kubernetes/**
-      - .github/workflows/validate-manifests.yaml
   workflow_dispatch:
 
 permissions:

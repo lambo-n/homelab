@@ -401,8 +401,8 @@ which class goes where.
 | Runner | self-hosted `renovatebot/github-action`, daily cron `0 10 * * *` UTC (3 am PDT), plus `workflow_dispatch` and push-to-`main` on config changes |
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
-| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never) and GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: branch`, so automerged updates open no PR |
-| Pre-merge gate | `.github/workflows/validate-manifests.yaml` — `kubectl kustomize` over all 21 Kustomizations plus a `ks.yaml` `spec.path` check, on PRs and `renovate/**` pushes. Renovate waits for it (no `ignoreTests`) |
+| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass |
+| Pre-merge gate | `.github/workflows/validate-manifests.yaml` — `kubectl kustomize` over all 21 Kustomizations plus a `ks.yaml` `spec.path` check. On `pull_request` and `renovate/**` pushes, **no `paths:` filter**, so a check always exists. Renovate waits for it (no `ignoreTests`) |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
 
@@ -440,10 +440,24 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 >
 > **What gates it (2026-09-08).** `.github/workflows/validate-manifests.yaml`
 > builds all 21 Kustomizations with the mise-pinned `kubectl` and checks that every
-> `ks.yaml` `spec.path` resolves. It runs on `pull_request` *and* on `renovate/**`
-> pushes, because branch automerge never opens a PR — a `pull_request`-only check
-> would never see the updates that merge themselves. `ignoreTests` is gone, so
-> Renovate waits for it.
+> `ks.yaml` `spec.path` resolves. `ignoreTests` is gone, so Renovate waits for it.
+>
+> **`automergeType` moved `branch` → `pr` the same day.** Under `branch` Renovate
+> merged straight into `main` with no PR, which bypassed every `pull_request`
+> trigger — and GitGuardian only posts a check on a PR. Verified by API: its check
+> run is present on a PR head (`460c593`) and absent on a push to `main`
+> (`c9003da`, which carries only the two GitHub Actions checks). So secret scanning
+> never gated an automerged update. Under `pr` every update gets a PR, collects the
+> same checks a human PR would, and Renovate merges it.
+>
+> **The workflow carries no `paths:` filter, deliberately.** A Renovate branch that
+> touches only `mise.toml`, `tofu/` or `.github/` would otherwise produce *no* check,
+> and Renovate's reading of a commit with zero checks decides between merging
+> unvalidated (if it resolves green) and never merging at all (if yellow) — the
+> commit status API returns `pending` for a commit with no statuses, so this is not
+> a coin worth flipping. A 12s run on every push removes the question. The
+> `renovate/**` push trigger is kept even under `pr` mode, since the branch is
+> pushed before the PR exists.
 >
 > **What it still does not cover: chart rendering.** A `HelmRelease` points at an
 > `OCIRepository` tag, so a chart bump changes one string and builds cleanly no
