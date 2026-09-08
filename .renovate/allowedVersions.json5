@@ -14,9 +14,15 @@
       // kubectl must track the k3s server minor. The server is v1.35.x;
       // jumping to 1.36+ risks API incompatibility. Bump this constraint
       // when the k3s cluster is upgraded.
+      //
+      // matchDepNames, NOT matchPackageNames: the mise manager reports this dep
+      // as depName "kubectl" / packageName "kubernetes/kubernetes", and
+      // matchPackageNames matches the latter. Written as matchPackageNames this
+      // rule silently never fired, and kubectl automerged 1.35.8 -> 1.37.0 on
+      // 2026-09-08 against a v1.35.5+k3s1 server.
       description: "kubectl: pin to server minor (v1.35.x)",
       matchManagers: ["mise"],
-      matchPackageNames: ["kubectl"],
+      matchDepNames: ["kubectl"],
       allowedVersions: "~1.35",
     },
   ],

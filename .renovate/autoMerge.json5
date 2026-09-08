@@ -40,5 +40,20 @@
       automergeType: "branch",
       ignoreTests: true,
     },
+    {
+      // kubectl is the one mise tool where "minor" is not a safe category:
+      // Renovate types 1.35.8 -> 1.37.0 as minor because the major is 1, but
+      // that is two Kubernetes minors and outside the supported +/-1 client to
+      // server skew. allowedVersions.json5 constrains it to ~1.35; this rule
+      // exists so that constraint is not the ONLY thing standing between a bad
+      // kubectl and main, because it silently failed to match once already.
+      // Bump kubectl by hand, together with the k3s cluster.
+      //
+      // Must stay last: packageRules are applied in order and later rules win.
+      description: "kubectl: never automerge (review against the k3s server minor)",
+      matchManagers: ["mise"],
+      matchDepNames: ["kubectl"],
+      automerge: false,
+    },
   ],
 }
