@@ -151,7 +151,7 @@ Crossplane from footgun to reasonable.
 |---|---|
 | Install | `flux-operator` chart **0.59.0**, applied imperatively; `FluxInstance` in `bootstrap/flux/flux-instance.yaml` |
 | Distribution | Flux **v2.9.5**, four controllers — source, kustomize, helm, notification. Image automation deliberately absent |
-| Sync | `ssh://git@github.com/lambo-n/homelab.git`, `refs/heads/main`, path `kubernetes/flux/cluster` |
+| Sync | `ssh://git@github.com/lambo-n/homelab.git`, `refs/heads/main`, path `kubernetes/flux/cluster`, `interval: 1m` |
 | Deploy key | ed25519, **read-only**, GitHub key id `162121868`, titled `flux-homelab-deploy (k3s flux-system)`. Private half at `~/.ssh/flux-homelab-deploy` (`chmod 600`, never in git); in-cluster as Secret `flux-system` with `identity` / `identity.pub` / `known_hosts` |
 | Decryption | `sops-age` Secret in `flux-system`, key name `age.agekey` |
 | Networking | `networkPolicy: true` — the operator installs `allow-egress`, `allow-scraping` (port 8080, all namespaces) and `allow-webhooks` in `flux-system` |
@@ -172,6 +172,32 @@ components:
 > it is the thing that *starts* the reconciler. The pinned version is recorded
 > above so Phase 4 can hand it to Renovate; the `FluxInstance` it manages is
 > already declarative.
+
+**Three intervals, and only one of them fetches.** These get conflated, so:
+
+| Interval | What it actually does | Set in |
+|---|---|---|
+| `spec.sync.interval: 1m` | source-controller polls GitHub for new commits on `main` | `bootstrap/flux/flux-instance.yaml` |
+| `fluxcd.controlplane.io/reconcileEvery: 1h` | flux-operator reconciles the `FluxInstance` — Flux's *own* install | same file, as an annotation |
+| `interval: 30m` on every app | re-applies the revision already fetched, correcting drift | each `ks.yaml` |
+
+There is no notification-controller `Receiver` and nothing pushes to Flux, so that
+1m poll is the only path from a push to the cluster. `flux reconcile source git
+flux-system` forces a fetch; `flux reconcile kustomization <name>` only re-applies
+what is already local.
+
+> **Push-to-apply drilled 2026-09-08.** A throwaway `gitops-canary` app — one
+> `pause` pod in its own deliberately prunable namespace — was pushed to `main` and
+> was Ready on the cluster in under a minute with no manual reconcile
+> (`Applied revision: refs/heads/main@sha1:0e426d41`, pod 57s old before anything
+> was forced). Reverting the commit pruned the Deployment *and* the namespace with
+> no manual cleanup, which is the half that `prune: true` had never been shown to do
+> for a whole app. Both commits stay in history: `0e426d4` and its revert `fd38c81`.
+>
+> `interval: 1m` was written into `flux-instance.yaml` after this drill. Until then
+> the field was absent and the cluster ran on flux-operator's unstated default, which
+> is why `README.md` had claimed the poll was 30m — that number is the app
+> Kustomization interval, not the source's.
 
 > **Adoption result.** The live cluster had been running four unpinned `:latest`
 > tags; the repo carries digest pins, so adoption rolled all four Deployments —

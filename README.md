@@ -173,9 +173,11 @@ side effect. Its own install is the one imperative step in the whole system; it 
 the thing that starts everything else.
 → `bootstrap/flux/flux-instance.yaml`
 
-**Flux** `v2.9.5`, four controllers — source, kustomize, helm, notification. Pulls
-this repo over SSH with a read-only deploy key and applies
-`kubernetes/flux/cluster`, which fans out to one `Kustomization` per app. Decrypts
+**Flux** `v2.9.5`, four controllers — source, kustomize, helm, notification. Polls
+this repo over SSH every **1m** with a read-only deploy key and applies
+`kubernetes/flux/cluster`, which fans out to one `Kustomization` per app, each
+re-applying what was fetched every 30m. There is no webhook, so a push to `main`
+lands within about a minute — drilled 2026-09-08, see `GITOPS.md`. Decrypts
 SOPS files inline. Image automation controllers are deliberately **not** installed;
 Renovate owns updates.
 → `kubernetes/flux/cluster/`, one `ks.yaml` per app
@@ -405,7 +407,7 @@ inside this directory.
 mise install                              # first time, or: mise trust && mise install
 
 flux get kustomizations                   # what is reconciling, and whether it is happy
-flux reconcile source git flux-system     # pull now instead of waiting 30m
+flux reconcile source git flux-system     # fetch main now instead of waiting out the 1m poll
 flux logs --level=error --all-namespaces  # what went wrong
 
 sops kubernetes/apps/sunfire/postgres/app/secret.sops.yaml   # edit a secret in place

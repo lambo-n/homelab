@@ -32,3 +32,11 @@ spec:
     ref: refs/heads/main
     path: kubernetes/flux/cluster
     pullSecret: flux-system
+    # How often source-controller polls GitHub for new commits. 1m is also
+    # flux-operator's default -- pinned here so the number lives in git rather
+    # than being implied. This poll is the ONLY path from a push to the cluster:
+    # there is no notification-controller Receiver, and nothing pushes to Flux.
+    # `flux reconcile source git flux-system` forces it. Not to be confused with
+    # the 30m interval on each app Kustomization, which re-applies the revision
+    # already fetched. Drilled 2026-09-08 -- see GITOPS.md.
+    interval: 1m
