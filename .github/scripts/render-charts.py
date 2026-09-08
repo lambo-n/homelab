@@ -143,11 +143,24 @@ def main() -> int:
             failures += 1
             continue
 
-        docs = [d for d in yaml.safe_load_all(result.stdout) if d]
+        # The render succeeded -- that is the gate. Summarising it is best-effort:
+        # BaseLoader because SafeLoader resolves YAML 1.1's reserved tags, and a
+        # bare `=` in rendered chart output (kube-prometheus-stack emits one) is
+        # tag:yaml.org,2002:value, which SafeLoader has no constructor for. If a
+        # chart still defeats the parser, say so and keep going rather than
+        # failing a build over a summary line.
+        summary = f"{chart.rsplit('/', 1)[-1]} {version}"
+        try:
+            docs = [d for d in yaml.load_all(result.stdout, Loader=yaml.BaseLoader)
+                    if isinstance(d, dict)]
+        except yaml.YAMLError as exc:
+            print(f"ok    {name:<36} {summary:<28} rendered "
+                  f"({len(result.stdout):,} bytes, not summarisable: "
+                  f"{type(exc).__name__})")
+            continue
         kinds = sorted({d.get("kind", "?") for d in docs})
         crds = sum(1 for d in docs if d.get("kind") == "CustomResourceDefinition")
-        print(f"ok    {name:<36} {chart.rsplit('/', 1)[-1]} {version:<10} "
-              f"{len(docs):>3} objects, {crds} CRDs")
+        print(f"ok    {name:<36} {summary:<28} {len(docs):>3} objects, {crds} CRDs")
         print(f"        kinds: {', '.join(kinds)}")
 
     print(f"\n{len(releases) - failures}/{len(releases)} charts rendered")
