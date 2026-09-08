@@ -15,3 +15,7 @@ worker-credentials.yaml
 # --- tooling ---
 .mise/
 .direnv/
+
+# Byproduct of running the CI helper in .github/scripts/ locally.
+__pycache__/
+*.pyc

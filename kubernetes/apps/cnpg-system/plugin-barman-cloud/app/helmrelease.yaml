@@ -23,5 +23,15 @@ spec:
     cleanupOnFail: true
     remediation:
       retries: 3
+  # No `crds:` policy here, and that is deliberate -- do not copy the
+  # `crds: CreateReplace` from kube-prometheus-stack's HelmRelease. Flux's crds
+  # policy governs only a chart's top-level `crds/` directory, which Helm installs
+  # once and never upgrades. This chart has no such directory: it ships the
+  # ObjectStore CRD as an ordinary template at `templates/crds/crds.yaml`, gated on
+  # `.Values.crds.create` (default true), in both 0.7.1 and 0.8.0 -- verified by
+  # pulling both charts from ghcr on 2026-09-08. A templated CRD is part of the
+  # release manifest, so Helm upgrades it like anything else and the policy would
+  # be a no-op. The CRD also carries `helm.sh/resource-policy: keep`, so an
+  # uninstall leaves it (and the ObjectStore objects) in place.
   values:
     replicaCount: 1

@@ -19,10 +19,15 @@ name: Validate manifests
 # `automergeType: pr`: Renovate pushes the branch before it opens the PR, and this
 # way the check exists regardless of whether a PR is ever created.
 #
-# What this does NOT do: render Helm charts. A HelmRelease points at an
-# OCIRepository tag, so a chart bump changes one string and still builds
-# cleanly. Catching a chart that fails to pull or render needs `helm template`
-# against the pinned version -- see GITOPS.md "Renovate".
+# Two jobs, because they fail for different reasons. `kustomize build` is offline
+# and proves the manifests are well-formed. `helm template` reaches ghcr.io and
+# dl.cloudsmith.io and proves the pinned chart version exists, pulls, and renders
+# against our values -- the half a Renovate chart bump changes, and the half
+# kustomize cannot see: a HelmRelease points at an OCIRepository tag, so a bad
+# bump is one valid-looking string.
+#
+# Neither job talks to the cluster. A chart that renders here can still fail to
+# apply; reconcile-time healthChecks remain the last gate. See GITOPS.md "Renovate".
 
 on:
   pull_request:
@@ -101,3 +106,32 @@ jobs:
           done < <(find kubernetes -name ks.yaml | sort)
 
           exit "${fail}"
+
+  helm-template:
+    name: helm template
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # helm 4.2.4 from mise.toml -- the same pin the operator uses by hand.
+      - name: Install pinned helm
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: helm
+        env:
+          MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+      - name: Ensure PyYAML
+        run: |
+          set -euo pipefail
+          # Present on GitHub's runner images today; installed rather than
+          # assumed so this job does not start failing on an image change.
+          python3 -c 'import yaml' 2>/dev/null && exit 0
+          # renovate: datasource=pypi depName=pyyaml
+          pip install --quiet --disable-pip-version-check 'pyyaml==6.0.3'
+
+      - name: Render every HelmRelease
+        run: python3 .github/scripts/render-charts.py kubernetes

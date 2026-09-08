@@ -188,8 +188,8 @@ on a daily cron (10:00 UTC) and on any push that changes its own config. **Minor
 patch and digest bumps automerge; majors always wait for a human** — with two
 exceptions: `kubectl`, whose "minor" spans Kubernetes minors, and 0.x deps, where
 the minor *is* the breaking boundary. Every update opens a PR and waits on CI:
-every Kustomization is built, on the PR and on the `renovate/**` branch, before
-Renovate merges it.
+every Kustomization is built and every Helm chart rendered at its pinned version,
+on the PR and on the `renovate/**` branch, before Renovate merges it.
 → `.renovaterc.json5`, `.renovate/`, `.github/workflows/`
 
 ### Secrets
@@ -340,7 +340,8 @@ kubernetes/apps/
         ├── postgrest/     REST over Postgres    → db.sunosrs.cc
         ├── infisical/     InfisicalSecret CR
         └── cloudflared/   tunnel; routing in configmap.yaml
-.github/workflows/        renovate.yaml (dependency PRs) + validate-manifests.yaml (builds every Kustomization)
+.github/workflows/        renovate.yaml (dependency PRs) + validate-manifests.yaml (kustomize build + helm template)
+.github/scripts/          render-charts.py — renders every HelmRelease from its pinned chart version
 scripts/                  one-shot bootstrap scripts (tunnel, MinIO accounts, Infisical seed)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
 ```

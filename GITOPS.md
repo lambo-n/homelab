@@ -402,7 +402,7 @@ which class goes where.
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
 | Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass |
-| Pre-merge gate | `.github/workflows/validate-manifests.yaml` — `kubectl kustomize` over all 21 Kustomizations plus a `ks.yaml` `spec.path` check. On `pull_request` and `renovate/**` pushes, **no `paths:` filter**, so a check always exists. Renovate waits for it (no `ignoreTests`) |
+| Pre-merge gate | `.github/workflows/validate-manifests.yaml`, two jobs — **kustomize build** (all 21 Kustomizations + a `ks.yaml` `spec.path` check, offline) and **helm template** (all 6 HelmReleases rendered from their pinned chart versions, via `.github/scripts/render-charts.py`). On `pull_request` and `renovate/**` pushes, **no `paths:` filter**, so a check always exists. Renovate waits for both (no `ignoreTests`) |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
 
@@ -459,13 +459,21 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > `renovate/**` push trigger is kept even under `pr` mode, since the branch is
 > pushed before the PR exists.
 >
-> **What it still does not cover: chart rendering.** A `HelmRelease` points at an
-> `OCIRepository` tag, so a chart bump changes one string and builds cleanly no
-> matter what that chart contains. Catching a version that fails to pull or render
-> needs `helm template` against the pinned tag, which is not wired up. So the last
-> line of defence for a chart is still reconcile-time — `wait: true` plus a
-> healthCheck — and **a minor chart bump can still roll a live workload, including
-> CNPG's operator and the Postgres pod it manages.**
+> **Chart rendering is gated too, in a second job.** `helm template` over all six
+> HelmReleases, with the helm pinned in `mise.toml` and each release's own
+> `spec.values`, resolving the chart the way Flux does — `chartRef` → `OCIRepository`
+> for five of them, `chart.spec` → `HelmRepository` for infisical. This is what a
+> chart bump actually needs: a `HelmRelease` points at an `OCIRepository` tag, so a
+> version that does not exist, cannot be pulled, or breaks against our values is one
+> valid-looking string that `kustomize build` reads without complaint. Script at
+> `.github/scripts/render-charts.py`; it exits non-zero on the first chart that
+> fails and prints helm's stderr.
+>
+> Neither job talks to the cluster — no kubeconfig, no installed CRDs, no real
+> `Capabilities.APIVersions` — so a chart that renders can still fail to apply, and
+> **a minor chart bump can still roll a live workload, including CNPG's operator and
+> the Postgres pod it manages.** Reconcile-time `wait: true` plus healthChecks stay
+> the last line of defence.
 >
 > Two mechanical consequences of gating on a check read *during* a Renovate run:
 > an update whose CI is still pending merges on the next run, so automerges can lag
@@ -505,6 +513,25 @@ checks Flux can gate on — not only backups. Note barman-cloud is now a **separ
 (`plugin-barman-cloud`), not built into `spec.backup`.
 
 `instances: 1` — three replicas on one hypervisor is theater.
+
+> **Plugin chart 0.8.0 landed 2026-09-08, and its CRD is templated, not shipped in
+> `crds/`.** Both 0.7.1 and 0.8.0 carry `objectstores.barmancloud.cnpg.io` as an
+> ordinary template (`templates/crds/crds.yaml`, gated on `.Values.crds.create`,
+> default true) — confirmed by pulling both charts from ghcr. That matters because
+> a templated CRD is part of the release manifest and Helm upgrades it normally, so
+> **the `crds: CreateReplace` policy that kube-prometheus-stack needs would be a
+> no-op here** and must not be copied over. The HelmRelease says so inline, since
+> the asymmetry between the two files otherwise reads as an oversight. The CRD also
+> carries `helm.sh/resource-policy: keep`, so uninstalling the plugin leaves it and
+> every `ObjectStore` behind.
+>
+> Verified after the upgrade: `plugin-barman-cloud.v2` reports `Helm upgrade
+> succeeded`, the pod is 1/1, and the Cluster's `ContinuousArchiving` condition
+> still carries its original `2026-09-04` `lastTransitionTime` — it never flipped,
+> so WAL archiving did not break across the upgrade. `Ready` and
+> `ConsistentSystemID` did re-transition at 18:19, i.e. the database was briefly
+> not-Ready while the plugin rolled. A *base* backup under 0.8.0 had not yet run at
+> that point; `LastBackupSucceeded` was still 02:30, from before.
 
 > ✅ **CNPG is live and verified 2026-09-04.** Bootstrapped in 76 seconds from the
 > live Deployment via `bootstrap.initdb.import` (monolith). Verified, not assumed:
