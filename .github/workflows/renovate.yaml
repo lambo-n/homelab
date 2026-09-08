@@ -70,6 +70,10 @@ jobs:
 
       - name: Run Renovate
         uses: renovatebot/github-action@39b914146caeff8cd512e61c8992f1d5913af85c # v46.2.5
+        with:
+          # The action's own default, with LOG_LEVEL widened to LOG_\w+ so the
+          # LOG_FILE* vars below reach the container. Everything else verbatim.
+          env-regex: '^(?:RENOVATE_\w+|LOG_\w+|GITHUB_COM_TOKEN|NODE_OPTIONS|NO_COLOR|(?:HTTPS?|NO)_PROXY|(?:https?|no)_proxy)$'
         env:
           RENOVATE_TOKEN: ${{ steps.app-token.outputs.token }}
           RENOVATE_PLATFORM: github
@@ -81,3 +85,68 @@ jobs:
           # Honour the workflow_dispatch inputs (unset on scheduled/push runs).
           RENOVATE_DRY_RUN: ${{ inputs.dryRun == true && 'full' || '' }}
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          # Mirror the run to a file the next step can inspect. The action
+          # bind-mounts /tmp into the container (docker-volumes defaults to
+          # /tmp:/tmp), so this lands on the runner. Always debug regardless of
+          # LOG_LEVEL: the stdout log stays readable, the file keeps the detail
+          # needed to diagnose a failure. Format is one JSON object per line.
+          LOG_FILE: /tmp/renovate-log.ndjson
+          LOG_FILE_LEVEL: debug
+
+      # Renovate exits 0 even when a repository aborts mid-run -- a 403 surfaces
+      # only as "Integration unauthorized" at WARN level -- and even when the
+      # process crashes after the container starts. A green check therefore says
+      # nothing about whether anything was updated, which is how a missing
+      # "Commit statuses" App permission went unnoticed from 2026-09-03 to 09-08
+      # while every scheduled run reported success. Read the outcome out of the
+      # log and fail loudly instead.
+      - name: Check Renovate result
+        if: always()
+        run: |
+          set -euo pipefail
+          log=/tmp/renovate-log.ndjson
+
+          if [[ ! -s "${log}" ]]; then
+            echo "::error::Renovate wrote no log file -- it failed before logging began."
+            exit 1
+          fi
+
+          status=0
+
+          # Bunyan levels: 50 = error, 60 = fatal. Catches things like the
+          # ERR_MODULE_NOT_FOUND crash a broken upstream image caused on 09-04.
+          jq -c 'select(.level >= 50)' "${log}" > /tmp/renovate-errors.ndjson || true
+          if [[ -s /tmp/renovate-errors.ndjson ]]; then
+            echo "::error::Renovate logged error-level events:"
+            jq -r '"  \(.msg) \(.err.message // .err.code // "")"' /tmp/renovate-errors.ndjson
+            status=1
+          fi
+
+          # Every repository must reach a healthy terminal result. Anything else
+          # -- integration-unauthorized, rate-limited, lookup-failure -- means the
+          # run stopped early and the remaining dependencies went unevaluated.
+          mapfile -t results < <(jq -r 'select(.msg == "Repository finished") | .result' "${log}")
+          if [[ ${#results[@]} -eq 0 ]]; then
+            echo "::error::Renovate never reached 'Repository finished' -- the run was cut short."
+            status=1
+          fi
+          for result in ${results[@]+"${results[@]}"}; do
+            case "${result}" in
+              done|automerged|onboarding)
+                echo "Repository finished: ${result}"
+                ;;
+              *)
+                echo "::error::Renovate aborted with result '${result}'"
+                status=1
+                ;;
+            esac
+          done
+
+          # On failure, replay the warnings so the cause is visible here rather
+          # than only in the discarded debug log.
+          if [[ ${status} -ne 0 ]]; then
+            echo "--- warn-and-above records ---"
+            jq -r 'select(.level >= 40) | "  \(.msg)"' "${log}" | tail -50
+          fi
+
+          exit ${status}
