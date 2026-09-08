@@ -186,8 +186,8 @@ Renovate owns updates.
 GitHub Actions, mise tools, OpenTofu providers. Runs as a self-hosted GitHub Action
 on a daily cron (10:00 UTC) and on any push that changes its own config. **Minor,
 patch and digest bumps automerge; majors always wait for a human** — with two
-exceptions: `kubectl`, whose "minor" spans Kubernetes minors, and 0.x deps, whose
-minors Renovate already types as major. Automerge waits on CI: every Kustomization
+exceptions: `kubectl`, whose "minor" spans Kubernetes minors, and 0.x deps, where
+the minor *is* the breaking boundary. Automerge waits on CI: every Kustomization
 is built on PRs and on `renovate/**` branches before anything merges.
 → `.renovaterc.json5`, `.renovate/`, `.github/workflows/`
 

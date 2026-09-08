@@ -429,8 +429,14 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > tools, which left every Helm/OCI chart manual — three PRs sat green and unmerged
 > (kube-prometheus-stack `89.2.4` and `90.0.0`, plugin-barman-cloud `0.8.0`) not
 > because Renovate was waiting for anything, but because no rule matched them.
-> The blanket rules now key on `matchUpdateTypes` alone; the only carve-outs are
-> `kubectl` and the Actions cooldown.
+> The blanket rules now key on `matchUpdateTypes` alone; the carve-outs are
+> `kubectl`, the Actions cooldown, and 0.x deps.
+>
+> **0.x needs its own rule.** For a 0.x dep the breaking boundary is the minor,
+> but Renovate types `0.7.1 -> 0.8.0` as *minor*, so the blanket rule would have
+> automerged it — even though the preset's own commit message calls that bump
+> breaking (`feat(container)!`, as plugin-barman-cloud 0.8.0 arrived). A
+> `matchCurrentVersion: "/^0\\./"` rule pins those back to manual.
 >
 > **What gates it (2026-09-08).** `.github/workflows/validate-manifests.yaml`
 > builds all 21 Kustomizations with the mise-pinned `kubectl` and checks that every

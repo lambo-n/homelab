@@ -41,12 +41,22 @@
       // automerge for a major. Majors get read, reasoned about, and merged by
       // hand.
       //
-      // Note that 0.x deps land here without being named: under zer0ver a
-      // 0.7.1 -> 0.8.0 bump is typed *major*, which is why plugin-barman-cloud
-      // 0.8.0 arrived as a PR titled `feat(container)!`. That is the intended
-      // outcome -- a 0.x minor is a breaking change by convention.
+      // This covers semver majors only. A 0.x dep's breaking boundary is its
+      // minor, and Renovate types that as "minor" -- see the next rule.
       description: "Never automerge majors -- manual verification and merge",
       matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+    {
+      // For a 0.x dep the breaking boundary is the MINOR: Renovate types
+      // 0.7.1 -> 0.8.0 as a minor update, so the blanket rule above would
+      // automerge it, while the preset's own commit message calls the same bump
+      // breaking -- `feat(container)!`, which is how plugin-barman-cloud 0.8.0
+      // arrived on 2026-09-08. Treat those like majors: read them, merge by hand.
+      // matchCurrentVersion takes a regex when wrapped in slashes.
+      description: "0.x deps: never automerge minors -- for 0.x, minor is breaking",
+      matchCurrentVersion: "/^0\\./",
+      matchUpdateTypes: ["minor"],
       automerge: false,
     },
     {
