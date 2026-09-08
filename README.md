@@ -187,8 +187,9 @@ GitHub Actions, mise tools, OpenTofu providers. Runs as a self-hosted GitHub Act
 on a daily cron (10:00 UTC) and on any push that changes its own config. **Minor,
 patch and digest bumps automerge; majors always wait for a human** — with two
 exceptions: `kubectl`, whose "minor" spans Kubernetes minors, and 0.x deps, whose
-minors Renovate already types as major.
-→ `.renovaterc.json5`, `.renovate/`
+minors Renovate already types as major. Automerge waits on CI: every Kustomization
+is built on PRs and on `renovate/**` branches before anything merges.
+→ `.renovaterc.json5`, `.renovate/`, `.github/workflows/`
 
 ### Secrets
 
@@ -338,6 +339,7 @@ kubernetes/apps/
         ├── postgrest/     REST over Postgres    → db.sunosrs.cc
         ├── infisical/     InfisicalSecret CR
         └── cloudflared/   tunnel; routing in configmap.yaml
+.github/workflows/        renovate.yaml (dependency PRs) + validate-manifests.yaml (builds every Kustomization)
 scripts/                  one-shot bootstrap scripts (tunnel, MinIO accounts, Infisical seed)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
 ```

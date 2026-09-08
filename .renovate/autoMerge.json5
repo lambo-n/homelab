@@ -14,15 +14,25 @@
       //
       // automergeType: branch means Renovate merges the branch into main during
       // its own run and never opens a PR -- so an open Renovate PR is itself
-      // evidence that automerge did not apply to it. ignoreTests: true because
-      // the only check on this repo is GitGuardian secret scanning, which never
-      // runs on a branch that has no PR. Revisit both if real manifest
-      // validation is ever added to CI.
+      // evidence that automerge did not apply to it.
+      //
+      // Tests are deliberately NOT ignored (no ignoreTests here): the
+      // validate-manifests workflow runs on `renovate/**` pushes precisely so
+      // there is a check on branches that never become PRs, and Renovate waits
+      // for it to pass before merging. Two consequences:
+      //
+      //   1. This depends on the GitHub App holding "Commit statuses" read --
+      //      the permission that was missing from 2026-09-03 to 09-08 and made
+      //      every run silently do nothing. If automerge stops happening, check
+      //      that first.
+      //   2. The check is read during a Renovate run, so an update whose CI is
+      //      still pending merges on the NEXT run -- automerges can lag up to a
+      //      day. Letting GitHub merge on green instead needs branch protection,
+      //      which this plan does not offer for a private repo.
       description: "Automerge minor, patch and digest updates",
       matchUpdateTypes: ["minor", "patch", "digest"],
       automerge: true,
       automergeType: "branch",
-      ignoreTests: true,
     },
     {
       // Explicit rather than implied. Renovate defaults to automerge: false, so

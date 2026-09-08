@@ -1,0 +1,100 @@
+name: Validate manifests
+
+# Builds every Kustomization in the repo. This is the pre-merge gate that
+# Renovate automerge waits on -- before it existed, the only check here was
+# GitGuardian secret scanning, so a dependency bump reached the cluster with
+# nothing having read the manifests it changed.
+#
+# It runs on `renovate/**` branches as well as PRs because automerge uses
+# `automergeType: branch`: Renovate merges the branch itself and never opens a
+# PR, so a check that only ran on `pull_request` would never run on the updates
+# that merge automatically.
+#
+# What this does NOT do: render Helm charts. A HelmRelease points at an
+# OCIRepository tag, so a chart bump changes one string and still builds
+# cleanly. Catching a chart that fails to pull or render needs `helm template`
+# against the pinned version -- see GITOPS.md "Renovate".
+
+on:
+  pull_request:
+    paths:
+      - kubernetes/**
+      - .github/workflows/validate-manifests.yaml
+  push:
+    branches:
+      - main
+      - renovate/**
+    paths:
+      - kubernetes/**
+      - .github/workflows/validate-manifests.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per ref. Superseded runs are cancelled: Renovate force-pushes its
+# branches on rebase, and only the newest commit's result matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kustomize-build:
+    name: kustomize build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Reuses mise.toml, so CI builds with the same kubectl the operator runs
+      # -- the version skew this repo pins tools to avoid. kubectl embeds
+      # kustomize, so nothing else needs installing.
+      - name: Install pinned kubectl
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: kubectl
+        env:
+          MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+      - name: Build every Kustomization
+        run: |
+          set -euo pipefail
+          fail=0
+
+          # SOPS files need no decryption to build: the ciphertext sits in
+          # values, and apiVersion/kind/metadata stay in plaintext, which is
+          # all kustomize reads. CI therefore needs no age key.
+          while IFS= read -r dir; do
+            if out="$(kubectl kustomize "${dir}" 2>&1)"; then
+              count="$(printf '%s\n' "${out}" | grep -c '^kind:' || true)"
+              printf 'ok    %-58s %s resources\n' "${dir}" "${count}"
+            else
+              printf '::error::kustomize build failed: %s\n' "${dir}"
+              printf '%s\n' "${out}" | sed 's/^/    /'
+              fail=1
+            fi
+          done < <(find kubernetes -name kustomization.yaml -printf '%h\n' | sort)
+
+          exit "${fail}"
+
+      - name: Check Flux Kustomization paths resolve
+        run: |
+          set -euo pipefail
+          fail=0
+
+          # A ks.yaml spec.path that does not exist is invisible to kustomize
+          # build -- Flux only reports it at reconcile time, as a failed
+          # Kustomization that then blocks anything depending on it.
+          while IFS= read -r ks; do
+            while IFS= read -r path; do
+              path="${path#./}"
+              if [[ ! -d "${path}" ]]; then
+                printf '::error file=%s::spec.path does not exist: %s\n' "${ks}" "${path}"
+                fail=1
+              fi
+            done < <(sed -n 's/^[[:space:]]*path:[[:space:]]*//p' "${ks}")
+          done < <(find kubernetes -name ks.yaml | sort)
+
+          exit "${fail}"

@@ -402,6 +402,7 @@ which class goes where.
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
 | Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never) and GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: branch`, so automerged updates open no PR |
+| Pre-merge gate | `.github/workflows/validate-manifests.yaml` — `kubectl kustomize` over all 21 Kustomizations plus a `ks.yaml` `spec.path` check, on PRs and `renovate/**` pushes. Renovate waits for it (no `ignoreTests`) |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
 
@@ -431,15 +432,28 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > The blanket rules now key on `matchUpdateTypes` alone; the only carve-outs are
 > `kubectl` and the Actions cooldown.
 >
-> **What this leans on.** Nothing validates a chart bump before merge — the only
-> check on this repo is GitGuardian secret scanning, and `automergeType: branch`
-> means an automerged update opens no PR for it to run on anyway. The real gate is
-> reconcile-time: `wait: true` plus a healthCheck on every app Kustomization, so a
-> bad chart surfaces as NotReady in `flux get kustomizations` rather than as a
-> failed merge. **A minor chart bump can therefore roll a live workload,
-> including CNPG's operator and the Postgres pod it manages.** If that trade stops
-> being acceptable, the fix is a CI job that builds every Kustomization, plus
-> `ignoreTests: false` — not narrowing the rules back to a package allowlist.
+> **What gates it (2026-09-08).** `.github/workflows/validate-manifests.yaml`
+> builds all 21 Kustomizations with the mise-pinned `kubectl` and checks that every
+> `ks.yaml` `spec.path` resolves. It runs on `pull_request` *and* on `renovate/**`
+> pushes, because branch automerge never opens a PR — a `pull_request`-only check
+> would never see the updates that merge themselves. `ignoreTests` is gone, so
+> Renovate waits for it.
+>
+> **What it still does not cover: chart rendering.** A `HelmRelease` points at an
+> `OCIRepository` tag, so a chart bump changes one string and builds cleanly no
+> matter what that chart contains. Catching a version that fails to pull or render
+> needs `helm template` against the pinned tag, which is not wired up. So the last
+> line of defence for a chart is still reconcile-time — `wait: true` plus a
+> healthCheck — and **a minor chart bump can still roll a live workload, including
+> CNPG's operator and the Postgres pod it manages.**
+>
+> Two mechanical consequences of gating on a check read *during* a Renovate run:
+> an update whose CI is still pending merges on the next run, so automerges can lag
+> up to a day; and it depends on the App's "Commit statuses" read permission, the
+> one missing from 2026-09-03 to 09-08. Branch protection would let GitHub merge on
+> green instead, but it is not available for a private repo on this plan — which
+> also means a red check does **not** block a human from merging a major by hand.
+> It is information, not enforcement.
 
 > **Pinned to what was running, not to latest.** Digests were read off the live
 > pods (`.status.containerStatuses[].imageID`) and mapped back to version tags,
