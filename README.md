@@ -184,8 +184,10 @@ Renovate owns updates.
 
 **Renovate** — opens PRs for every dependency: container images, Helm charts,
 GitHub Actions, mise tools, OpenTofu providers. Runs as a self-hosted GitHub Action
-on a daily cron. Patch and minor bumps for the stateless workloads automerge;
-Postgres majors never do.
+on a daily cron (10:00 UTC) and on any push that changes its own config. **Minor,
+patch and digest bumps automerge; majors always wait for a human** — with two
+exceptions: `kubectl`, whose "minor" spans Kubernetes minors, and 0.x deps, whose
+minors Renovate already types as major.
 → `.renovaterc.json5`, `.renovate/`
 
 ### Secrets

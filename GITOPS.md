@@ -398,10 +398,10 @@ which class goes where.
 
 | | |
 |---|---|
-| Runner | self-hosted `renovatebot/github-action`, daily cron `0 0 * * *` UTC |
+| Runner | self-hosted `renovatebot/github-action`, daily cron `0 10 * * *` UTC (3 am PDT), plus `workflow_dispatch` and push-to-`main` on config changes |
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
-| Automerge | `.renovate/autoMerge.json5` — patch/minor for `cloudflared`, `postgrest`, `minio`; GitHub Actions with `minimumReleaseAge: "3 days"`; Postgres majors stay manual |
+| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never) and GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: branch`, so automerged updates open no PR |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
 
@@ -419,9 +419,27 @@ already parses Flux `HelmRelease` / `OCIRepository` / `Kustomization` files.
 Also: **pin exact Helm chart versions.** A `HelmRelease` with a semver range (`version: "^15.0.0"`)
 auto-upgrades at runtime with no git change — that's drift, and it defeats the point.
 
-> **Dry run passed 2026-09-03.** Daily cron (`0 0 * * *` UTC) will open the
+> **Dry run passed 2026-09-03.** Daily cron (`0 10 * * *` UTC) will open the
 > first real PRs on the next run. Workflow also triggers on push to `main`
 > when Renovate config changes.
+
+> **Automerge widened 2026-09-08: minor/patch/digest everywhere, majors never.**
+> It had been scoped to three container images plus GitHub Actions and mise
+> tools, which left every Helm/OCI chart manual — three PRs sat green and unmerged
+> (kube-prometheus-stack `89.2.4` and `90.0.0`, plugin-barman-cloud `0.8.0`) not
+> because Renovate was waiting for anything, but because no rule matched them.
+> The blanket rules now key on `matchUpdateTypes` alone; the only carve-outs are
+> `kubectl` and the Actions cooldown.
+>
+> **What this leans on.** Nothing validates a chart bump before merge — the only
+> check on this repo is GitGuardian secret scanning, and `automergeType: branch`
+> means an automerged update opens no PR for it to run on anyway. The real gate is
+> reconcile-time: `wait: true` plus a healthCheck on every app Kustomization, so a
+> bad chart surfaces as NotReady in `flux get kustomizations` rather than as a
+> failed merge. **A minor chart bump can therefore roll a live workload,
+> including CNPG's operator and the Postgres pod it manages.** If that trade stops
+> being acceptable, the fix is a CI job that builds every Kustomization, plus
+> `ignoreTests: false` — not narrowing the rules back to a package allowlist.
 
 > **Pinned to what was running, not to latest.** Digests were read off the live
 > pods (`.status.containerStatuses[].imageID`) and mapped back to version tags,

@@ -1,55 +1,62 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Policy: minor, patch and digest updates automerge. Majors always wait for a
+  // human. packageRules are applied in order and later rules win, so the
+  // exceptions at the bottom override the blanket rules at the top.
   packageRules: [
     {
-      // cloudflared, postgrest, minio — patch and minor are safe to roll
-      // automatically. The Flux healthChecks gate on Deployment readiness, so
-      // a bad image that fails probes will be caught at reconcile time.
-      description: "Automerge patch+minor for stateless app containers",
-      matchDatasources: ["docker"],
-      matchPackageNames: [
-        "/cloudflared/",
-        "/postgrest/",
-        "/minio/",
-      ],
+      // Applies to every manager and datasource in this repo -- container
+      // images, Helm/OCI charts, GitHub Actions, mise tools, OpenTofu
+      // providers. The safety net is reconcile-time, not merge-time: every app
+      // Kustomization runs `wait: true` with a healthCheck, so an image or
+      // chart that fails its probes leaves the Kustomization NotReady instead
+      // of quietly breaking. `flux get kustomizations` is where that shows up.
+      //
+      // automergeType: branch means Renovate merges the branch into main during
+      // its own run and never opens a PR -- so an open Renovate PR is itself
+      // evidence that automerge did not apply to it. ignoreTests: true because
+      // the only check on this repo is GitGuardian secret scanning, which never
+      // runs on a branch that has no PR. Revisit both if real manifest
+      // validation is ever added to CI.
+      description: "Automerge minor, patch and digest updates",
       matchUpdateTypes: ["minor", "patch", "digest"],
       automerge: true,
       automergeType: "branch",
       ignoreTests: true,
     },
     {
-      // GitHub Actions used by this repo (checkout, create-github-app-token,
-      // renovatebot/github-action). 3-day release age cooldown so a yanked
-      // release is caught before we adopt it.
-      description: "Automerge GitHub Actions (3-day cooldown)",
+      // Explicit rather than implied. Renovate defaults to automerge: false, so
+      // this changes nothing today -- it exists so that a future rule (or an
+      // upstream change in the home-operations preset) cannot quietly enable
+      // automerge for a major. Majors get read, reasoned about, and merged by
+      // hand.
+      //
+      // Note that 0.x deps land here without being named: under zer0ver a
+      // 0.7.1 -> 0.8.0 bump is typed *major*, which is why plugin-barman-cloud
+      // 0.8.0 arrived as a PR titled `feat(container)!`. That is the intended
+      // outcome -- a 0.x minor is a breaking change by convention.
+      description: "Never automerge majors -- manual verification and merge",
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+    {
+      // Release-age cooldown, kept separate from the automerge decision so it
+      // applies to majors too. A yanked Action release is caught before we
+      // adopt it.
+      description: "GitHub Actions: 3-day release-age cooldown",
       matchManagers: ["github-actions"],
-      matchUpdateTypes: ["minor", "patch", "digest"],
-      automerge: true,
-      automergeType: "branch",
       minimumReleaseAge: "3 days",
-      ignoreTests: true,
     },
     {
-      // mise tools: minor+patch for all 8 tools. kubectl is pinned to the
-      // server minor (1.35.x) by allowedVersions, so a minor bump here means
-      // 1.35.8 → 1.35.9, not 1.36.x.
-      description: "Automerge mise tool minor+patch updates",
-      matchManagers: ["mise"],
-      matchUpdateTypes: ["minor", "patch"],
-      automerge: true,
-      automergeType: "branch",
-      ignoreTests: true,
-    },
-    {
-      // kubectl is the one mise tool where "minor" is not a safe category:
-      // Renovate types 1.35.8 -> 1.37.0 as minor because the major is 1, but
-      // that is two Kubernetes minors and outside the supported +/-1 client to
-      // server skew. allowedVersions.json5 constrains it to ~1.35; this rule
-      // exists so that constraint is not the ONLY thing standing between a bad
-      // kubectl and main, because it silently failed to match once already.
+      // kubectl is the one dep where Renovate's "minor" is not a safe category:
+      // it types 1.35.8 -> 1.37.0 as minor because the major is 1, but that is
+      // two Kubernetes minors and outside the supported +/-1 client-to-server
+      // skew. allowedVersions.json5 constrains it to ~1.35; this rule exists so
+      // that constraint is not the ONLY thing standing between a bad kubectl
+      // and main, because it silently failed to match once already (2026-09-08).
       // Bump kubectl by hand, together with the k3s cluster.
       //
-      // Must stay last: packageRules are applied in order and later rules win.
+      // Must stay last: later rules win.
       description: "kubectl: never automerge (review against the k3s server minor)",
       matchManagers: ["mise"],
       matchDepNames: ["kubectl"],
