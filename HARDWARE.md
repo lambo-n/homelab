@@ -40,6 +40,7 @@ This file is the one place that records the metal.
 | Physical devices recorded | **9 disks + 1 zvol, all identified** |
 | Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
 | Still unknown | SMART on 8 of 9 disks (`sdg` done); BOSS mirror health; empty bay count |
+| ⚠️ Live hazard | `/mnt/sas{1,2,3}` are in `/etc/fstab` **without `nofail`** — see the SAS section |
 
 ---
 
@@ -344,13 +345,52 @@ State this plainly, because no other document does:
 control with no reconciler and no alert (`STORAGE.md` appendix).
 
 `/mnt/sas2` and `/mnt/sas3` appear in **no other document in this repo** and
-hold nothing. The most likely history is that all three were formatted together
-when the chassis was set up and only the first was ever used. Worth confirming
-how they are mounted before changing anything:
+hold nothing. All three were formatted together on 2026-06-12 and only the first
+was ever used.
 
-```bash
-grep -nE 'sas[123]' /etc/fstab
+### What is actually on `/mnt/sas1` — listed 2026-09-09
+
 ```
+drwx------  2 root   root   16384 Jun 12 16:08 lost+found
+drwxrwx---+ 2 100102 100004  4096 Jun 12 21:22 tailscale-gateway-logs
+```
+
+**88 KB** of session recordings — `df` reports 2.2 MB, but that is filesystem
+overhead; `du` puts the payload at 88 K. Roughly 1 KB/day since 2026-06-12. At
+that rate the 3.49 TiB filesystem holds about ten thousand years of recordings.
+
+Two details that matter when this directory moves:
+
+- **`100102:100004` is the unprivileged LXC's UID mapping** — container UID 102 /
+  GID 4 seen from the host (`unprivileged = true`,
+  `tofu/proxmox-container.tf`). Preserve it, or the container loses write access
+  and recording stops silently.
+- **The `+` means a POSIX ACL is set**, and the ACL is what actually grants the
+  container access. A plain `cp` drops it. Use `cp -a` (which implies
+  `--preserve=all`) or `rsync -aAX`, and verify with `getfacl` on both sides
+  rather than assuming it came across.
+
+### ⚠️ All three are in `/etc/fstab` without `nofail`
+
+```
+UUID=76d1c54b-47a2-486d-bd36-eb0678090b70 /mnt/sas1 ext4 defaults 0 2
+UUID=6db19b6a-3eeb-427f-bec5-fda18c5450ae /mnt/sas2 ext4 defaults 0 2
+UUID=5a93d776-ed8e-44d6-adc3-0cc75fe473e7 /mnt/sas3 ext4 defaults 0 2
+```
+
+`defaults` with a non-zero fsck pass and **no `nofail`**. These devices disappear
+from the host the moment the PERC is passed through to a guest — and a missing
+non-`nofail` mount does not boot past it. systemd waits on the device, times
+out, and drops the host into an **emergency shell**.
+
+**`192.168.50.101` accepts no SSH key from the dev VM**, so recovery from that
+state needs iDRAC or a physical console. This is the same failure `STORAGE.md`
+§5c already guards the PGDATA mount against, and the reason `nofail` is on that
+fstab line.
+
+**Removing these three lines is therefore a hard prerequisite of passthrough,
+not a tidy-up afterwards.** Do it, reboot, and confirm the host comes back
+before the controller is touched.
 
 ---
 
@@ -380,17 +420,22 @@ have to happen first, and none is optional:
 2. **Relocate the Tailscale SSH recordings off `/mnt/sas1`.** They are a
    security control, and the host loses that path the moment the controller
    leaves. `archive-pool` is the obvious destination — it is redundant and
-   already under sanoid, which the recordings have never been. At 2.2 MB this
-   is a `cp -a`, not a migration; the care goes into step 3, not the copy.
-3. **Update CTID 100's `mount_point`**, which is in OpenTofu
+   already under sanoid, which the recordings have never been. At 88 KB this is
+   a `cp -a`, not a migration; the care goes into the ACL and the UID mapping
+   (above), not the copy.
+3. **Remove the three `/mnt/sas{1,2,3}` lines from `/etc/fstab` and reboot
+   first.** They have no `nofail`; leaving them strands the host in an emergency
+   shell once the devices are gone. See the warning above — this is the step
+   most likely to cost an evening.
+4. **Update CTID 100's `mount_point`**, which is in OpenTofu
    (`tofu/proxmox-container.tf`) under `prevent_destroy`. Run the plan and read
    it: if changing `mount_point.volume` proposes **replacement** rather than an
    in-place update, `prevent_destroy` will fail the apply — correctly — and the
    change needs a different shape.
-4. ✅ **Done 2026-09-09 — the PERC passes the disks through.** Native SAS SMART
+5. ✅ **Done 2026-09-09 — the PERC passes the disks through.** Native SAS SMART
    with no `-d megaraid`, vendor `SAMSUNG`. See the section above. (`perccli` is
    not installed and was not needed; `lsscsi` is not installed either.)
-5. **Read SMART on `sdh` and `sdi`**, not just `sdg` — command above.
+6. **Read SMART on `sdh` and `sdi`**, not just `sdg` — command above.
 
 Also worth knowing before betting on passthrough: IOMMU must be on and the PERC
 must sit in a usable IOMMU group (`dmesg | grep -e DMAR -e IOMMU`,
