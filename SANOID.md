@@ -45,6 +45,7 @@ there are four things here worth snapshotting:
 | `archive-pool/minio-data` | guide media **+ every Postgres backup and WAL segment** | live, matters most |
 | `archive-pool/vm-<VMID>-disk-0` | **PGDATA** (the zvol; name from `STORAGE.md` §2) | live, new |
 | `archive-pool/ts-ssh-records` | Tailscale SSH session recordings | live, added 2026-09-09 (`SAS-RECLAIM.md`) |
+| `sas-pool/data` | Personal storage / Samba share (`sas-pool`) | live, added 2026-09-09 (`SAS-STORAGE.md`) |
 | `archive-pool/postgres-data` | the old NFS data directory | **legacy** — frozen at cutover |
 
 Keep snapshotting `postgres-data` while the old Deployment is still the rollback
@@ -239,6 +240,12 @@ retaining only the delta.
 Following `SAS-RECLAIM.md` §6, `archive-pool/ts-ssh-records` was placed under
 the `archival` template. First execution confirmed initial snapshots taken
 (`monthly`, `daily`, `hourly`, all at 108K REFER) and `sanoid.timer` active.
+
+### Verified 2026-09-09 — `sas-pool/data` added
+
+Following [`SAS-STORAGE.md`](SAS-STORAGE.md), `sas-pool/data` was placed under
+the `archival` template. Execution confirmed initial snapshots taken
+(`monthly`, `daily`, `hourly`) across the new RAIDZ1 pool and 17 tabs verified.
 
 ## 5. Leave a note where the next person will look
 

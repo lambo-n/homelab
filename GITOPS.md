@@ -1025,14 +1025,14 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 ## sanoid (host)
 
 **Config at a glance** — runs on the Proxmox host `.101`, not in the cluster.
-**Four** datasets: `minio-data`, `postgres-data`, the PGDATA zvol
-`vm-104-disk-0`, and `ts-ssh-records` (added 2026-09-09). Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
+**Five** datasets: `minio-data`, `postgres-data`, the PGDATA zvol
+`vm-104-disk-0`, and `ts-ssh-records` on `archive-pool`, plus `sas-pool/data` on
+`sas-pool` (added 2026-09-09). Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
 Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 
-> **What `sanoid` does and does not cover.** It snapshots ZFS datasets, and the
-> only ZFS on `.101` is `archive-pool` — i.e. `archive-pool/minio-data`,
-> `archive-pool/postgres-data`, the PGDATA zvol, and `archive-pool/ts-ssh-records`.
-> **The k3s VMs are not covered**: their disks are on `local-lvm` (LVM-thin).
+> **What `sanoid` does and does not cover.** It snapshots ZFS datasets across both
+> `archive-pool` and `sas-pool`. **The k3s VMs are not covered**: their disks are
+> on `local-lvm` (LVM-thin).
 > VM-level recovery is Proxmox `vzdump` or the OpenTofu rebuild in Phase 6 — not
 > this line item. Do not let a green sanoid dashboard read as "the cluster is
 > backed up".

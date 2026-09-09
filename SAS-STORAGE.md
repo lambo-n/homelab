@@ -114,9 +114,23 @@ to `192.168.50.101` over the tailnet without public exposure or port forwarding.
 	directory mask = 0775
 ```
 
+### Host Firewall (`/etc/pve/nodes/pve/host.fw`)
+
+Proxmox VE's host firewall operates on default drop. Ports 445 (SMB) and 139 (NetBIOS)
+are explicitly permitted from the LAN / Tailscale subnet `192.168.50.0/24`:
+
+```ini
+[RULES]
+IN ACCEPT -source 192.168.50.0/24 -p tcp -dport 445 -log nolog # Samba SMB
+IN ACCEPT -source 192.168.50.0/24 -p tcp -dport 139 -log nolog # NetBIOS SMB
+```
+
+Reloaded via `pve-firewall compile && pve-firewall restart`.
+
 ### Mounting from Clients
 
 - **Windows:** `\\192.168.50.101\data`
-- **Linux:** `smb://192.168.50.101/data` (or via `cifs` mount)
-- **macOS:** `smb://192.168.50.101/data`
+- **Linux (Nemo / GNOME Files / Dolphin):** `smb://192.168.50.101/data` (Connect as Registered User)
+- **macOS:** Finder -> `Cmd+K` -> `smb://192.168.50.101/data`
 - **Auth:** Username `lambo`, with Samba credentials configured via `smbpasswd -a lambo`.
+

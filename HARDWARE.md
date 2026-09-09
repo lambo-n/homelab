@@ -358,25 +358,19 @@ autodetection on a 512e drive.
 
 | Where | Amount | Cost to claim it |
 |---|---|---|
-| Three SAS SSDs | **10.47 TiB raw** → 3.49 TiB as a 3-way mirror, or ~6.98 TiB as raidz1 | **none** — reclaimed and wiped 2026-09-09 ([`SAS-RECLAIM.md`](SAS-RECLAIM.md)) |
-| `sde` + `sdf`, mirrored | **1.75 TiB usable** | none — wipe the stale ZFS labels and go |
+| `sas-pool` free space | **6.85 TiB** | none — native ZFS RAIDZ1 pool active, exported via Samba ([`SAS-STORAGE.md`](SAS-STORAGE.md)) |
+| `sde` + `sdf`, mirrored | **1.75 TiB usable** | none — reserved cold spares for `archive-pool` |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
-| `local-lvm` | 82.12 GiB | guest root disks only; falling |
-
-Measured 2026-09-09. **The largest block of free capacity is also the cheapest
-to claim** — which was not true when this file was written eight hours earlier,
-and is the reason the order of these rows changed.
+| `local-lvm` | 82.12 GiB | guest root disks only |
 
 ---
 
 ## Before anything claims the SAS disks
 
-Passing `c3:00.0` through, or rebuilding those three disks into a pool, is the
-attractive option — 10.47 TiB raw, real disks, its own controller. Four things
-have to happen first, and none is optional:
+All six preconditions were completed 2026-09-09:
 
 1. ✅ **Done 2026-09-09 — `/mnt/sas2` and `/mnt/sas3` are empty.** The
-   migration cost is 2.2 MB, all of it on `/mnt/sas1`.
+   migration cost was 2.2 MB, all of it on `/mnt/sas1`.
 2. ✅ **Done 2026-09-09 — recordings relocated to `archive-pool/ts-ssh-records`.**
    ACL and UID mapping reproduced, dataset under sanoid. See `SAS-RECLAIM.md` §2–§3.
 3. ✅ **Done 2026-09-09 — fstab lines removed, host rebooted clean.** Backup at
@@ -392,12 +386,11 @@ have to happen first, and none is optional:
 6. ✅ **Done 2026-09-09 — all three read, all three clean.** Zero grown
    defects, zero uncorrected errors, 0% endurance on every drive.
 
-Also worth knowing before betting on passthrough: IOMMU must be on and the PERC
-must sit in a usable IOMMU group (`dmesg | grep -e DMAR -e IOMMU`,
-`find /sys/kernel/iommu_groups -type l`). And PVE gates raw device attachment on
-`root@pam`; PCIe devices have the newer cluster **resource mappings**
-(`/cluster/mapping/pci`, privilege `Mapping.Use`) as the non-root path, which
-bpg exposes as `proxmox_virtual_environment_hardware_mapping_pci`.
+> ✅ **Outcome 2026-09-09:** PCIe passthrough of `c3:00.0` was rejected by VFIO
+> due to Dell BIOS RMRR, and discovered to carry all 8 front-bay drives (including
+> `archive-pool`). The three SAS disks were instead configured natively on the
+> host as **`sas-pool`** (RAIDZ1, 6.85 TiB usable) under `sanoid` and exported
+> via Samba (`[data]`). See [`SAS-STORAGE.md`](SAS-STORAGE.md).
 
 ---
 
