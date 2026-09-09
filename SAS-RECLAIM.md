@@ -147,12 +147,28 @@ diff <(getfacl --absolute-names /mnt/sas1/tailscale-gateway-logs | grep -v '^# f
 
 Bind mounts are not hot-pluggable; stop the container first.
 
+> ⚠️ **`pct stop 100` severs all remote access.** CTID 100 is the only tailnet
+> member — it is the exit node, advertises the only approved `192.168.50.0/24`
+> subnet route, and is the `ProxyJump` host for every `~/.ssh/config` entry
+> including `proxmox-host`. Stopping it removes the only path to the machine
+> that can start it again. **Establish a second path before running this
+> command** — either a temporary k3s-hosted subnet router (see
+> `kubernetes/apps/tailscale-recovery/` in git history, commit 77f6962) or a
+> Cloudflare tunnel route. If you are SSH'd in through Tailscale when you run
+> this, you will be locked out.
+
 ```bash
 pct stop 100
 pct set 100 -mp0 /archive-pool/ts-ssh-records,mp=/var/log/ts-ssh-records
 pct config 100 | grep -E '^mp0'          # confirm before starting
 pct start 100
 ```
+
+> **✅ Completed 2026-09-09.** `pct stop 100` locked out the remote session as
+> described above. Access was regained via a temporary k3s-hosted Tailscale
+> subnet router (`tailscale-recovery` namespace). The bind mount was repointed
+> and the container restarted from the Proxmox host once the recovery route was
+> live. The recovery router was torn down immediately after.
 
 `mp0` is confirmed as the only mount point on this container (`pct config 100`,
 2026-09-09), so there is no index to substitute.
