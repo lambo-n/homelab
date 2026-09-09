@@ -36,6 +36,7 @@ OpenTofu root module.
 | PostgREST | [↓](#postgrest) | `401` on anonymous is correct, not a fault |
 | kube-prometheus-stack | [↓](#kube-prometheus-stack) | The Flux alert every guide gives you queries a metric that no longer exists |
 | sanoid (host) | [↓](#sanoid-host) | A snapshot of a live Postgres is crash-consistent, not a backup |
+| Tailscale (host) | [↓](#tailscale-host) | The approved subnet route reaches the whole LAN, and nothing records it |
 | OpenTofu | [↓](#opentofu) | `PVEAuditor` cannot import a QEMU guest, and the error lies about why |
 | mise | [↓](#mise) | Shims must sit above the interactivity guard in `.bashrc` |
 | k3s / storage substrate | [↓](#k3s--storage-substrate) | `local-path` provisions a directory, not a quota |
@@ -60,6 +61,17 @@ blocking; each entry says what it is waiting on.
       `retention: 15d` is what is actually happening rather than `retentionSize: 4GiB`
       truncating it; the whole point of that finding is that the two can disagree in
       silence. See [kube-prometheus-stack](#kube-prometheus-stack).
+- [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
+      *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
+      grants layer-3 access to every port on the LAN — see
+      [Tailscale](#tailscale-host). Three options: leave it (one operator, four
+      devices, and the honest documentation now exists); restrict it with a
+      Tailscale ACL so only named devices may use the route; or drop the route and
+      go back to `ProxyJump` only, which costs the ability to reach `:8006` and
+      Grafana without a jump host. **Not urgent** — this is the same "100% uptime
+      is not guaranteed, nothing here is worth much" calculus as the rest of
+      `README.md`'s operating assumptions. It is listed because it was undocumented,
+      not because it is wrong.
 - [ ] **Repoint `sunfire-postgrest`'s `dependsOn`** at `sunfire-postgres-cnpg`. It
       still names `sunfire-postgres`, which since 2026-09-04 holds only a Secret.
       Harmless — a secret-only Kustomization is always Ready — but the edge no longer
@@ -1032,6 +1044,68 @@ Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 > asymmetry is exactly why CNPG + `plugin-barman-cloud` is in this same phase and
 > not deferred — sanoid protects the *volume*, barman protects the *database*.
 > Neither one substitutes for the other.
+
+---
+
+## Tailscale (host)
+
+**Config at a glance** — the `tailscale-gateway` LXC (CTID 100, `192.168.50.102`)
+is the **only** tailnet member. It is host-level: neither Flux nor OpenTofu
+configures it, and `tofu/proxmox-container.tf` describes the container, not its
+Tailscale state. It provides two things:
+
+| | |
+|---|---|
+| Exit node | offered, `AllowedIPs` includes `0.0.0.0/0` and `::/0` |
+| Subnet router | advertises **and has approved** `192.168.50.0/24` — `PrimaryRoutes: ["192.168.50.0/24"]` |
+| SSH session recording | `/var/log/ts-ssh-records`, on the `/mnt/sas1` bind mount (`STORAGE.md:416-442`) |
+
+> ⚠️ **The subnet route is a second way in, and it is not the recorded one**
+> *(found 2026-09-09)*. `README.md` asserted that administrative access "is
+> SSH-mediated and recorded to `/var/log/ts-ssh-records`". That describes the
+> `ProxyJump` path and nothing else. With `192.168.50.0/24` approved, any device
+> on this tailnet running `tailscale set --accept-routes` gets **layer-3 reach to
+> every port on every host on the LAN** — Proxmox `:8006`, the k3s API server,
+> Traefik, NFS on `.101` — without opening an SSH session, and therefore without
+> producing a session recording.
+>
+> Two things follow, and only the second is a real gap:
+>
+> 1. **The recordings are not weakened.** They still capture every SSH session
+>    that happens. They were simply never a complete record of *access*, because
+>    an L3 route is not an SSH session. The control does what it says; the
+>    sentence in `README.md` claimed more than the control delivers.
+> 2. **Nothing enforces the boundary at the network layer.** The route was
+>    approved in the admin console; approval is per-route, and Tailscale ACLs —
+>    which *could* restrict who may use it — are not in this repo and their
+>    contents are unverified from here. So the honest statement is: reachability
+>    is governed by tailnet membership, and tailnet membership is currently the
+>    whole security model for LAN access.
+>
+> **How it was found.** Not by reading the docs — by a client failing to reach
+> `.101` and `tailscale status` reporting *"Some peers are advertising routes but
+> --accept-routes is false"*. The route had been approved for an unknown length
+> of time and no document mentioned it. `tailscale status --json` is the check;
+> `PrimaryRoutes` on a peer is the field that matters.
+
+**The upside, which is real.** The route is why hardware enumeration for
+[`HARDWARE.md`](HARDWARE.md) does not require sitting on the dev VM: with
+`--accept-routes` on, the Proxmox API on `192.168.50.101:8006` answers from any
+tailnet device. That does not widen anything — it uses a path that was already
+open — but it is worth knowing before anyone plans a trip to a different machine.
+
+**Verified 2026-09-09** from a laptop on the tailnet, off the LAN. The test is
+the *shape* of the failure, not success: before `--accept-routes`, an
+unauthenticated `GET /api2/json/version` returned HTTP `000` — no connection at
+all. After, the same call returned **`401`**. A `401` means TLS completed and PVE
+declined the credentials, so the route is up and the remaining problem is a
+token. Treat `000` as routing and `401` as auth; they are diagnosed in different
+places.
+
+**What is not affected.** `.101` still accepts no SSH key from the dev VM or from
+a laptop (`tofu/README.md:200`), and the dev VM still has no route to the *pool*
+— NFS `2049`/`111` are not reachable from it (`variables.tf`). Those are separate
+facts from the subnet route and remain true.
 
 ---
 

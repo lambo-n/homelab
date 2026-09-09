@@ -88,6 +88,12 @@ a single failure domain and is the constraint behind most of the architecture.
 *Host storage figures last read from `pvesm status` on 2026-09-03; the dev VM has
 no route to the pool and cannot re-check them.*
 
+> **This table names no devices.** Models, capacities, serials, `by-id` paths,
+> free bays and the storage controller are recorded in
+> [`HARDWARE.md`](HARDWARE.md) — which is currently mostly unfilled, and says so.
+> Anything that needs a *device* rather than a pool (adding a pool, replacing a
+> member, HBA passthrough) starts there.
+
 ### Guests
 
 | Guest | Type | VMID/CTID | IP | Resources |
@@ -130,9 +136,22 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
 - **Inbound on the LAN:** Traefik on `:80`/`:443` via k3s' klipper LoadBalancer,
   which answers on **all three** node IPs.
 - **Remote administration:** Tailscale. The `tailscale-gateway` LXC is the only
-  tailnet member and offers an exit node; every other host is reached by
-  `ProxyJump` through it, so administrative access is SSH-mediated and recorded to
-  `/var/log/ts-ssh-records`.
+  tailnet member. It does **two** things, and the second one is easy to miss:
+  it offers an exit node, and it advertises an **approved subnet route for
+  `192.168.50.0/24`**. So there are two distinct ways in, with different
+  properties:
+
+  | Path | What it reaches | Recorded? |
+  |---|---|---|
+  | `ProxyJump` SSH through the gateway | a shell on a guest | yes — `/var/log/ts-ssh-records` |
+  | The subnet route, from any tailnet device running `--accept-routes` | **every port on every host on the LAN** — PVE `:8006`, the k3s API, Traefik | no |
+
+  > ⚠️ **The subnet route bypasses the recorded-SSH path entirely.** An earlier
+  > revision of this file said administrative access "is SSH-mediated and
+  > recorded", which was never true while this route was approved — it is a
+  > property of the SSH path, not of the tailnet. Nothing enforces it at the
+  > network layer. Corrected 2026-09-09; see
+  > [`GITOPS.md`](GITOPS.md#tailscale-host).
 
 ---
 

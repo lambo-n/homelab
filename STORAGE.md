@@ -440,3 +440,8 @@ Two consequences worth stating rather than leaving implicit:
 
 Left as-is deliberately. It is recorded here so the next person who finds the
 path does not have to ask what it is.
+
+What is still unanswered is what it physically *is* — which device, which
+filesystem, whether it is redundant, and whether it holds free capacity. That
+question is tracked in [`HARDWARE.md`](HARDWARE.md), where it is the largest
+open item in the inventory.
