@@ -12,3 +12,7 @@ resources:
   - ../../apps/observability
   - ../../apps/reloader
   - ../../apps/sunfire
+  # TEMPORARY -- break-glass subnet router, added 2026-09-09 after `pct stop
+  # 100` removed the only tailnet member. Remove this line and the directory it
+  # points at once CTID 100 is running again.
+  - ../../apps/tailscale-recovery

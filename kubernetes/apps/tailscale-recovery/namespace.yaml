@@ -1,0 +1,13 @@
+---
+# TEMPORARY -- break-glass namespace, created 2026-09-09.
+#
+# Deliberately does NOT carry `kustomize.toolkit.fluxcd.io/prune: disabled`,
+# which every other namespace here does. That annotation exists to stop a
+# careless deletion from git cascading into a live namespace. This namespace is
+# the opposite case: it is meant to be deleted from git the moment CTID 100 is
+# running again, and pruning is how that cleanup happens. `git rm -r` on this
+# directory plus a push is the whole teardown.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tailscale-recovery

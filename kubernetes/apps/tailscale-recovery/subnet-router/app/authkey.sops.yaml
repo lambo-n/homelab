@@ -1,0 +1,28 @@
+# TEMPORARY -- the tailnet auth key the break-glass subnet router logs in with.
+# Generated in the Tailscale admin console and encrypted with the PUBLIC age
+# recipient from .sops.yaml. Revoke the key in the admin console once CTID 100
+# is back, then delete this whole directory.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: tailscale-authkey
+    namespace: tailscale-recovery
+type: Opaque
+stringData:
+    TS_AUTHKEY: ENC[AES256_GCM,data:GB6jPg+U635KIeNwp5bBBPSJ3MweMXHF67mBAwsNj8ffqysQAiNghST6YZTPuwXNsA+UnrQWIgMIhD0CZEk=,iv:khjO6owIVSaH0YwtONbA9kzobpAcfoZ0WnlEZceJiIw=,tag:SkDu7Z2rByRQ7WdMvZcxog==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB1WE5nSzYraHVEaVJaSGZF
+            cGJmRmwzTEkwRURzdUM4VUhxeldhRFpYOGhJCnI4N1gxdGtiTFpKN21pdXMxSmpN
+            aXRhR2YwOFJBd3BFSUxWRjIySHhIcVUKLS0tIExubk5nUkNrWGFFUENZbzZ0eVky
+            ekFFb3NLU3VGTXoveVhxeEorSTcrVE0Kh6skWhbbMzfsYd/VJ/2AZxID6vqonUup
+            wo23IHqyLBqLOy2XBtWWEzEB1pEnSP2FPUDAh6EW13nZoMZ0oRX97A==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-09-09T20:55:09Z"
+    mac: ENC[AES256_GCM,data:KQv7Kb9I0tp95YAYVVhviSQZfeHwhPIYDZjKyBg3DPfY5GJ0MnViGfADbXhJ3Pds+gVtCH/BP9T8WhEbbjyMwjlZsRCssyyMlWDc1hIoNNSMeSvjrr7rNco4EAEZdaiAMlLdbixs0bM1p3cKYQ2ofYgVMbHiR9zYcEUCBKn7UkI=,iv:FvSzj4VQKBGeRQAAmyNe56+VNXW6VPjyfhETsMqUdS0=,tag:ogy6DAISEGJCVrWWKcTsnQ==,type:str]
+    mac_only_encrypted: true
+    version: 3.13.3

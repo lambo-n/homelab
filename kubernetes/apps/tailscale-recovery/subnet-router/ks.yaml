@@ -1,0 +1,26 @@
+---
+# TEMPORARY -- see ../namespace.yaml. Remove this whole directory once CTID 100
+# is running again.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tailscale-recovery-subnet-router
+  namespace: flux-system
+spec:
+  interval: 30m
+  timeout: 5m
+  path: ./kubernetes/apps/tailscale-recovery/subnet-router/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  # wait: true is safe here and wanted -- there is no InfisicalSecret in this
+  # path, so readiness depends only on the Deployment, and nothing dependsOn
+  # this Kustomization. If the pod cannot come up we are locked out anyway; a
+  # Ready condition is the only telemetry available from outside the LAN, via
+  # `flux get kustomizations` once access is restored.
+  wait: true
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
