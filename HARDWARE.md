@@ -443,21 +443,15 @@ have to happen first, and none is optional:
 
 1. ✅ **Done 2026-09-09 — `/mnt/sas2` and `/mnt/sas3` are empty.** The
    migration cost is 2.2 MB, all of it on `/mnt/sas1`.
-2. **Relocate the Tailscale SSH recordings off `/mnt/sas1`.** They are a
-   security control, and the host loses that path the moment the controller
-   leaves. `archive-pool` is the obvious destination — it is redundant and
-   already under sanoid, which the recordings have never been. At 88 KB this is
-   a `cp -a`, not a migration; the care goes into the ACL and the UID mapping
-   (above), not the copy.
-3. **Remove the three `/mnt/sas{1,2,3}` lines from `/etc/fstab` and reboot
-   first.** They have no `nofail`; leaving them strands the host in an emergency
-   shell once the devices are gone. See the warning above — this is the step
-   most likely to cost an evening.
-4. **Update CTID 100's `mount_point`**, which is in OpenTofu
-   (`tofu/proxmox-container.tf`) under `prevent_destroy`. Run the plan and read
-   it: if changing `mount_point.volume` proposes **replacement** rather than an
-   in-place update, `prevent_destroy` will fail the apply — correctly — and the
-   change needs a different shape.
+2. ✅ **Done 2026-09-09 — recordings relocated to `archive-pool/ts-ssh-records`.**
+   ACL and UID mapping reproduced, dataset under sanoid. See `SAS-RECLAIM.md` §2–§3.
+3. ✅ **Done 2026-09-09 — fstab lines removed, host rebooted clean.** Backup at
+   `/etc/fstab.bak-2026-09-09`. All three ext4 superblock signatures wiped
+   (`wipefs -a` by `by-id`). See `SAS-RECLAIM.md` §4.
+4. ✅ **Done 2026-09-09 — `mount_point.volume` reconciled in OpenTofu.**
+   `tofu plan` confirmed 0 changes. `prevent_destroy` stayed on; the change was
+   made on the host (`pct set`) because `volume` is `ForceNew` in bpg/proxmox.
+   See `SAS-RECLAIM.md` §5.
 5. ✅ **Done 2026-09-09 — the PERC passes the disks through.** Native SAS SMART
    with no `-d megaraid`, vendor `SAMSUNG`. See the section above. (`perccli` is
    not installed and was not needed; `lsscsi` is not installed either.)
