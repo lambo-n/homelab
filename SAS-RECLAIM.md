@@ -305,6 +305,10 @@ systemctl restart sanoid.timer
 sanoid --monitor-snapshots
 ```
 
+> **✅ Completed 2026-09-09.** Stanza added to `/etc/sanoid/sanoid.conf` (tab
+> indentation verified, 15 tab-indented lines). First snapshots taken —
+> monthly, daily, hourly — all at 108K REFER. `sanoid.timer` restarted.
+
 ---
 
 ## What this unblocks
