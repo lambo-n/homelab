@@ -413,35 +413,25 @@ substitutes for the other, and `RESTORE.md` is still non-optional.
 `scripts/minio-barman-account.sh` has created the backup bucket — those are the
 two remaining blockers. Order does not matter between them; both must be done.
 
-## Appendix — `/mnt/sas1`, and why nothing else in this repo mentions it
+## Appendix — Retirement of `/mnt/sas1` and migration of Tailscale SSH recordings
 
-The `tailscale-gateway` LXC (CTID 100, `192.168.50.102`) bind-mounts
+The `tailscale-gateway` LXC (CTID 100, `192.168.50.102`) previously bind-mounted
 `/mnt/sas1/tailscale-gateway-logs` from the Proxmox host. It surfaced 2026-09-04
 when the guest was imported into OpenTofu (`tofu/proxmox-container.tf`), and it
-is a third storage location alongside `local-lvm` and `archive-pool` that no
-other document here refers to.
+was a third storage location alongside `local-lvm` and `archive-pool` that no
+other document here had referred to.
 
-**It holds Tailscale SSH session recordings** — evidence for the question "did
-anyone get unrestricted access to the VMs". It predates k3s and was set up by
-hand, which is why it is in none of the GitOps material: it is older than the
-thing that would have captured it.
+**It held Tailscale SSH session recordings** — evidence for the question "did
+anyone get unrestricted access to the VMs". It predated k3s and was set up by
+hand, which is why it was in none of the original GitOps material.
 
-Two consequences worth stating rather than leaving implicit:
-
-- **It is a security control with no reconciler and no alert.** If that
-  filesystem fills, fails or is unmounted, recording stops silently and the
-  first sign is an empty directory at the moment someone wants the evidence.
-  Nothing in Flux, tofu or sanoid watches it. `SANOID.md` covers
-  `archive-pool` only; these recordings are not snapshotted.
-- **`tofu` describes the mount, not the data.** The import captured the
-  `mount_point` block because it is part of the container's config. That is a
-  description of where the volume is attached — it says nothing about the
-  contents, and `prevent_destroy` on the container does not protect them.
-
-Left as-is deliberately. It is recorded here so the next person who finds the
-path does not have to ask what it is.
-
-What is still unanswered is what it physically *is* — which device, which
-filesystem, whether it is redundant, and whether it holds free capacity. That
-question is tracked in [`HARDWARE.md`](HARDWARE.md), where it is the largest
-open item in the inventory.
+> ✅ **Resolved and retired 2026-09-09 per [`SAS-RECLAIM.md`](SAS-RECLAIM.md).**
+> - The recordings were relocated to `archive-pool/ts-ssh-records` on the host,
+>   preserving the exact POSIX ACL and UID mapping (`100102:100004`).
+> - CTID 100 was repointed via `pct set 100 -mp0 /archive-pool/ts-ssh-records,mp=/var/log/ts-ssh-records`.
+> - The dataset was placed under **sanoid** with the `archival` template
+>   (24 hourly / 30 daily / 6 monthly), resolving the lack of snapshots.
+> - OpenTofu state was reconciled in `tofu/proxmox-container.tf` (`0 to change`).
+> - `/mnt/sas1`, `/mnt/sas2`, and `/mnt/sas3` were unmounted, removed from `/etc/fstab`,
+>   and the underlying disks (`sdg`, `sdh`, `sdi` on the PERC H355) wiped with `wipefs -a`.
+>   There is no longer a third storage location on `/mnt/sas1`.

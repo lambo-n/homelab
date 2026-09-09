@@ -315,9 +315,9 @@ sanoid --monitor-snapshots
 
 Three empty SAS SSDs on a controller carrying nothing else, and a host whose
 `/etc/fstab` no longer references them. That is the precondition for passing
-`c3:00.0` through to a TrueNAS guest — `HARDWARE.md` §"Before anything claims
-the SAS disks" holds the remaining steps, of which reading SMART on `sdh` and
-`sdi` is the one still outstanding.
+`c3:00.0` through to a TrueNAS guest — all three SAS disks had SMART read and
+verified clean on 2026-09-09 (see `HARDWARE.md`). All preconditions for
+passthrough are now satisfied.
 
 `sde` and `sdf` are deliberately **not** part of this. They stay on the host as
 cold spares for `archive-pool`: identical model to two of its three mirror

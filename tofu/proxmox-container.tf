@@ -21,9 +21,8 @@
 # no API write to Proxmox -- an import is a state write -- which is why it was
 # safe to run on a running guest with a read-only token.
 #
-# Note the bind mount: /mnt/sas1/tailscale-gateway-logs on the host. That is a
-# storage location outside archive-pool and outside local-lvm, and it is not
-# documented anywhere else in this repo.
+# Note the bind mount: previously /mnt/sas1/tailscale-gateway-logs on the host,
+# repointed to /archive-pool/ts-ssh-records on 2026-09-09 per SAS-RECLAIM.md.
 
 import {
   to = proxmox_virtual_environment_container.tailscale_gateway

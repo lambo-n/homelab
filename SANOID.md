@@ -38,12 +38,13 @@ Two traps worth stating plainly:
 
 Phase 5 moves PGDATA off **NFS** onto a **zvol on this same pool** — block
 storage attached to `k3s-worker2`, mounted where `local-path` provisions. So
-after the cutover there are three things here worth snapshotting, not two:
+there are four things here worth snapshotting:
 
 | Dataset | Holds | State |
 |---|---|---|
 | `archive-pool/minio-data` | guide media **+ every Postgres backup and WAL segment** | live, matters most |
 | `archive-pool/vm-<VMID>-disk-0` | **PGDATA** (the zvol; name from `STORAGE.md` §2) | live, new |
+| `archive-pool/ts-ssh-records` | Tailscale SSH session recordings | live, added 2026-09-09 (`SAS-RECLAIM.md`) |
 | `archive-pool/postgres-data` | the old NFS data directory | **legacy** — frozen at cutover |
 
 Keep snapshotting `postgres-data` while the old Deployment is still the rollback
@@ -84,7 +85,7 @@ zpool status archive-pool
 zfs list -o name,used,avail,mountpoint -r archive-pool
 ```
 
-Expect `archive-pool/minio-data` and `archive-pool/postgres-data`. If they
+Expect `archive-pool/minio-data`, `archive-pool/postgres-data`, and `archive-pool/ts-ssh-records`. If they
 differ, fix the config below rather than the machine.
 
 ## 3. Configure
@@ -104,6 +105,10 @@ GITOPS.md:
 # The PGDATA zvol (STORAGE.md). A zvol does not appear in a plain `zfs list` --
 # use `zfs list -t volume` -- which is the usual reason this stanza gets left out.
 [archive-pool/vm-104-disk-0]
+	use_template = archival
+	recursive = no
+
+[archive-pool/ts-ssh-records]
 	use_template = archival
 	recursive = no
 
@@ -134,7 +139,7 @@ space-indented key is silently ignored, so a config that *looks* right can
 produce no snapshots at all:
 
 ```bash
-grep -Pc '^\t' /etc/sanoid/sanoid.conf     # expect 13
+grep -Pc '^\t' /etc/sanoid/sanoid.conf     # expect 15
 ```
 
 If that prints 0, the substitution did not take — fall back to
@@ -224,6 +229,12 @@ that comes back out of a snapshot clone on the hypervisor.
 Both clones were destroyed afterwards. Note also that the earlier snapshot had
 grown to `440K USED` on `minio-data` — copy-on-write is doing what it should,
 retaining only the delta.
+
+### Verified 2026-09-09 — `ts-ssh-records` added
+
+Following `SAS-RECLAIM.md` §6, `archive-pool/ts-ssh-records` was placed under
+the `archival` template. First execution confirmed initial snapshots taken
+(`monthly`, `daily`, `hourly`, all at 108K REFER) and `sanoid.timer` active.
 
 ## 5. Leave a note where the next person will look
 

@@ -1025,15 +1025,14 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 ## sanoid (host)
 
 **Config at a glance** — runs on the Proxmox host `.101`, not in the cluster.
-**Three** datasets, not two: `minio-data`, `postgres-data`, and the PGDATA zvol
-`vm-104-disk-0`. Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
+**Four** datasets: `minio-data`, `postgres-data`, the PGDATA zvol
+`vm-104-disk-0`, and `ts-ssh-records` (added 2026-09-09). Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
 Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 
 > **What `sanoid` does and does not cover.** It snapshots ZFS datasets, and the
-> only ZFS on `.101` is `archive-pool` — i.e. exactly `archive-pool/minio-data`
-> and `archive-pool/postgres-data`, which are the two NFS PVs. **The k3s VMs are
-> not covered**: their disks are on `local-lvm` (LVM-thin) and the host has zero
-> zvols (`zfs list -t volume` → *no datasets available*, `POOL-DOWNSIZE.md` §1).
+> only ZFS on `.101` is `archive-pool` — i.e. `archive-pool/minio-data`,
+> `archive-pool/postgres-data`, the PGDATA zvol, and `archive-pool/ts-ssh-records`.
+> **The k3s VMs are not covered**: their disks are on `local-lvm` (LVM-thin).
 > VM-level recovery is Proxmox `vzdump` or the OpenTofu rebuild in Phase 6 — not
 > this line item. Do not let a green sanoid dashboard read as "the cluster is
 > backed up".
@@ -1058,7 +1057,7 @@ Tailscale state. It provides two things:
 |---|---|
 | Exit node | offered, `AllowedIPs` includes `0.0.0.0/0` and `::/0` |
 | Subnet router | advertises **and has approved** `192.168.50.0/24` — `PrimaryRoutes: ["192.168.50.0/24"]` |
-| SSH session recording | `/var/log/ts-ssh-records`, on the `/mnt/sas1` bind mount (`STORAGE.md:416-442`) |
+| SSH session recording | `/var/log/ts-ssh-records`, on the `/archive-pool/ts-ssh-records` bind mount (`STORAGE.md:416-448`, `SAS-RECLAIM.md`) |
 
 > ⚠️ **The subnet route is a second way in, and it is not the recorded one**
 > *(found 2026-09-09)*. `README.md` asserted that administrative access "is

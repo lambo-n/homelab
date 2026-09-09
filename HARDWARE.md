@@ -40,7 +40,7 @@ This file is the one place that records the metal.
 | Physical devices recorded | **9 disks + 1 zvol, all identified** |
 | Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
 | Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
-| ⚠️ Live hazard | `/mnt/sas{1,2,3}` are in `/etc/fstab` **without `nofail`** — see the SAS section |
+| ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
 
 ---
 
@@ -77,7 +77,7 @@ Three consequences, all of them load-bearing:
 
 - ✅ **The PERC H355 carries only the three SAS SSDs.** `archive-pool` and the
   boot device are on entirely different controllers. PCIe passthrough of
-  `c3:00.0` to a guest therefore takes `/mnt/sas1`, `/mnt/sas2` and `/mnt/sas3`
+  `c3:00.0` to a guest therefore takes the three wiped SAS SSDs (`sdg`, `sdh`, `sdi`)
   and **nothing the cluster depends on**. This was assumed to be the opposite
   before it was measured.
 - ❌ **Neither Intel SATA controller can be passed through.** `archive-pool`'s
@@ -85,10 +85,9 @@ Three consequences, all of them load-bearing:
   `00:11.5` versus `00:17.0` was not recorded and does not matter: passing
   either one risks taking a live pool member. Free SATA disks go to a guest
   **per device by `by-id`**, never by controller.
-- ⚠️ **`/mnt/sas1` is bind-mounted into CTID 100** (`tofu/proxmox-container.tf`,
-  `STORAGE.md` appendix). Passing the PERC through removes that path from the
-  host and breaks the Tailscale SSH session recordings. See
-  [Before anything claims the SAS disks](#before-anything-claims-the-sas-disks).
+- ✅ **Resolved 2026-09-09: CTID 100 bind mount moved to `archive-pool/ts-ssh-records`.**
+  Passing the PERC through no longer touches any mount or breaks the Tailscale SSH
+  session recordings (`SAS-RECLAIM.md` §2–§3).
 
 ---
 
@@ -106,9 +105,9 @@ differently (`STORAGE.md:189-190`).
 | `sdd` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505855` | `HFS1T9G3H2X069N` | `ADB5N4365I1505855` | 1.75 TiB | SATA | `archive-pool` `mirror-0` |
 | `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA | **FREE** — stale ZFS labels |
 | `sdf` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` | `HFS1T9G3H2X069N` | `ADB5N4365I1505850` | 1.75 TiB | SATA | **FREE** — stale ZFS labels |
-| `sdg` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS | ext4 → `/mnt/sas2` |
-| `sdh` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS | ext4 → `/mnt/sas3` |
-| `sdi` | `scsi-35002538a48872be0` / `wwn-0x5002538a48872be0` | `MZILS3T8HMLH0D3` | `S3D9NX0K803418` | 3.49 TiB | SAS | ext4 → `/mnt/sas1` |
+| `sdg` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS | **FREE** — wiped (`wipefs -a`) |
+| `sdh` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS | **FREE** — wiped (`wipefs -a`) |
+| `sdi` | `scsi-35002538a48872be0` / `wwn-0x5002538a48872be0` | `MZILS3T8HMLH0D3` | `S3D9NX0K803418` | 3.49 TiB | SAS | **FREE** — wiped (`wipefs -a`) |
 | `zd0` | — | — | — | 64 GiB | — | `archive-pool/vm-104-disk-0`, the PGDATA zvol |
 
 Sizes are as `lsblk` reports them (TiB). The marketing capacities are 1.92 TB
@@ -234,32 +233,24 @@ non-disruptive capacity available today with no purchase and no migration.
 
 ---
 
-## `/mnt/sas1`, `/mnt/sas2`, `/mnt/sas3` — 10.5 TiB with no redundancy
+## SAS SSDs (`sdg`, `sdh`, `sdi`) — 10.47 TiB unallocated (reclaimed 2026-09-09)
 
-The largest pool of capacity in the chassis, and the least protected thing in it.
+The largest pool of capacity in the chassis. Previously mounted at `/mnt/sas1`,
+`/mnt/sas2`, `/mnt/sas3` carrying ext4 filesystems with no redundancy. Reclaimed,
+unmounted, and wiped on 2026-09-09 per [`SAS-RECLAIM.md`](SAS-RECLAIM.md).
 
-| Mount | Device | `by-id` | Serial | Size | Used | Contents |
-|---|---|---|---|---|---|---|
-| `/mnt/sas1` | `sdi` | `scsi-35002538a48872be0` | `S3D9NX0K803418` | 3.49 TiB | **2.2 MB** | `tailscale-gateway-logs` |
-| `/mnt/sas2` | `sdg` | `scsi-35002538a48872950` | `S3D9NX0K803377` | 3.49 TiB | **20 K** | **empty** — `lost+found` only |
-| `/mnt/sas3` | `sdh` | `scsi-35002538a48872700` | `S3D9NX0K803346` | 3.49 TiB | **20 K** | **empty** — `lost+found` only |
+| Device | `by-id` | Serial | Size | Previous Mount | Status |
+|---|---|---|---|---|---|
+| `sdg` | `scsi-35002538a48872950` | `S3D9NX0K803377` | 3.49 TiB | `/mnt/sas2` (empty) | **FREE** — wiped (`wipefs -a`) |
+| `sdh` | `scsi-35002538a48872700` | `S3D9NX0K803346` | 3.49 TiB | `/mnt/sas3` (empty) | **FREE** — wiped (`wipefs -a`) |
+| `sdi` | `scsi-35002538a48872be0` | `S3D9NX0K803418` | 3.49 TiB | `/mnt/sas1` (held 2.2 MB) | **FREE** — wiped (`wipefs -a`) |
 
-*`df -h` and `du -xh --max-depth=2`, 2026-09-09.* All three are ext4,
-`rw,relatime,stripe=2` on `/mnt/sas1`.
+> ✅ **Reclaimed 2026-09-09:** `/mnt/sas1`'s 2.2 MB of Tailscale session recordings
+> were relocated to `archive-pool/ts-ssh-records` under sanoid, the three fstab
+> lines were removed, and the host was rebooted clean. All three disks were
+> wiped with `wipefs -a` by-id and are ready for PERC passthrough to TrueNAS.
 
-> ✅ **Measured 2026-09-09: there is nothing here to migrate.** `/mnt/sas2` and
-> `/mnt/sas3` contain a `lost+found` directory and nothing else — they were
-> formatted and mounted and never used. `/mnt/sas1` holds 2.2 MB of Tailscale
-> session recordings. **10.47 TiB of SAS SSD is carrying 2.2 MB of data**, and
-> the entire migration cost of repurposing all three disks is copying that
-> 2.2 MB somewhere redundant.
->
-> This was the single largest unknown in the inventory. It is now the cheapest
-> capacity in the chassis.
-
-Three Samsung PM1633a 3.84 TB SAS SSDs, **10.47 TiB raw**, each carrying a plain
-ext4 filesystem **on the raw device with no partition table** — the same
-whole-device style as `STORAGE.md` §3.
+Three Samsung PM1633a 3.84 TB SAS SSDs, **10.47 TiB raw**, ready for a ZFS pool.
 
 ### ✅ The PERC passes these disks through — confirmed 2026-09-09
 
@@ -332,15 +323,8 @@ argument that applies to the four SK hynix units in `archive-pool`.
 Read as a risk for a *new* pool: fine for bulk data with a backup, and **not**
 where the only copy of something should live.
 
-> 📋 **`sdh` and `sdi` have not been read.** One drive's SMART is not three.
-> Before committing a pool to these disks:
->
-> ```bash
-> for d in sdg sdh sdi; do
->   echo "== $d"
->   smartctl -a /dev/$d | grep -E 'Health|endurance|power on|defect|Non-medium|Serial'
-> done
-> ```
+> ✅ **SMART confirmed clean on all three drives 2026-09-09** (see table above).
+> Zero defects, zero uncorrected errors, 0% endurance used across `sdg`, `sdh`, and `sdi`.
 
 ### One number that decides a pool setting
 
@@ -355,68 +339,19 @@ the same class of permanent, one-shot decision as the `blocksize 8k` in
 `STORAGE.md` §1, and it is worth stating explicitly rather than trusting
 autodetection on a 512e drive.
 
-State this plainly, because no other document does:
-
-- **There is no redundancy of any kind.** Not RAID, not ZFS, not a mirror.
-  Three independent filesystems on three independent disks. Any one failure
-  loses that disk's contents outright — today that means the SSH recordings.
-- **There are no snapshots.** `SANOID.md` covers `archive-pool` only.
-- **They are in no backup.** Not barman, not vzdump, not sanoid.
-- **Nothing monitors them.** No reconciler, no alert, no PVE storage entry —
-  they do not appear in `pvesm status` at all, so even the capacity graphs miss
-  them.
-
-`/mnt/sas1` holds `tailscale-gateway-logs`, bind-mounted into CTID 100 as
-`/var/log/ts-ssh-records` — the Tailscale SSH session recordings, and a security
-control with no reconciler and no alert (`STORAGE.md` appendix).
-
-`/mnt/sas2` and `/mnt/sas3` appear in **no other document in this repo** and
-hold nothing. All three were formatted together on 2026-06-12 and only the first
-was ever used.
-
-### What is actually on `/mnt/sas1` — listed 2026-09-09
-
-```
-drwx------  2 root   root   16384 Jun 12 16:08 lost+found
-drwxrwx---+ 2 100102 100004  4096 Jun 12 21:22 tailscale-gateway-logs
-```
-
-**88 KB** of session recordings — `df` reports 2.2 MB, but that is filesystem
-overhead; `du` puts the payload at 88 K. Roughly 1 KB/day since 2026-06-12. At
-that rate the 3.49 TiB filesystem holds about ten thousand years of recordings.
-
-Two details that matter when this directory moves:
-
-- **`100102:100004` is the unprivileged LXC's UID mapping** — container UID 102 /
-  GID 4 seen from the host (`unprivileged = true`,
-  `tofu/proxmox-container.tf`). Preserve it, or the container loses write access
-  and recording stops silently.
-- **The `+` means a POSIX ACL is set**, and the ACL is what actually grants the
-  container access. A plain `cp` drops it. Use `cp -a` (which implies
-  `--preserve=all`) or `rsync -aAX`, and verify with `getfacl` on both sides
-  rather than assuming it came across.
-
-### ⚠️ All three are in `/etc/fstab` without `nofail`
-
-```
-UUID=76d1c54b-47a2-486d-bd36-eb0678090b70 /mnt/sas1 ext4 defaults 0 2
-UUID=6db19b6a-3eeb-427f-bec5-fda18c5450ae /mnt/sas2 ext4 defaults 0 2
-UUID=5a93d776-ed8e-44d6-adc3-0cc75fe473e7 /mnt/sas3 ext4 defaults 0 2
-```
-
-`defaults` with a non-zero fsck pass and **no `nofail`**. These devices disappear
-from the host the moment the PERC is passed through to a guest — and a missing
-non-`nofail` mount does not boot past it. systemd waits on the device, times
-out, and drops the host into an **emergency shell**.
-
-**`192.168.50.101` accepts no SSH key from the dev VM**, so recovery from that
-state needs iDRAC or a physical console. This is the same failure `STORAGE.md`
-§5c already guards the PGDATA mount against, and the reason `nofail` is on that
-fstab line.
-
-**Removing these three lines is therefore a hard prerequisite of passthrough,
-not a tidy-up afterwards.** Do it, reboot, and confirm the host comes back
-before the controller is touched.
+> ⚠️ **Prior state (resolved 2026-09-09):** Prior to [`SAS-RECLAIM.md`](SAS-RECLAIM.md),
+> the three disks carried bare ext4 filesystems with no redundancy, no snapshots,
+> and no backups. `/mnt/sas1` carried 88 KB of SSH recordings bind-mounted into
+> CTID 100, while `/mnt/sas2` and `/mnt/sas3` were empty. All three were in
+> `/etc/fstab` with `defaults 0 2` and **no `nofail`**, which would have dropped
+> the host into an emergency shell upon controller passthrough.
+>
+> All of this was resolved on 2026-09-09:
+> 1. Recordings were moved to `archive-pool/ts-ssh-records` preserving ACL/ownership,
+>    and added to sanoid (`archival` template).
+> 2. CTID 100's bind mount was repointed on the host and reconciled in OpenTofu.
+> 3. The three fstab lines were removed (backed up to `/etc/fstab.bak-2026-09-09`).
+> 4. Host was rebooted clean, and all three disks were wiped with `wipefs -a`.
 
 ---
 
@@ -424,7 +359,7 @@ before the controller is touched.
 
 | Where | Amount | Cost to claim it |
 |---|---|---|
-| Three SAS SSDs | **10.47 TiB raw** → 3.49 TiB as a 3-way mirror, or ~6.98 TiB as raidz1 | **relocate 2.2 MB** of SSH recordings and repoint one LXC bind mount |
+| Three SAS SSDs | **10.47 TiB raw** → 3.49 TiB as a 3-way mirror, or ~6.98 TiB as raidz1 | **none** — reclaimed and wiped 2026-09-09 ([`SAS-RECLAIM.md`](SAS-RECLAIM.md)) |
 | `sde` + `sdf`, mirrored | **1.75 TiB usable** | none — wipe the stale ZFS labels and go |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
 | `local-lvm` | 82.12 GiB | guest root disks only; falling |
