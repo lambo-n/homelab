@@ -39,7 +39,7 @@ This file is the one place that records the metal.
 | Filled in | 2026-09-09, host console |
 | Physical devices recorded | **9 disks + 1 zvol, all identified** |
 | Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
-| Still unknown | SMART on 8 of 9 disks (`sdg` done); BOSS mirror health; empty bay count |
+| Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
 | ⚠️ Live hazard | `/mnt/sas{1,2,3}` are in `/etc/fstab` **without `nofail`** — see the SAS section |
 
 ---
@@ -280,21 +280,47 @@ A RAID virtual disk would report the controller as vendor and hide SMART behind
 mode, and TrueNAS would receive real disks with working SMART and scrubs.**
 That was the last architectural question blocking a TrueNAS guest.
 
-### `sdg` health, read 2026-09-09
+### All three read 2026-09-09 — every one clean
 
-| | | Reading |
-|---|---|---|
-| SMART Health Status | ✅ | `OK` |
-| Endurance used | ✅ | **0%** |
-| Grown defect list | ✅ | **0 elements** |
-| Uncorrected errors | ✅ | 0 read, 0 write, 0 verify |
-| Lifetime writes | ✅ | 222 TB — ~58 drive-writes total, ≈0.03 DWPD |
-| Lifetime reads | | 587 TB |
-| Temperature | ✅ | 41 °C (trip 70 °C) |
-| **Power-on time** | ⚠️ | **49,957 h — 5.70 years** |
-| **Manufactured** | ⚠️ | **week 32 of 2018 — ~8 years old** |
-| Non-medium errors | ⚠️ | 10 — transport/bus level, not media. Note it, re-read it later |
-| Last self-test | ⚠️ | at lifetime hour **2**. Never tested since |
+| | `sdg` | `sdh` | `sdi` |
+|---|---|---|---|
+| Serial | `…803377` | `…803346` | `…803418` |
+| Health | ✅ `OK` | ✅ `OK` | ✅ `OK` |
+| Endurance used | ✅ 0% | ✅ 0% | ✅ 0% |
+| **Grown defect list** | ✅ **0** | ✅ **0** | ✅ **0** |
+| Uncorrected errors | ✅ 0/0/0 | ✅ 0/0/0 | ✅ 0/0/0 |
+| Temperature | 41 °C | 41 °C | 41 °C |
+| Lifetime writes | 222 TB | 23.9 TB | 9.4 TB |
+| Lifetime reads | 587 TB | 411 TB | 405 TB |
+| **Power-on** | 49957:31 | 49957:42 | 49957:35 |
+| Manufactured | wk 32 2018 | wk 32 2018 | wk 32 2018 |
+| Non-medium errors | 10 | 10 | 8 |
+
+**No drive has a single grown defect or uncorrected error.** Endurance is 0% on
+all three — even `sdg`, the most-written, has taken only ~58 drive-writes in its
+life (≈0.03 DWPD). As media, these are effectively new.
+
+**The power-on times are within 11 minutes of each other**, on drives
+manufactured in the same week of 2018. They have been powered together for their
+entire 5.7-year life. That is a genuinely matched set, and it *sharpens* the
+correlated-failure argument rather than softening it: whatever eventually
+reaches one is likely reaching the others at the same time.
+
+**The near-identical non-medium counts (10 / 10 / 8) are reassuring, not
+concerning.** Three drives independently arriving at the same small number
+points at shared bus events — link resets on the backplane or controller, most
+likely at boot — rather than anything happening on the media. Media problems do
+not correlate across drives like that.
+
+**Their write histories do not match, though** — 222 TB / 23.9 TB / 9.4 TB. They
+were not mirrored together in a previous life; they had separate roles before
+landing here. "Matched set" applies to their age and power-on hours, not their
+usage.
+
+> ⚠️ **Last self-test was at lifetime hour 2** on `sdg` — i.e. when it was new,
+> and never since. Whatever owns these disks next should run a scheduled long
+> test; TrueNAS does this natively, which is one of the better arguments for it
+> (see `TRUENAS.md`).
 
 **The wear is negligible and the age is not.** 0% endurance used after 222 TB
 written means the NAND has barely been touched; these were enterprise drives
@@ -435,7 +461,8 @@ have to happen first, and none is optional:
 5. ✅ **Done 2026-09-09 — the PERC passes the disks through.** Native SAS SMART
    with no `-d megaraid`, vendor `SAMSUNG`. See the section above. (`perccli` is
    not installed and was not needed; `lsscsi` is not installed either.)
-6. **Read SMART on `sdh` and `sdi`**, not just `sdg` — command above.
+6. ✅ **Done 2026-09-09 — all three read, all three clean.** Zero grown
+   defects, zero uncorrected errors, 0% endurance on every drive.
 
 Also worth knowing before betting on passthrough: IOMMU must be on and the PERC
 must sit in a usable IOMMU group (`dmesg | grep -e DMAR -e IOMMU`,
@@ -450,7 +477,7 @@ bpg exposes as `proxmox_virtual_environment_hardware_mapping_pci`.
 
 | Unknown | Why it matters | How to close it |
 |---|---|---|
-| SMART on the other 8 disks — `sdg` is done | Batches age together; wear decides replace-vs-expand. `sdg` came back 0% used but 5.7 years powered on | `smartctl -a /dev/sdX` — works directly, no `-d megaraid` needed |
+| SMART on the 6 SATA disks — all 3 SAS disks are done | Four SK hynix from one batch age together; wear decides replace-vs-expand | `smartctl -a /dev/sdX` |
 | BOSS-S2 mirror health | A failed M.2 is invisible to every monitor here | iDRAC, or the BOSS CLI |
 | ~~PERC H355 personality~~ | ✅ **Closed 2026-09-09** — non-RAID passthrough, native SMART | — |
 | Which of `sdb`–`sdf` is on `00:11.5` vs `00:17.0` | Only matters if SATA controller passthrough is ever reconsidered | `ls -l /sys/block/sd*/device` |
