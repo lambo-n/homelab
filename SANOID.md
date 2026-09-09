@@ -112,6 +112,10 @@ GITOPS.md:
 	use_template = archival
 	recursive = no
 
+[sas-pool/data]
+	use_template = archival
+	recursive = yes
+
 [template_archival]
 	frequently = 0
 	hourly = 24
@@ -139,7 +143,7 @@ space-indented key is silently ignored, so a config that *looks* right can
 produce no snapshots at all:
 
 ```bash
-grep -Pc '^\t' /etc/sanoid/sanoid.conf     # expect 15
+grep -Pc '^\t' /etc/sanoid/sanoid.conf     # expect 17
 ```
 
 If that prints 0, the substitution did not take — fall back to

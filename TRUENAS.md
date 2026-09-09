@@ -5,6 +5,19 @@ This runbook details the architecture, deployment, and configuration of a
 dedicated **Dell PERC H355** controller (`c3:00.0`) carrying all three 3.84 TB
 Samsung SAS SSDs.
 
+> ⚠️ **Architecture Update (2026-09-09): Superseded by Native Host `sas-pool`.**
+> During the passthrough attempt, two physical constraints were confirmed:
+> 1. **Shared Backplane Cabling:** In this Dell chassis, all 8 front drive bays
+>    (`sdb`–`sdj`, including the 3 members of `archive-pool`) are wired to the PERC
+>    H355 (`c3:00.0`). Unbinding `c3:00.0` detaches `archive-pool`.
+> 2. **Dell Firmware RMRR:** Dell BIOS assigns an RMRR region to the Front PERC,
+>    which Linux VFIO rejects for security isolation.
+>
+> The three SAS SSDs were instead configured natively on the Proxmox host as
+> **`sas-pool`** (6.85 TiB RAIDZ1) under `sanoid` and shared via Samba.
+> See [`SAS-STORAGE.md`](SAS-STORAGE.md) for the active configuration.
+> The material below is retained for reference.
+
 ---
 
 ## Architecture & Topology

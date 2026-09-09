@@ -83,8 +83,8 @@ a single failure domain and is the constraint behind most of the architecture.
 | Proxmox VE | `192.168.50.101` (`pve`) |
 | Also runs | the **NFS server** exporting `/archive-pool` |
 | VM disks | `local-lvm` — LVM-thin on a **Dell BOSS-S2** pair of M.2 **SATA** SSDs in *hardware* RAID1, 130.2 GiB, 82.1 GiB free |
-| Bulk storage | `archive-pool` — ZFS **3-way mirror** of 1.92 TB SATA SSDs, 1.68 TiB usable, two-disk fault tolerance, 3.85% used |
-| Unallocated | 2 × 1.92 TB SATA SSD, free · 3 × 3.84 TB **SAS** SSD, **10.47 TiB**, free / wiped |
+| Bulk storage | `archive-pool` — ZFS **3-way mirror** of 1.92 TB SATA SSDs, 1.68 TiB usable · `sas-pool` — ZFS **RAIDZ1** of 3 × 3.84 TB SAS SSDs, **6.85 TiB usable** |
+| Unallocated | 2 × 1.92 TB SATA SSD, free (`sde`, `sdf` cold spares) |
 
 *Host storage figures read from `pvesm status` on the host console 2026-09-09.
 The dev VM has no route to the pool, but capacities can be re-read over the
@@ -102,14 +102,12 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 > [`HARDWARE.md`](HARDWARE.md#sda--local-lvm--the-boot-device-and-a-correction).
 >
 > The same enumeration found **10.47 TiB of SAS SSD that this table never
-> mentioned** — three disks on their own controller that previously carried bare ext4
-> filesystems with no redundancy, no snapshots and no backup (reclaimed and wiped 2026-09-09).
+> mentioned** — three disks that previously carried bare ext4 filesystems with no
+> redundancy (reclaimed and wiped 2026-09-09 per [`SAS-RECLAIM.md`](SAS-RECLAIM.md)).
 
-> **Reclaim completed 2026-09-09.** The three SAS SSDs were freed from ext4 and wiped
-> so the PERC H355 can be passed through to a TrueNAS guest — [`SAS-RECLAIM.md`](SAS-RECLAIM.md)
-> is the completed runbook; the Tailscale SSH recordings were moved to `archive-pool/ts-ssh-records`
-> (under sanoid) and CTID 100's bind mount was reconciled. Next step is provisioning
-> TrueNAS SCALE per [`TRUENAS.md`](TRUENAS.md).
+> **Storage pool active 2026-09-09.** The three SAS SSDs are configured as
+> **`sas-pool`** in RAIDZ1 (6.85 TiB usable) on the Proxmox host under `sanoid`,
+> exported via Samba for single-user tailnet access. See [`SAS-STORAGE.md`](SAS-STORAGE.md).
 
 > **This table names no devices.** Models, capacities, serials, `by-id` paths,
 > free capacity and the controller topology are recorded in
@@ -145,6 +143,7 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 | Prometheus TSDB | `k3s-worker1` root disk | `local-path`, capped by `retentionSize` |
 | Legacy Postgres data | `archive-pool` | NFS PV, 100 GiB, `Retain`, no longer read |
 | Tailscale SSH recordings | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
+| Personal storage / media | `sas-pool` | `/sas-pool/data`, native host RAIDZ1 under sanoid, exported via Samba (`[data]`) |
 
 > ⚠️ **Destroying or rebuilding `archive-pool` now takes `k3s-worker2`'s database
 > disk with it**, and pool work requires that VM stopped first. This retires an

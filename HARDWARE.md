@@ -69,25 +69,24 @@ something else with it.
 | Address | Controller | Driver | Disks behind it |
 |---|---|---|---|
 | `05:00.0` | Marvell 88SE9230, subsystem **Dell BOSS-S2 Adapter** `[1028:2010]` | `ahci` | `sda` — the boot device |
-| `00:11.5` | Intel C620 sSATA [AHCI] `[8086:a1d2]` | `ahci` | some of `sdb`–`sdf` |
-| `00:17.0` | Intel C620 SATA [AHCI] `[8086:a182]` | `ahci` | the rest of `sdb`–`sdf` |
-| `c3:00.0` | Broadcom/LSI MegaRAID 12GSAS SAS38xx, subsystem **Dell PERC H355 Front** `[1028:2173]` | `megaraid_sas` | `sdg`, `sdh`, `sdi` — **and nothing else** |
+| `00:11.5` | Intel C620 sSATA [AHCI] `[8086:a1d2]` | `ahci` | **None** — motherboard ports empty |
+| `00:17.0` | Intel C620 SATA [AHCI] `[8086:a182]` | `ahci` | **None** — motherboard ports empty |
+| `c3:00.0` | Broadcom/LSI MegaRAID 12GSAS SAS38xx, subsystem **Dell PERC H355 Front** `[1028:2173]` | `megaraid_sas` | **All 8 front bays:** `archive-pool` (`sdb`, `sdc`, `sdg`), cold spares (`sde`, `sdf`), and `sas-pool` (`sdh`, `sdi`, `sdj`) |
 
-Three consequences, all of them load-bearing:
+Key architectural findings confirmed 2026-09-09:
 
-- ✅ **The PERC H355 carries only the three SAS SSDs.** `archive-pool` and the
-  boot device are on entirely different controllers. PCIe passthrough of
-  `c3:00.0` to a guest therefore takes the three wiped SAS SSDs (`sdg`, `sdh`, `sdi`)
-  and **nothing the cluster depends on**. This was assumed to be the opposite
-  before it was measured.
-- ❌ **Neither Intel SATA controller can be passed through.** `archive-pool`'s
-  three members and the two free SSDs share them. Which of `sdb`–`sdf` sits on
-  `00:11.5` versus `00:17.0` was not recorded and does not matter: passing
-  either one risks taking a live pool member. Free SATA disks go to a guest
-  **per device by `by-id`**, never by controller.
-- ✅ **Resolved 2026-09-09: CTID 100 bind mount moved to `archive-pool/ts-ssh-records`.**
-  Passing the PERC through no longer touches any mount or breaks the Tailscale SSH
-  session recordings (`SAS-RECLAIM.md` §2–§3).
+- ⚠️ **The PERC H355 Front drives the entire front drive backplane.** Both the 5
+  SATA SSDs and the 3 SAS SSDs attach via SCSI host `megaraid_sas`. The
+  motherboard SATA controllers carry no drives.
+- ❌ **PCIe passthrough of `c3:00.0` is not possible:**
+  1. Unbinding `c3:00.0` detaches `archive-pool` along with the SAS drives.
+  2. Dell BIOS defines a **Reserved Memory Region (RMRR)** on the Front PERC
+     for out-of-band management, causing Linux VFIO to reject passthrough
+     (`Firmware has requested this device have a 1:1 IOMMU mapping`).
+- ✅ **Host-native ZFS (`sas-pool`):** The three SAS drives are configured
+  directly on the Proxmox host as **`sas-pool`** in RAIDZ1 (6.85 TiB usable),
+  protected by `sanoid` (`archival` template) and exported via Samba. See
+  [`SAS-STORAGE.md`](SAS-STORAGE.md).
 
 ---
 
@@ -100,14 +99,14 @@ differently (`STORAGE.md:189-190`).
 | Dev | `/dev/disk/by-id/…` | Model | Serial | Size | Bus | Role |
 |---|---|---|---|---|---|---|
 | `sda` | `ata-DELLBOSS_VD_aa06e20941c90010` | `DELLBOSS VD` | `aa06e20941c90010` | 223.5 GiB | SATA (BOSS) | boot — `/boot/efi`, `pve-root`, `pve-swap`, `local-lvm` |
-| `sdb` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Z` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Z` | 1.75 TiB | SATA | `archive-pool` `mirror-0` |
-| `sdc` | `ata-MTFDDAK1T9TDT_222939CA58D4` | `MTFDDAK1T9TDT` | `222939CA58D4` | 1.75 TiB | SATA | `archive-pool` `mirror-0` |
-| `sdd` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505855` | `HFS1T9G3H2X069N` | `ADB5N4365I1505855` | 1.75 TiB | SATA | `archive-pool` `mirror-0` |
-| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA | **FREE** — stale ZFS labels |
-| `sdf` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` | `HFS1T9G3H2X069N` | `ADB5N4365I1505850` | 1.75 TiB | SATA | **FREE** — stale ZFS labels |
-| `sdg` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS | **FREE** — wiped (`wipefs -a`) |
-| `sdh` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS | **FREE** — wiped (`wipefs -a`) |
-| `sdi` | `scsi-35002538a48872be0` / `wwn-0x5002538a48872be0` | `MZILS3T8HMLH0D3` | `S3D9NX0K803418` | 3.49 TiB | SAS | **FREE** — wiped (`wipefs -a`) |
+| `sdb` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Z` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Z` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
+| `sdc` | `ata-MTFDDAK1T9TDT_222939CA58D4` | `MTFDDAK1T9TDT` | `222939CA58D4` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
+| `sdg` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505855` | `HFS1T9G3H2X069N` | `ADB5N4365I1505855` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
+| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **FREE** — cold spare for `archive-pool` |
+| `sdf` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` | `HFS1T9G3H2X069N` | `ADB5N4365I1505850` | 1.75 TiB | SATA (PERC) | **FREE** — cold spare for `archive-pool` |
+| `sdh` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
+| `sdi` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
+| `sdj` | `scsi-35002538a48872be0` / `wwn-0x5002538a48872be0` | `MZILS3T8HMLH0D3` | `S3D9NX0K803418` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
 | `zd0` | — | — | — | 64 GiB | — | `archive-pool/vm-104-disk-0`, the PGDATA zvol |
 
 Sizes are as `lsblk` reports them (TiB). The marketing capacities are 1.92 TB
