@@ -1325,9 +1325,12 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 >
 > **Three costs, stated plainly.** *(1)* It retires the "no VM disk is on ZFS"
 > invariant — see the warning under "Current State"; pool work now requires
-> `k3s-worker2` stopped. *(2)* SATA SSD mirror instead of NVMe, so higher fsync
-> latency. For a guide-metadata table with near-zero write volume this is noise,
-> but it is a real trade in the honest direction. *(3)* PGDATA and its barman
+> `k3s-worker2` stopped. *(2)* ~~SATA SSD mirror instead of NVMe, so higher fsync
+> latency.~~ **Withdrawn 2026-09-09: this cost does not exist.** `local-lvm` is
+> not NVMe — it is a Dell BOSS-S2 pair of M.2 **SATA** SSDs (`HARDWARE.md`), so
+> both sides of this comparison are SATA and the fsync trade is a wash. The
+> claim was inherited from `README.md`, which asserted NVMe until the devices
+> were enumerated. *(3)* PGDATA and its barman
 > backups now share a pool, where the `local-path` plan had them on different
 > media. Both were always on the same *host*, which dominates the risk — but the
 > separation is genuinely reduced, and the answer if that ever matters is the

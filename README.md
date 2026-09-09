@@ -82,17 +82,34 @@ a single failure domain and is the constraint behind most of the architecture.
 |---|---|
 | Proxmox VE | `192.168.50.101` (`pve`) |
 | Also runs | the **NFS server** exporting `/archive-pool` |
-| VM disks | `local-lvm` — LVM-thin on an NVMe RAID1 pair, 130.2 GiB, ~90.5 GiB free |
-| Bulk storage | `archive-pool` — ZFS **3-way mirror**, 1.68 TiB usable, two-disk fault tolerance |
+| VM disks | `local-lvm` — LVM-thin on a **Dell BOSS-S2** pair of M.2 **SATA** SSDs in *hardware* RAID1, 130.2 GiB, 82.1 GiB free |
+| Bulk storage | `archive-pool` — ZFS **3-way mirror** of 1.92 TB SATA SSDs, 1.68 TiB usable, two-disk fault tolerance, 3.85% used |
+| Unallocated | 2 × 1.92 TB SATA SSD, free · 3 × 3.84 TB **SAS** SSD, **10.47 TiB**, holding 2.2 MB |
 
-*Host storage figures last read from `pvesm status` on 2026-09-03; the dev VM has
-no route to the pool and cannot re-check them.*
+*Host storage figures read from `pvesm status` on the host console 2026-09-09.
+The dev VM has no route to the pool, but capacities can be re-read over the
+Proxmox API on `:8006` — devices and controllers cannot.*
+
+> ⚠️ **Corrected 2026-09-09.** This table read "LVM-thin on an **NVMe** RAID1
+> pair" until the devices were enumerated. It is neither NVMe nor an OS-level
+> RAID: it is a Dell BOSS-S2 card presenting two M.2 SATA SSDs as one
+> hardware-mirrored virtual disk. The distinction is operational, not pedantic —
+> **the OS cannot see the member disks**: no `/proc/mdstat` entry, no
+> `zpool status`, and `smartctl /dev/sda` reads the *virtual* disk. A failed half
+> of the boot mirror surfaces only in iDRAC or the BOSS CLI. Nothing here checks
+> either — node-exporter is a DaemonSet on the three k3s **nodes**, so the
+> Proxmox host is not scraped at all. See
+> [`HARDWARE.md`](HARDWARE.md#sda--local-lvm--the-boot-device-and-a-correction).
+>
+> The same enumeration found **10.47 TiB of SAS SSD that this table never
+> mentioned** — three disks on their own controller, each carrying a bare ext4
+> filesystem with no redundancy, no snapshots and no backup.
 
 > **This table names no devices.** Models, capacities, serials, `by-id` paths,
-> free bays and the storage controller are recorded in
-> [`HARDWARE.md`](HARDWARE.md) — which is currently mostly unfilled, and says so.
-> Anything that needs a *device* rather than a pool (adding a pool, replacing a
-> member, HBA passthrough) starts there.
+> free capacity and the controller topology are recorded in
+> [`HARDWARE.md`](HARDWARE.md), filled in 2026-09-09. Anything that needs a
+> *device* rather than a pool (adding a pool, replacing a member, controller
+> passthrough) starts there.
 
 ### Guests
 
