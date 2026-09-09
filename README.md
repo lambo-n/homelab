@@ -105,6 +105,11 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 > mentioned** — three disks on their own controller, each carrying a bare ext4
 > filesystem with no redundancy, no snapshots and no backup.
 
+> **Reclaim in progress.** The three SAS SSDs are being freed from ext4 so the
+> PERC H355 can be passed through to a TrueNAS guest —
+> [`SAS-RECLAIM.md`](SAS-RECLAIM.md) is the runbook, and it moves the Tailscale
+> SSH recordings onto `archive-pool` on the way.
+
 > **This table names no devices.** Models, capacities, serials, `by-id` paths,
 > free capacity and the controller topology are recorded in
 > [`HARDWARE.md`](HARDWARE.md), filled in 2026-09-09. Anything that needs a
