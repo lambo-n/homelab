@@ -108,7 +108,8 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 > **Reclaim completed 2026-09-09.** The three SAS SSDs were freed from ext4 and wiped
 > so the PERC H355 can be passed through to a TrueNAS guest — [`SAS-RECLAIM.md`](SAS-RECLAIM.md)
 > is the completed runbook; the Tailscale SSH recordings were moved to `archive-pool/ts-ssh-records`
-> (under sanoid) and CTID 100's bind mount was reconciled.
+> (under sanoid) and CTID 100's bind mount was reconciled. Next step is provisioning
+> TrueNAS SCALE per [`TRUENAS.md`](TRUENAS.md).
 
 > **This table names no devices.** Models, capacities, serials, `by-id` paths,
 > free capacity and the controller topology are recorded in

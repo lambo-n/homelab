@@ -311,7 +311,7 @@ usage.
 > ⚠️ **Last self-test was at lifetime hour 2** on `sdg` — i.e. when it was new,
 > and never since. Whatever owns these disks next should run a scheduled long
 > test; TrueNAS does this natively, which is one of the better arguments for it
-> (see `TRUENAS.md`).
+> (see [`TRUENAS.md`](TRUENAS.md)).
 
 **The wear is negligible and the age is not.** 0% endurance used after 222 TB
 written means the NAND has barely been touched; these were enterprise drives
@@ -424,3 +424,5 @@ bpg exposes as `proxmox_virtual_environment_hardware_mapping_pci`.
   `sde` and `sdf`
 - `tofu/README.md:196-322` — the API token, its privileges, and why it is
   read-only
+- [`SAS-RECLAIM.md`](SAS-RECLAIM.md) — the completed runbook freeing the three SAS disks from ext4
+- [`TRUENAS.md`](TRUENAS.md) — TrueNAS SCALE guest architecture, PCIe passthrough, and pool setup
