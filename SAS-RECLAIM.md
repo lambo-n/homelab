@@ -46,9 +46,35 @@ ls -lan /mnt/sas1/tailscale-gateway-logs
 stat -c '%u %g %a' /mnt/sas1/tailscale-gateway-logs
 ```
 
-Expect `100102:100004` — container UID 102 / GID 4 seen from the host, because
-the container is unprivileged (`tofu/proxmox-container.tf`). The `+` in
-`drwxrwx---+` is the ACL. **Reproduce both or recording stops silently.**
+**As found 2026-09-09** — and note the ACL grants a *different* UID than the one
+owning the directory, which is why §2 copies it rather than retyping it:
+
+```
+# owner: 100102                 <- container uid 102
+# group: 100004                 <- container gid 4
+user::rwx
+user:100104:rwx                 <- container uid 104, NOT 102
+group::r-x
+mask::rwx
+other::---
+default:user::rwx
+default:user:100104:rwx
+default:group::r-x
+default:mask::rwx
+default:other::---
+```
+
+The mount point key is **`mp0`**, the only one on this container. The mode is
+really `0750` — `ls` renders `drwxrwx---+` because with an ACL present the group
+triad shows the *mask*, not `group::`. **Reproduce owner, group and ACL, or
+recording stops silently.**
+
+> ⚠️ **The directory holds one file: `sshd-verbose.log`** — 79 KB, still being
+> written 2026-09-09. Not per-session recordings. Tailscale SSH session
+> recording writes one file per session, so `STORAGE.md`'s description of this
+> directory as an access-evidence trail may be optimistic; worth confirming
+> whether session recording is configured at all. It changes no step here — the
+> directory moves either way.
 
 Then confirm nothing else on the host uses these three filesystems:
 
@@ -79,23 +105,28 @@ zfs create -o acltype=posixacl -o xattr=sa archive-pool/ts-ssh-records
 > later. `xattr=sa` stores the ACL in the inode rather than a hidden directory,
 > which is the recommended pairing.
 
-Reproduce the ownership and the ACL captured in §1:
+Reproduce the ownership and the ACL. **Copy the ACL, do not retype it** — the
+named entry is `100104` while the owner is `100102`, and that is exactly the
+kind of difference a hand-written `setfacl` gets wrong:
 
 ```bash
+getfacl --absolute-names /mnt/sas1/tailscale-gateway-logs > /root/ts-ssh-records.acl
+
 chown 100102:100004 /archive-pool/ts-ssh-records
-chmod 770           /archive-pool/ts-ssh-records
-
-# Apply the ACL recorded in §1. As found 2026-09-09 the container's mapped
-# user needs rwx; take the exact entries from YOUR getfacl output.
-setfacl -m u:100102:rwx -m g:100004:rwx /archive-pool/ts-ssh-records
-setfacl -d -m u:100102:rwx -m g:100004:rwx /archive-pool/ts-ssh-records
-
-getfacl /archive-pool/ts-ssh-records      # compare against §1 before continuing
+setfacl --set-file=/root/ts-ssh-records.acl /archive-pool/ts-ssh-records
 ```
 
-The `-d` lines set the *default* ACL, so files created later inherit it. Without
-them the directory is writable but new recordings may not be readable by the
-tooling that reads them.
+`--set-file` applies the access **and** default entries in one go, including the
+`default:` lines that make new files inherit the ACL. Without those the
+directory is writable but files created inside it are not.
+
+Verify the two match before continuing — this is a diff, not a glance:
+
+```bash
+diff <(getfacl --absolute-names /mnt/sas1/tailscale-gateway-logs | grep -v '^# file:') \
+     <(getfacl --absolute-names /archive-pool/ts-ssh-records     | grep -v '^# file:')
+# no output = identical
+```
 
 ## 3. Repoint CTID 100
 
@@ -123,8 +154,8 @@ pct config 100 | grep -E '^mp0'          # confirm before starting
 pct start 100
 ```
 
-Use the `mpN` key that §1 reported. If it is not `mp0`, substitute it — setting
-the wrong index adds a second mount rather than replacing the first.
+`mp0` is confirmed as the only mount point on this container (`pct config 100`,
+2026-09-09), so there is no index to substitute.
 
 **Verify recording actually works before going further.** This is the whole
 point of the exercise, and a silent failure here is invisible until someone
