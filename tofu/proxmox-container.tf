@@ -83,7 +83,7 @@ resource "proxmox_virtual_environment_container" "tailscale_gateway" {
     replicate     = true
     shared        = false
     size          = ""
-    volume        = "/mnt/sas1/tailscale-gateway-logs"
+    volume        = "/archive-pool/ts-ssh-records"
   }
   network_interface {
     bridge       = "vmbr0"
