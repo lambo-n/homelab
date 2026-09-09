@@ -257,6 +257,13 @@ lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT | grep -E 'sd[ghi]'   # no FSTYPE, no mount
 differently (`STORAGE.md:189-190`). Paste the `by-id` path; do not type it.
 `wipefs` on the wrong device is unrecoverable.
 
+> **✅ Completed 2026-09-09.** fstab entries removed, backup at
+> `/etc/fstab.bak-2026-09-09`. Host rebooted cleanly — no emergency shell, all
+> three k3s nodes Ready, CT 100 running with bind mount intact. All three ext4
+> superblock signatures wiped (`wipefs -a` by `by-id`). Mount points removed.
+> `blkid` cache may show stale FSTYPE until next probe — on-disk signatures are
+> gone.
+
 ## 5. Reconcile OpenTofu — on the dev VM, on a branch
 
 The host is now ahead of the config. Bring the config to it and prove the plan
@@ -276,6 +283,11 @@ cd tofu && tofu plan
 that still proposes replacement means the host change did not take, or the
 `mpN` index differs — go back to §3 rather than forcing it. `prevent_destroy`
 stays on.
+
+> **✅ Completed 2026-09-09.** `tofu plan -target=proxmox_virtual_environment_container.tailscale_gateway`
+> confirmed 0 changes. Branch `fix/ts-ssh-records-on-archive-pool` merged to
+> main and deleted. Proxmox API token regenerated (`tofu@pve!import`); Cloudflare
+> provider was skipped with `-target` since only the container resource changed.
 
 ## 6. Put the new dataset under sanoid
 
