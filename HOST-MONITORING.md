@@ -69,22 +69,64 @@ cluster does not.
 and NFS/2049 and rpcbind/111 are filtered. Every command below is handed to the
 operator deliberately, not as a fallback.
 
-### A1 — SMART long tests (G1)
+### A1 — SMART long tests (G1) — *applied 2026-09-10, with two corrections*
 
-`smartmontools` is already installed on PVE. Append to `/etc/smartd.conf`, by
-`by-id` so a device-name shuffle cannot retarget the test:
+`smartmontools` is already installed on PVE and `smartmontools.service` is
+enabled by the package.
+
+> ⚠️ **`DEVICESCAN` silently voids everything after it.** PVE ships
+> `/etc/smartd.conf` with an active
+> `DEVICESCAN -d removable -n standby -m root -M exec /usr/share/smartmontools/smartd-runner`
+> on line 19, and — as that file's own comments state — **the word DEVICESCAN
+> causes every remaining line in the file to be ignored.** Per-drive directives
+> appended at the bottom parse as nothing at all, `smartd` restarts cleanly, and
+> no self-test is ever scheduled. Found the hard way on the first attempt here.
+>
+> Comment it out. Once it is off, **only listed devices are monitored**, so
+> `archive-pool` has to be listed in the same pass rather than left for later.
+
+> ⚠️ **Keep `-m root -M exec /usr/share/smartmontools/smartd-runner` on every
+> line.** That pair is how Debian actually delivers a smartd warning — it runs
+> the scripts in `/etc/smartmontools/run.d/`. `DEVICESCAN` carried it; a
+> hand-written drive line that omits it logs the failure and mails no one.
+
+Devices by `by-id`, so a device-name shuffle cannot retarget the test — `sdg/sdh/sdi`
+in `HARDWARE.md` are `sdh/sdi/sdj` in `SAS-STORAGE.md`, which is the whole argument:
 
 ```
 # sas-pool members — long self-test Saturdays 03:00, temp warn 45C / crit 55C
-/dev/disk/by-id/scsi-35002538a48872950 -d scsi -a -s L/../../6/03 -W 4,45,55
-/dev/disk/by-id/scsi-35002538a48872700 -d scsi -a -s L/../../6/03 -W 4,45,55
-/dev/disk/by-id/scsi-35002538a48872be0 -d scsi -a -s L/../../6/03 -W 4,45,55
+/dev/disk/by-id/scsi-35002538a48872950 -d scsi -a -s L/../../6/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+/dev/disk/by-id/scsi-35002538a48872700 -d scsi -a -s L/../../6/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+/dev/disk/by-id/scsi-35002538a48872be0 -d scsi -a -s L/../../6/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+
+# archive-pool members — long self-test Sundays 03:00 (live MinIO + Postgres data)
+/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Z -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I1505855 -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+/dev/disk/by-id/ata-MTFDDAK1T9TDT_222939CA58D4 -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 ```
 
-Then `systemctl restart smartd && systemctl enable smartd`.
+Separate days so the two pools do not self-test at once. If `smartctl -i <by-id>`
+on the SATA three needs `-d sat`, add it — or drop `-d` and let smartd
+auto-detect rather than guess.
 
-Worth doing the same for the three `archive-pool` SATA members (`-d sat`) while
-you are in the file — they hold the live MinIO and Postgres data.
+**Verify the parse, do not trust a clean restart.** This is the step that catches
+the DEVICESCAN trap:
+
+```bash
+smartd -d -q onecheck 2>&1 | grep -E 'Monitoring|Device:|Next'
+```
+
+All six devices must be named. Anything absent is a line smartd never read.
+
+```bash
+systemctl restart smartmontools.service
+systemctl is-enabled smartmontools.service
+```
+
+> **`systemctl enable smartd` fails** with `Refusing to operate on linked unit
+> file smartd.service` — `smartd.service` is an alias symlink on Debian. The real
+> unit is `smartmontools.service`, and the package already enables it, so this
+> error is cosmetic. Use the real name.
 
 > `smartd` mails on failure via the host MTA. Confirm one actually delivers
 > (`echo test | mail -s test root`) or the `-m` directive is decoration. This is
