@@ -153,6 +153,8 @@ Holds every guest root disk: `vm-100` 8 GiB, `vm-101` 32 GiB, `vm-102` 15 GiB,
 > DaemonSet on the three k3s **nodes** (`kube-prometheus-stack/ks.yaml`). The
 > Proxmox host is not a scrape target at all, so no host disk — this mirror,
 > `archive-pool`, or the SAS SSDs — is monitored by anything in this repo.
+> **Goals and runbook for closing that: [`HOST-MONITORING.md`](HOST-MONITORING.md)**
+> (the BOSS mirror stays out of reach even then — it is iDRAC or nothing).
 
 > ⚠️ **Thin-pool free space is falling.** 90.5 GiB free on 2026-09-03, **82.12
 > GiB on 2026-09-09** — the `lvextend`/`resize2fs` work in `STORAGE.md` §6 wrote
@@ -310,7 +312,8 @@ usage.
 > ⚠️ **Last self-test was at lifetime hour 2** on `sdg` — i.e. when it was new,
 > and never since. Whatever owns these disks next should run a scheduled long
 > test; TrueNAS does this natively, which is one of the better arguments for it
-> (see [`TRUENAS.md`](TRUENAS.md)).
+> (see [`TRUENAS.md`](TRUENAS.md)). **With the TrueNAS guest deferred, this is
+> goal G1 in [`HOST-MONITORING.md`](HOST-MONITORING.md) — `smartd` on the host.**
 
 **The wear is negligible and the age is not.** 0% endurance used after 222 TB
 written means the NAND has barely been touched; these were enterprise drives
@@ -418,3 +421,5 @@ All six preconditions were completed 2026-09-09:
   read-only
 - [`SAS-RECLAIM.md`](SAS-RECLAIM.md) — the completed runbook freeing the three SAS disks from ext4
 - [`TRUENAS.md`](TRUENAS.md) — TrueNAS SCALE guest architecture, PCIe passthrough, and pool setup
+- [`HOST-MONITORING.md`](HOST-MONITORING.md) — the SMART/scrub/visibility goals that
+  outlived the TrueNAS guest, and who owns each one

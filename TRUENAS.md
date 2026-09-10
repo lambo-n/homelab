@@ -17,6 +17,11 @@ Samsung SAS SSDs.
 > **`sas-pool`** (6.85 TiB RAIDZ1) under `sanoid` and shared via Samba.
 > See [`SAS-STORAGE.md`](SAS-STORAGE.md) for the active configuration.
 > The material below is retained for reference.
+>
+> **The pool moved; the checklist did not.** Scheduled SMART long tests,
+> scheduled scrubs, and a health UI were all reasons for this VM, and all three
+> outlived it. They are re-homed on `smartd`, systemd timers and the existing
+> Grafana stack — see [`HOST-MONITORING.md`](HOST-MONITORING.md).
 
 ---
 

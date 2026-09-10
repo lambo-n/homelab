@@ -256,6 +256,9 @@ working. Two cheap habits:
   the host — a number that stops growing is the failure mode.
 - Phase 7 (`kube-prometheus-stack`) has no visibility here at all. If host
   monitoring ever lands, snapshot age is the first metric worth having.
+  **It is landing** — snapshot age is goal G5 in
+  [`HOST-MONITORING.md`](HOST-MONITORING.md), carried by node-exporter's
+  textfile collector.
 
 ## 6. When the Ansible layer exists
 

@@ -82,6 +82,15 @@ blocking; each entry says what it is waiting on.
 - [ ] **Pin `sanoid` in Ansible/host config.** It is host-level, not a Kubernetes
       object, so neither Flux nor OpenTofu reconciles it. Needs the host-config layer
       named in the [scope split](#scope-flux-manages-the-cluster-not-the-hypervisor).
+- [ ] **Build host monitoring** *(raised 2026-09-10)*. The Proxmox host is not a
+      scrape target, so no host disk is watched by anything here, and the SAS SSDs
+      have not self-tested since lifetime hour 2. Seven goals, split host-side
+      (`smartd`, scrub timers, node-exporter, textfile metrics — operator, first)
+      and cluster-side (`ScrapeConfig`, `PrometheusRule`, dashboard, optional
+      `prometheus-pve-exporter` — this repo, after). The CRDs and chart selectors
+      are already in place. See [`HOST-MONITORING.md`](HOST-MONITORING.md); note
+      its pve-exporter section touches the in-cluster-hypervisor-token line drawn
+      under [Explicitly rejected](#explicitly-rejected).
 - [ ] **Split the OpenTofu root module in two.** Both providers share one root, so a
       Proxmox-only plan still refreshes Cloudflare and dies without that token.
       `-refresh=false` is the workaround in use. See [OpenTofu](#opentofu).

@@ -98,7 +98,8 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 > `zpool status`, and `smartctl /dev/sda` reads the *virtual* disk. A failed half
 > of the boot mirror surfaces only in iDRAC or the BOSS CLI. Nothing here checks
 > either — node-exporter is a DaemonSet on the three k3s **nodes**, so the
-> Proxmox host is not scraped at all. See
+> Proxmox host is not scraped at all; [`HOST-MONITORING.md`](HOST-MONITORING.md)
+> is the plan to change that. See
 > [`HARDWARE.md`](HARDWARE.md#sda--local-lvm--the-boot-device-and-a-correction).
 >
 > The same enumeration found **10.47 TiB of SAS SSD that this table never
@@ -316,6 +317,12 @@ deliberately.
 Flux alert rules, and Flux's own Grafana dashboards committed as JSON.
 → `kubernetes/apps/observability/flux-monitoring/`
 
+> **Planned: host monitoring.** Everything above watches the *cluster*. The
+> Proxmox host and every disk in it are unmonitored — see
+> [`HOST-MONITORING.md`](HOST-MONITORING.md) for the seven goals inherited from
+> the deferred TrueNAS guest, which host-side steps come first, and the
+> `host-monitoring/` app directory they land in.
+
 > **Reaching Grafana.** Nothing resolves `homelab.lan` — add to `/etc/hosts` on any machine
 > that browses it:
 >
@@ -484,5 +491,6 @@ never be `cat`-ed**, including to display it for backup.
 | [`STORAGE.md`](STORAGE.md) | The PGDATA zvol and worker disk growth — runs on the Proxmox host |
 | [`SANOID.md`](SANOID.md) | ZFS snapshot policy and the rollback drill — same host |
 | [`RESTORE.md`](RESTORE.md) | The CNPG restore drill, step by step |
+| [`HOST-MONITORING.md`](HOST-MONITORING.md) | SMART tests, scrubs and host metrics — the goals left over from the deferred TrueNAS guest, and the host-side runbook they start with |
 | `tofu/README.md` | The OpenTofu root module, its tokens, and the import history |
 | `AGENTS.md` | Orientation for AI assistants working in this tree |
