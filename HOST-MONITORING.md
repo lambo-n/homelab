@@ -132,6 +132,48 @@ systemctl is-enabled smartmontools.service
 > (`echo test | mail -s test root`) or the `-m` directive is decoration. This is
 > the **only** alert path in this design that survives the cluster being off.
 
+> 🔴 **It did not deliver. Found 2026-09-10 — `/etc/aliases.db` had never been
+> built.** `postfix` is enabled and running and accepts mail happily, but every
+> message deferred:
+>
+> ```
+> postfix/local: error: open database /etc/aliases.db: No such file or directory
+> status=deferred (alias database unavailable)
+> ```
+>
+> **`mailq` held 5 messages, three of them predating this work.** `newaliases`
+> had never been run on this host, so nothing it has ever tried to tell anyone —
+> PVE notifications, cron output, smartd — has been delivered. Not queued for a
+> human to find: deferred in `/var/spool/postfix/deferred`, where nothing looks.
+>
+> This is why A1 asks for the MTA test rather than trusting `systemctl status`.
+> Every layer reported healthy: the unit was `active (running)`, `mail` exited 0,
+> the message got a queue ID. The only command that showed the truth was `mailq`.
+>
+> **Fix (PVE 8+, the idiomatic route).** `proxmox-mail-forward` hands root's mail
+> to PVE's own notification system, keeping the SMTP credential in PVE's managed
+> config rather than a hand-rolled `/etc/postfix/sasl_passwd`:
+>
+> ```bash
+> echo 'root: |/usr/bin/proxmox-mail-forward' >> /etc/aliases
+> newaliases
+> postqueue -f
+> ```
+>
+> Then set the target under **Datacenter → Notifications → Add → SMTP**.
+>
+> Without `proxmox-mail-forward`: alias `root` to a real address and set a
+> `relayhost` with SASL — `relayhost` is empty here and direct-to-internet SMTP
+> from this IP will be refused. That route leaves a plaintext SMTP credential on
+> `.101`, outside both SOPS and Infisical ([`../secrets_architecture`](GITOPS.md)
+> covers neither the hypervisor); the PVE route avoids it.
+>
+> Verify with `status=sent`, not with an empty `mailq` alone:
+>
+> ```bash
+> journalctl -u postfix --since -2min | grep -E 'status=(sent|bounced|deferred)'
+> ```
+
 #### Verified 2026-09-10 — `Monitoring 3 ATA/SATA, 3 SCSI/SAS and 0 NVMe devices`
 
 All six parse and are on the monitor list. Three findings from that run.
@@ -329,6 +371,12 @@ Recording these so the dashboard is not mistaken for full coverage:
 - **Alertmanager is still on the chart's `null` receiver.** Rules fire and are
   visible in the UI; nothing is pushed anywhere. Deliberate today — but it means
   every alert in Part B is a *pull* notification until that changes.
+  > And until 2026-09-10 the host could not push either — `/etc/aliases.db` did
+  > not exist, so postfix deferred every message it had ever been given (A1).
+  > **Both notification paths on this hardware were dead at the same time**, one
+  > by choice and one by accident, and the accident was invisible from every
+  > status command that looked healthy. Treat "an alert exists" and "an alert
+  > arrives" as separate claims needing separate evidence.
 
 ---
 
