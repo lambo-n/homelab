@@ -42,6 +42,26 @@ surfaced regarding the **Dell PERC H355 Front** controller (`c3:00.0`):
 performance, zero VM RAM overhead, uniform `sanoid` snapshot scheduling, and zero
 device contention.
 
+> **The unbind really did fault the pool — evidence recovered 2026-09-10.** Point 1
+> above was written as a constraint discovered by reasoning about the cabling. ZED
+> had in fact logged it happening: three `ZFS device fault for pool archive-pool`
+> events at **15:53:45** and a `ZFS resilver_finish` at **15:57:42** on 2026-09-09,
+> during the passthrough attempt. `archive-pool` lost its members, faulted, and
+> resilvered itself in four minutes once they came back — short because nothing had
+> changed in the interval.
+>
+> **Nobody saw any of it for hours.** The notifications were found sitting in the
+> postfix queue while fixing an unrelated mail problem
+> ([`HOST-MONITORING.md`](HOST-MONITORING.md) A1) — `/etc/aliases.db` had never been
+> built, so every message this host ever generated was deferred, unread.
+>
+> Two things worth keeping from that. ZED's side worked perfectly: the pool holding
+> the live MinIO data and the Postgres NFS PV faulted, and the host said so
+> immediately, in detail, to an address that could not receive it. **The detection
+> was never the missing piece — the delivery was.** And a documented risk had
+> already become a logged event without anyone noticing, which is the strongest
+> available argument for Part B of `HOST-MONITORING.md`.
+
 ---
 
 ## Pool Configuration
