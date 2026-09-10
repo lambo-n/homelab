@@ -274,6 +274,13 @@ That was the last architectural question blocking a TrueNAS guest.
 
 ### All three read 2026-09-09 — every one clean
 
+> ⚠️ **The `sdX` names below are already stale.** On 2026-09-10 `smartd`
+> enumerated `…803377` as `/dev/sdh`, not `sdg` — the whole SAS set moved up a
+> letter, and `archive-pool`'s `…1505855` is `sde`, not `sdd`. One day, no
+> hardware change. **Serials and `by-id` paths in this file are authoritative;
+> the kernel names are a snapshot.** Address disks by `by-id` in any config that
+> outlives a reboot — see [`HOST-MONITORING.md`](HOST-MONITORING.md) A1.
+
 | | `sdg` | `sdh` | `sdi` |
 |---|---|---|---|
 | Serial | `…803377` | `…803346` | `…803418` |

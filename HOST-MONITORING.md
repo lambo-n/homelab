@@ -132,6 +132,45 @@ systemctl is-enabled smartmontools.service
 > (`echo test | mail -s test root`) or the `-m` directive is decoration. This is
 > the **only** alert path in this design that survives the cluster being off.
 
+#### Verified 2026-09-10 — `Monitoring 3 ATA/SATA, 3 SCSI/SAS and 0 NVMe devices`
+
+All six parse and are on the monitor list. Three findings from that run.
+
+**The `archive-pool` SATA trio has degraded SMART support.** Both SK hynix units
+report `not capable of SMART Health Status check`, `no SMART Self-test Log,
+ignoring -l selftest` and `no SMART Error Log`; the Micron keeps its logs and
+loses only the health bit. So `-a` does considerably less on these three than on
+the SAS side — no pass/fail bit, and on two drives no readable test history.
+They do still report self-test *status* (`previous self-test completed without
+error`), so the Sunday test is not wasted, only less legible.
+
+Most likely the SAT translation layer of the H355 rather than the drives.
+**`-T permissive` is deliberately not used** — it forces reads of logs the device
+has said do not exist, and false errors on the disks holding live MinIO and
+Postgres data is the wrong trade. The consequence is for Part B: alert rules
+cannot key on health status for these three and must use reallocated/pending
+sector attributes and temperature instead.
+
+**Add `-I 9 -I 194` to every line.** `-a` implies `-t`, so smartd logs each
+change in *normalised* attribute values — `Temperature_Celsius changed from 66 to
+65` while the raw temperature is 35 C, plus attribute 9 (power-on hours) ticking
+hourly. Nothing is lost: `-W 4,45,55` is what actually watches temperature, and
+`-I` suppresses change *reporting* only, never failure detection.
+
+**Kernel names had already shifted.** `…803377` enumerated as `/dev/sdh`, having
+been recorded as `sdg` in `HARDWARE.md` the previous day — the whole SAS set moved
+up a letter, and `archive-pool`'s second mirror member is `sde`, not `sdd`. The
+`by-id` addressing above is why this was a non-event.
+
+**Retire the hour-2 gap by hand.** The schedule is set, but these drives have not
+self-tested in ~50,000 hours; do not wait for Saturday. Stagger them rather than
+running all three at once:
+
+```bash
+smartctl -t long /dev/disk/by-id/scsi-35002538a48872950
+smartctl -l selftest /dev/disk/by-id/scsi-35002538a48872950   # ~30-60 min
+```
+
 ### A2 — Scrubs (G2) — verify before adding anything
 
 Proxmox ships `/etc/cron.d/zfsutils-linux`, which scrubs **every imported pool**
@@ -235,6 +274,12 @@ Planned, as a new app directory `kubernetes/apps/observability/host-monitoring/`
    over 55C; newest snapshot older than 2h; `local-lvm` `Data%` over 85; and
    node-exporter itself absent for 15m, which is the one that catches the host
    being down rather than a disk being bad.
+   > **Two rule sets, not one.** Per A1's 2026-09-10 findings the `archive-pool`
+   > SATA drives expose no SMART health status, and two of the three no self-test
+   > or error log. Grown-defect and health-bit rules apply to the three SAS disks
+   > only; the SATA trio needs reallocated/pending-sector attributes and
+   > temperature. A single rule written against the SAS shape would evaluate to
+   > nothing on the drives holding the live data — silently.
 3. **Dashboard JSON**, committed, following the `flux-monitoring` precedent.
 4. **`prometheus-pve-exporter`** (G6) — see the token note below.
 
