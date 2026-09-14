@@ -422,8 +422,8 @@ which class goes where.
 | Runner | self-hosted `renovatebot/github-action`, daily cron `0 10 * * *` UTC (3 am PDT), plus `workflow_dispatch` and push-to-`main` on config changes |
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
-| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass. `rebaseWhen: conflicted` so queued branches keep their green checks and a single run can drain the queue |
-| Pre-merge gate | `.github/workflows/validate-manifests.yaml`, two jobs — **kustomize build** (all 21 Kustomizations + a `ks.yaml` `spec.path` check, offline) and **helm template** (all 6 HelmReleases rendered from their pinned chart versions, via `.github/scripts/render-charts.py`). On `pull_request` and `renovate/**` pushes, **no `paths:` filter**, so a check always exists. Renovate waits for both (no `ignoreTests`) |
+| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass. `rebaseWhen: conflicted` so queued branches keep their green checks; Renovate restarts once after an automerge, so **two PRs merge per run** |
+| Pre-merge gate | `.github/workflows/validate-manifests.yaml`, two jobs — **kustomize build** (all 21 Kustomizations + a `ks.yaml` `spec.path` check, offline) and **helm template** (all 6 HelmReleases rendered from their pinned chart versions, via `.github/scripts/render-charts.py`). On `pull_request` and pushes to `main`, **no `paths:` filter**, so a check always exists. Renovate waits for both (no `ignoreTests`) |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
 
@@ -476,9 +476,19 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > and Renovate's reading of a commit with zero checks decides between merging
 > unvalidated (if it resolves green) and never merging at all (if yellow) — the
 > commit status API returns `pending` for a commit with no statuses, so this is not
-> a coin worth flipping. A 12s run on every push removes the question. The
-> `renovate/**` push trigger is kept even under `pr` mode, since the branch is
-> pushed before the PR exists.
+> a coin worth flipping. A 12s run on every PR removes the question.
+>
+> **The `renovate/**` push trigger was dropped 2026-09-14 — it billed double.**
+> Renovate pushes the branch and opens the PR about two seconds later, so both
+> triggers fired on every branch update: two runs, two jobs each, four billable
+> job-minutes where two would do (GitHub rounds every job up to the minute). The
+> last 100 runs before the change split 57 push / 43 `pull_request` — roughly one
+> duplicate per PR. The trigger dated from `automergeType: branch`, where a branch
+> could exist with no PR at all; under `pr`, with `:disableRateLimiting` leaving no
+> `prConcurrentLimit` or `prHourlyLimit` to defer creation, the PR always follows
+> the branch. The window it covered is two seconds wide and it fails safe: a branch
+> with no PR carries zero checks, which the status API reports as `pending`, so
+> Renovate declines to merge. Stuck, not unvalidated.
 >
 > **Chart rendering is gated too, in a second job.** `helm template` over all six
 > HelmReleases, with the helm pinned in `mise.toml` and each release's own
@@ -514,6 +524,16 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > the rest were pushed back to pending, which is how nine PRs, all green, had
 > queued up by 09-14. Under `conflicted` the branches hold still, keep their green
 > checks, and the post-automerge restart takes the next eligible PR immediately.
+>
+> **That is two automerges per run, not a drained queue.** Renovate restarts the
+> repository job exactly once — `renovateRepository(repoConfig, false)` in
+> `workers/repository/index.ts`, after which the second pass logs "Automerged but
+> already retried once" and stops. It is not configurable. The 09-14 push run that
+> carried this change merged `secrets-operator` and `helm`, then finished with five
+> eligible PRs still open. Clearing a backlog takes ⌈n/2⌉ runs; extra
+> `workflow_dispatch` runs are the lever, and they cost little now that a run
+> rebases nothing.
+>
 > The trade Renovate's docs name for `conflicted` — updates merging one after
 > another without having been tested together, checks that ran against an older
 > `main` — is the reconcile-time bet this repo already makes everywhere else. The

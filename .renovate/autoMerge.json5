@@ -21,10 +21,17 @@
   // daily: one PR merges, the rest get pushed back to pending. Nine PRs had
   // queued up behind that, every one of them green.
   //
-  // With `conflicted` the branches hold still, their checks stay green, and the
-  // restart after an automerge can take the next eligible PR immediately -- a run
-  // drains the queue instead of draining one PR from it. It also stops ~16
-  // pointless validate-manifests jobs per run.
+  // With `conflicted` the branches hold still, keep their green checks, and the
+  // restart after an automerge can take the next eligible PR immediately. That is
+  // TWO automerges per run, not a drained queue: Renovate restarts the repository
+  // job exactly once, `renovateRepository(repoConfig, false)` in
+  // workers/repository/index.ts, and the second pass logs "Automerged but already
+  // retried once" rather than restarting again. Not configurable. Verified on the
+  // 2026-09-14 push run, which merged secrets-operator and helm and stopped.
+  // Clearing a backlog therefore takes ceil(n/2) runs -- extra `workflow_dispatch`
+  // runs are the lever, and they are cheap now that no branch gets rebased.
+  //
+  // It also stops ~16 pointless validate-manifests jobs per run.
   //
   // The cost, which Renovate's docs state plainly: two updates can merge one
   // after another without having been tested together, and a PR's checks may have

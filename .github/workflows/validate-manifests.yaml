@@ -6,18 +6,26 @@ name: Validate manifests
 # check on a PR head but not on a push to main), so a dependency bump could
 # reach the cluster with nothing having read the manifests it changed.
 #
-# **No `paths:` filter, deliberately.** Every push to a `renovate/**` branch must
-# produce a check. Filtering by path would leave a branch that touches only
-# mise.toml, tofu/ or .github/ with *no* check at all, and how Renovate reads a
-# commit carrying zero checks is not something to bet on -- green means it merges
-# unvalidated, yellow means it silently never merges. Neither is acceptable, and
-# a 12s run on every push is cheaper than finding out which. Same reasoning for
-# `pull_request`: an update that touches no manifests still needs a green check to
-# merge. GitHub Actions cannot scope `paths` per branch anyway.
+# **No `paths:` filter, deliberately.** Every Renovate PR must produce a check.
+# Filtering by path would leave a branch that touches only mise.toml, tofu/ or
+# .github/ with *no* check at all, and how Renovate reads a commit carrying zero
+# checks is not something to bet on -- green means it merges unvalidated, yellow
+# means it silently never merges. Neither is acceptable, and a 12s run on every PR
+# is cheaper than finding out which. GitHub Actions cannot scope `paths` per
+# branch anyway.
 #
-# The `renovate/**` push trigger stays even though automerge now uses
-# `automergeType: pr`: Renovate pushes the branch before it opens the PR, and this
-# way the check exists regardless of whether a PR is ever created.
+# **The `renovate/**` push trigger was dropped 2026-09-14 -- it billed double.**
+# Renovate pushes the branch and opens the PR about two seconds later, so both
+# triggers fired on every branch update: two runs, two jobs each, four billable
+# job-minutes (GitHub rounds each job up to the minute) where two would do. The
+# last 100 runs before the change were 57 push + 43 pull_request, near enough one
+# duplicate per PR. The trigger was written under `automergeType: branch`, where a
+# branch could exist with no PR at all; under `pr`, with the preset's
+# `:disableRateLimiting` meaning no prConcurrentLimit or prHourlyLimit to defer
+# creation, every branch gets its PR immediately. The window it covered is two
+# seconds wide, and it fails safe: a branch that somehow never gets a PR carries
+# zero checks, which the status API reports as `pending`, so Renovate declines to
+# merge it. Stuck, not unvalidated -- the right direction to fail.
 #
 # Two jobs, because they fail for different reasons. `kustomize build` is offline
 # and proves the manifests are well-formed. `helm template` reaches ghcr.io and
@@ -34,14 +42,14 @@ on:
   push:
     branches:
       - main
-      - renovate/**
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# One run per ref. Superseded runs are cancelled: Renovate force-pushes its
-# branches on rebase, and only the newest commit's result matters.
+# One run per ref. Superseded runs are cancelled: a Renovate force-push still
+# fires `pull_request: synchronize`, and only the newest commit's result matters.
+# Rebases are rare now that rebaseWhen is `conflicted`, but the guard is free.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
