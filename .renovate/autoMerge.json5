@@ -11,6 +11,30 @@
   // fall back here anyway. Stated explicitly to skip the failed attempt.
   platformAutomerge: false,
 
+  // The default `rebaseWhen: auto` resolves to `behind-base-branch` whenever
+  // automerge is enabled, and that capped this repo at ONE automerge per run.
+  // Observed in the 2026-09-14 run: Renovate merged cert-manager, logged
+  // "Restarting repository job after automerge result", and the restart found
+  // every other automerge branch a commit behind main -- so it rebased all six.
+  // Each force-push restarts validate-manifests, so those checks were pending at
+  // the moment that same run read them, and nothing else could merge. Repeat
+  // daily: one PR merges, the rest get pushed back to pending. Nine PRs had
+  // queued up behind that, every one of them green.
+  //
+  // With `conflicted` the branches hold still, their checks stay green, and the
+  // restart after an automerge can take the next eligible PR immediately -- a run
+  // drains the queue instead of draining one PR from it. It also stops ~16
+  // pointless validate-manifests jobs per run.
+  //
+  // The cost, which Renovate's docs state plainly: two updates can merge one
+  // after another without having been tested together, and a PR's checks may have
+  // run against an older main. That is the same reconcile-time bet the rest of
+  // this file already makes -- `wait: true` plus healthChecks catch what
+  // merge-time cannot. The docs' other objection (automerge stalls once a PR is
+  // out of date) applies only where branch protection requires up-to-date PRs,
+  // which is not available for a private repo on this plan.
+  rebaseWhen: "conflicted",
+
   packageRules: [
     {
       // Applies to every manager and datasource in this repo -- container
@@ -39,8 +63,12 @@
       //      every run silently do nothing. If automerge stops happening, check
       //      that first.
       //   2. The check is read during a Renovate run, so an update whose CI is
-      //      still pending merges on the NEXT run -- automerges can lag up to a
-      //      day. Letting GitHub merge on green instead needs branch protection,
+      //      still pending merges on the NEXT run -- a newly opened PR can lag
+      //      up to a day. It used to be worse than that: until 2026-09-14 the
+      //      default rebaseWhen re-pended every queued branch on every run, so
+      //      only one PR could merge per run regardless of how many were green.
+      //      See the rebaseWhen note at the top of this file.
+      //      Letting GitHub merge on green instead needs branch protection,
       //      which this plan does not offer for a private repo.
       description: "Automerge minor, patch and digest updates",
       matchUpdateTypes: ["minor", "patch", "digest"],

@@ -422,7 +422,7 @@ which class goes where.
 | Runner | self-hosted `renovatebot/github-action`, daily cron `0 10 * * *` UTC (3 am PDT), plus `workflow_dispatch` and push-to-`main` on config changes |
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
-| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass |
+| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass. `rebaseWhen: conflicted` so queued branches keep their green checks and a single run can drain the queue |
 | Pre-merge gate | `.github/workflows/validate-manifests.yaml`, two jobs — **kustomize build** (all 21 Kustomizations + a `ks.yaml` `spec.path` check, offline) and **helm template** (all 6 HelmReleases rendered from their pinned chart versions, via `.github/scripts/render-charts.py`). On `pull_request` and `renovate/**` pushes, **no `paths:` filter**, so a check always exists. Renovate waits for both (no `ignoreTests`) |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
@@ -497,12 +497,29 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > the last line of defence.
 >
 > Two mechanical consequences of gating on a check read *during* a Renovate run:
-> an update whose CI is still pending merges on the next run, so automerges can lag
-> up to a day; and it depends on the App's "Commit statuses" read permission, the
+> an update whose CI is still pending merges on the next run, so a newly opened PR
+> can lag up to a day; and it depends on the App's "Commit statuses" read permission, the
 > one missing from 2026-09-03 to 09-08. Branch protection would let GitHub merge on
 > green instead, but it is not available for a private repo on this plan — which
 > also means a red check does **not** block a human from merging a major by hand.
 > It is information, not enforcement.
+
+> **`rebaseWhen: conflicted` since 2026-09-14 — the default capped automerge at one
+> PR per run.** `rebaseWhen` defaults to `auto`, which Renovate resolves to
+> `behind-base-branch` whenever automerge is enabled. Every automerge moves `main`
+> and makes Renovate restart the repository job; the restart then found each
+> remaining automerge branch a commit behind, rebased it, and every force-push
+> restarted `validate-manifests` — so those checks sat *pending* for the rest of
+> that same run, and the run could merge nothing more. One PR merged per run while
+> the rest were pushed back to pending, which is how nine PRs, all green, had
+> queued up by 09-14. Under `conflicted` the branches hold still, keep their green
+> checks, and the post-automerge restart takes the next eligible PR immediately.
+> The trade Renovate's docs name for `conflicted` — updates merging one after
+> another without having been tested together, checks that ran against an older
+> `main` — is the reconcile-time bet this repo already makes everywhere else. The
+> docs' other objection, that automerge stalls once a PR is out of date, applies
+> only where branch protection requires up-to-date PRs, which this plan does not
+> offer here.
 
 > **Pinned to what was running, not to latest.** Digests were read off the live
 > pods (`.status.containerStatuses[].imageID`) and mapped back to version tags,
