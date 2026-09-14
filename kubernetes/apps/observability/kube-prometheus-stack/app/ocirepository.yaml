@@ -16,5 +16,5 @@ spec:
     # Chart 89.2.0 carries appVersion v0.93.1 (prometheus-operator). Pinned by
     # CHART, as everywhere else in this repo -- the chart and the operator move
     # independently and the chart is what Flux installs.
-    tag: 90.0.0
+    tag: 90.2.0
   url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
