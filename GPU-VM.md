@@ -116,16 +116,21 @@ bash homelab-shutdown.sh --dry-run
 bash homelab-shutdown.sh --yes --poweroff-host   # or reboot; from the console / LAN, not via Tailscale
 ```
 
-In BIOS setup (F2) → **System BIOS → Integrated Devices**, check:
+> ❌ **This BIOS has no Resizable BAR option. Established 2026-09-15 by the
+> owner, before this document existed** — the Dell EMC BIOS setup was searched,
+> IOMMU settings were varied, and GRUB kernel parameters were tried across
+> reboots. None of it made the resize succeed. **Do not spend another reboot
+> looking for a ReBAR switch.**
+
+While the host is down anyway, the two settings still worth confirming are under
+**System BIOS → Integrated Devices** (they govern where the 64-bit MMIO window
+lands, which is a different knob from ReBAR itself):
 
 - **Memory Mapped I/O above 4 GB** → Enabled
 - **Memory Mapped I/O Base** → the highest option offered (e.g. 56 TB / 12 TB rather than 512 GB)
-- Anything named **Resizable BAR** → Enabled, if this BIOS version has it
 
-> ⚠️ Unverified: these names are from Dell 14G/15G BIOS setup, and whether this
-> BIOS version offers a ReBAR switch hasn't been checked (`HARDWARE.md`). Write down what's
-> actually there, including "no such option". If the options are missing, a BIOS
-> update from Dell for this model is the next thing to look at.
+Record what's actually there, including "no such option" — the names above are
+from Dell 14G/15G setup and are unverified on this machine.
 
 ### B3. After boot, verify
 
@@ -214,7 +219,19 @@ Confirm the next free address on the router rather than assuming `.107`.
 
 ---
 
-## Phase D — ReBAR, if Phase B didn't fix it
+## Phase D — the one ReBAR attempt left, then stop
+
+> The owner already tried BIOS setup, IOMMU variations and GRUB parameters on
+> 2026-09-15, with `xe` driving the card. Nothing worked, and this BIOS has no
+> ReBAR option. **Phase D is one attempt under a condition none of that
+> testing had: the card unbound, with `vfio-pci` holding it instead of `xe`.**
+> A BAR cannot be resized while a driver is bound — the kernel returns `-EBUSY`
+> — so every earlier attempt from a running host with `xe` loaded was refused
+> before it reached the hardware. This is the only reason to try once more.
+>
+> **If it fails here, ReBAR is closed on this hardware.** Small BAR is then the
+> permanent condition, and the "Living with a small BAR" section below is the
+> answer. Do not reopen it without new firmware from Dell.
 
 A guest can only get the BAR size the host has given the card. QEMU doesn't let the guest resize it.
 So the resize happens **on the host, while nothing is bound to the card, before the VM starts.**
@@ -228,17 +245,44 @@ lspci -vv -s 53:00.0 | grep 'Region 2'
 for f in 0000:53:00.0 0000:54:00.0; do echo $f > /sys/bus/pci/drivers_probe; done
 ```
 
-- **It works:** start the VM and check the guest's `Region` shows 32G. Only then make it
-  persistent, with a Proxmox hookscript (`pre-start`) or a systemd oneshot before
-  `pve-guests.service`. That's a follow-up once the manual resize is proven.
-- **`No space left on device`:** the root port's prefetchable window (the port
-  above `51:00.0`, found with `lspci -tv`) is too small. Next steps, in order:
-  the BIOS MMIO settings from B2 → the `pci=realloc` kernel parameter → a BIOS update.
-- **The guest sees 32G but `xe` fails to map it:** OVMF's 64-bit window is too small. Add
-  `args: -fw_cfg name=opt/ovmf/X-PciMmio64Mb,string=65536` to the VM config.
+Reading the result:
 
-> ⚠️ Unverified on this host: the `-ENOENT` in `HARDWARE.md` might come from
-> the root port's window rather than a missing BIOS switch. The `lspci` output in B3 will tell which.
+- **It works** (`Region 2 [size=32G]`): start the VM and check the guest reports 32G too.
+  Only then make it persistent, with a Proxmox hookscript (`pre-start`) or a systemd
+  oneshot ordered before `pve-guests.service`. Never persist an untested resize —
+  a failed one at boot leaves the card with no usable BAR at all.
+- **`No space left on device` / `-ENOSPC`:** the window on the PCIe port above
+  `51:00.0` (find it with `lspci -tv`) can't fit 32 GiB. That is firmware's
+  allocation, and with no ReBAR option in setup there is nothing left to try
+  here. Go to "Living with a small BAR".
+- **`-ENOENT` again, or the file doesn't exist:** the card isn't offering a
+  resize the kernel can use in this topology. Same conclusion.
+- **The guest sees 32G but `xe` fails to map it:** that one is fixable — OVMF's
+  64-bit window is too small. Add `args: -fw_cfg
+  name=opt/ovmf/X-PciMmio64Mb,string=65536` to the VM config.
+
+### Living with a small BAR
+
+**This is very likely the outcome, and the VM is still worth building.** What
+small BAR does and doesn't cost, for LLM inference specifically:
+
+- **VRAM capacity is unaffected.** All 32 GiB is allocatable by the GPU. The
+  256 MiB is only the window the *CPU* sees at any moment; the driver moves that
+  window as needed. A 30 GiB model still fits.
+- **Inference speed is largely unaffected.** Once weights are resident in VRAM,
+  token generation reads them with the card's own memory bandwidth and never
+  crosses that window.
+- **Loading a model is slower**, because every GiB of weights is copied through a
+  window the kernel has to keep re-pointing. Expect load times to hurt, not
+  tokens/sec. Load a model once and keep the server process resident rather than
+  starting it per request.
+- **Avoid zero-copy / unified-memory paths** that map VRAM straight into host
+  address space. Explicit copies (what llama.cpp SYCL and vLLM-XPU do by
+  default) are the right pattern here.
+
+> ⚠️ Unverified: the size of that penalty on this card has not been measured.
+> Time one model load in the guest and write the number down here — it is the
+> only figure that settles whether small BAR actually matters for this workload.
 
 ---
 
@@ -265,5 +309,6 @@ for f in 0000:53:00.0 0000:54:00.0; do echo $f > /sys/bus/pci/drivers_probe; don
 - [ ] B3 both functions on `vfio-pci`, pools healthy, Region 2 size recorded
 - [ ] C2 VM created
 - [ ] C3 guest on `xe`, `/models` mounted
-- [ ] D ReBAR 32G in guest (or recorded as not possible, and why)
+- [ ] D one unbound resize attempt made, result recorded — then closed either way
+- [ ] D model load time in the guest measured and written down
 - [ ] E tofu import clean, docs updated

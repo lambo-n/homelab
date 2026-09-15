@@ -120,8 +120,12 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 - ⚠️ **Resizable BAR is off.** `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.
-  The fix is in BIOS setup (Resizable BAR / MMIO settings); whether this Dell BIOS
-  offers it has not been checked.
+  ❌ **No fix available in firmware: this Dell EMC BIOS has no Resizable BAR
+  option** (owner, 2026-09-15 — setup searched, IOMMU settings varied, GRUB
+  kernel parameters tried; none helped). One attempt remains, with the card
+  unbound from `xe` and held by `vfio-pci`, since a bound driver makes the
+  kernel refuse a resize outright — see [`GPU-VM.md`](GPU-VM.md) Phase D. Treat
+  small BAR as permanent until that says otherwise.
 - ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
 ---
