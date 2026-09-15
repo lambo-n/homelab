@@ -37,7 +37,7 @@ This file is the one place that records the metal.
 |---|---|
 | Created | 2026-09-09 |
 | Filled in | 2026-09-09, host console |
-| Physical devices recorded | **9 disks + 1 zvol, all identified** |
+| Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU, Intel Arc Pro B70 (2026-09-15) |
 | Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
 | Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
 | ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
@@ -90,6 +90,46 @@ Key architectural findings confirmed 2026-09-09:
 
 ---
 
+## GPU — Intel Arc Pro B70, installed 2026-09-15
+
+Installed with a full power cycle of the homelab. Everything below is from the
+host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
+**Not attached to any guest yet** — no VM or k3s node sees it. Planned: whole
+card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.md).
+
+| | | Source |
+|---|---|---|
+| Model | **Intel Arc Pro B70** (ASRock) — `lspci` shows only the GPU family, "Battlemage G21" | owner, 2026-09-15 |
+| Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
+| Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
+| VRAM | **32 GiB** (`0x800000000`), 256 MiB CPU-visible | `dmesg` |
+| Host driver | `xe`, **SR-IOV PF mode** | `dmesg` |
+| Firmware | GuC 70.49.4 · HuC 8.2.10 · DMC 2.6 — all loaded | `dmesg` |
+| Host kernel | `6.17.2-1-pve` | `uname -r` |
+| Device nodes | `/dev/dri/card0`, `card1`, `renderD128` (`render` group) | `ls -l /dev/dri` |
+| IOMMU group | **9 — `53:00.0` alone** | `ls /sys/kernel/iommu_groups/9/devices/` |
+| On-board video | `03:00.0` Matrox G200eW3 (`mgag200`), group 25 — iDRAC console | `lspci -nnk` |
+
+- ✅ **Adding it moved no storage controller.** `05:00.0`, `00:11.5`, `00:17.0`,
+  `c3:00.0` are unchanged, and `zpool status -x` reported all pools healthy.
+- ✅ **Passthrough-eligible, unlike the PERC.** It is alone in its IOMMU group and
+  neither RMRR in `dmesg` (`41fcd000–49fd4fff`, `69424000–69426fff`) covers it.
+  Passing it to a VM means rebinding `53:00.0` from `xe` to `vfio-pci`, which
+  also takes it away from the host. The audio function `54:00.0` is in a
+  different group (group number not yet recorded).
+- ⚠️ **Resizable BAR is off.** `Failed to resize BAR2 to 32768M (-ENOENT)` →
+  `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
+  but compute and model loading that move lots of data to the card will be slower.
+  ❌ **No fix available in firmware: this Dell EMC BIOS has no Resizable BAR
+  option** (owner, 2026-09-15 — setup searched, IOMMU settings varied, GRUB
+  kernel parameters tried; none helped). One attempt remains, with the card
+  unbound from `xe` and held by `vfio-pci`, since a bound driver makes the
+  kernel refuse a resize outright — see [`GPU-VM.md`](GPU-VM.md) Phase D. Treat
+  small BAR as permanent until that says otherwise.
+- ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
+
+---
+
 ## Every block device
 
 As read 2026-09-09. **`by-id` is the only name that should ever appear in a
@@ -102,7 +142,7 @@ differently (`STORAGE.md:189-190`).
 | `sdb` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Z` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Z` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
 | `sdc` | `ata-MTFDDAK1T9TDT_222939CA58D4` | `MTFDDAK1T9TDT` | `222939CA58D4` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
 | `sdg` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505855` | `HFS1T9G3H2X069N` | `ADB5N4365I1505855` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
-| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **FREE** — cold spare for `archive-pool` |
+| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **FREE** — planned `llm-pool` ([`GPU-VM.md`](GPU-VM.md)) |
 | `sdf` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` | `HFS1T9G3H2X069N` | `ADB5N4365I1505850` | 1.75 TiB | SATA (PERC) | **FREE** — cold spare for `archive-pool` |
 | `sdh` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
 | `sdi` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
