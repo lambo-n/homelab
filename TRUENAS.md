@@ -18,6 +18,10 @@ Samsung SAS SSDs.
 > See [`SAS-STORAGE.md`](SAS-STORAGE.md) for the active configuration.
 > The material below is retained for reference.
 >
+> ♻️ **VMID `105` and `192.168.50.107` were never consumed** — this guest was
+> not created. Both are claimed by the GPU/LLM VM instead, 2026-09-15; see
+> [`GPU-VM.md`](GPU-VM.md). Nothing below is live.
+>
 > **The pool moved; the checklist did not.** Scheduled SMART long tests,
 > scheduled scrubs, and a health UI were all reasons for this VM, and all three
 > outlived it. They are re-homed on `smartd`, systemd timers and the existing

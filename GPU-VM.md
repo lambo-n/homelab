@@ -11,6 +11,7 @@
 | | Choice | Why |
 |---|---|---|
 | Workload | **Local LLM inference** | owner, 2026-09-15 |
+| VMID / IP | **`105`** / **`.107`** — both free | owner confirmed 2026-09-15 that no VM 105 exists. `TRUENAS.md` reserved both for a guest that was never created (superseded 2026-09-09 by host-native `sas-pool`), so this reclaims them. |
 | GPU mode | **Whole card to one VM** (`vfio-pci`), no SR-IOV split | owner. The host's `xe` currently runs the card as an SR-IOV PF (`HARDWARE.md`), and that mode goes away. |
 | Model storage | **`llm-pool`, one ZFS disk on `sde`** (`…150584Y`), with **no redundancy** | Models can be downloaded again, so losing the disk costs a re-download, not data. `sas-pool` belongs to the NAS and `archive-pool` to the DB and object storage. |
 | Spare | **`sdf` (`…1505850`) stays a cold spare** | owner |
@@ -25,7 +26,7 @@
 ### A1. Read before writing
 
 ```bash
-pvesh get /cluster/nextid                       # VMID to use below as $VMID (TRUENAS.md used 105 once)
+pvesh get /cluster/nextid                       # expect 105; anything else means something claimed it
 qm list; pct list
 nproc; lscpu | grep -E 'Model name|Socket|NUMA node'
 cat /sys/bus/pci/devices/0000:53:00.0/numa_node # GPU's NUMA node; matters if 2 sockets
@@ -83,10 +84,11 @@ and manages this one guest on its own, while the other four keep their
 read-only, import-only treatment (`tofu/README.md`, "The argument for
 read-only"). Decided with the owner 2026-09-15.
 
-> ⚠️ **The VMID is baked into the ACL path.** If A1's `pvesh get
-> /cluster/nextid` does not return `105`, use the real number in *every* path
-> below and in the tofu config. An ACL on the wrong `/vms/N` silently grants
-> nothing (or grants on a guest that isn't this one).
+> **VMID `105` is confirmed free** (owner, 2026-09-15 — the TrueNAS guest that
+> would have taken it was never created). The ACL paths below are therefore
+> literal. If `pvesh get /cluster/nextid` in A1 ever disagrees, stop: something
+> else has claimed the id, and an ACL on the wrong `/vms/N` grants write on a
+> guest that isn't this one.
 
 **Roles** — three, each holding the narrowest set that does its job:
 
@@ -257,8 +259,7 @@ fights, and then import as the other four were. Either way the machine is the
 same:
 
 ```bash
-VMID=<from A1>
-qm create $VMID --name llm --ostype l26 \
+qm create 105 --name llm --ostype l26 \
   --machine q35 --bios ovmf \
   --efidisk0 local-lvm:1,efitype=4m,pre-enrolled-keys=0 \
   --cpu host --sockets 1 --cores 8 \
@@ -309,8 +310,10 @@ echo 'LABEL=models /models ext4 defaults,noatime,nofail 0 2' | sudo tee -a /etc/
 sudo mount -a && df -h /models
 ```
 
-Pick a static IP or DHCP reservation for the VM. The last known guest is `.106`.
-Confirm the next free address on the router rather than assuming `.107`.
+Address: **`192.168.50.107`**, static or as a DHCP reservation — the last guest is
+`.106`, and `.107` was only ever reserved for the TrueNAS VM that was never
+built. Ping it from the dev VM before assigning, in case something outside this
+repo took it.
 
 ---
 
