@@ -1,5 +1,13 @@
 # GPU VM — Intel Arc Pro B70 passed whole to one LLM guest
 
+> ✅ **Tofu prerequisites cleared 2026-09-15** (PR #19, `bb68244`): the provider
+> lock now installs (`bpg/proxmox` 0.113.1), the LXC's stale state was persisted
+> with `apply -refresh-only`, and `tofu plan -refresh=false` reports **No
+> changes**. A clean baseline is what makes VM 105's diff readable, so this had
+> to come first. The `hostpci { mapping = … }`, `initialization` (cloud-init)
+> and `proxmox_virtual_environment_storage_zfspool` attributes used below were
+> read from that provider's own schema, not from memory.
+
 > 📝 **Plan, written 2026-09-15. Nothing below has been run yet.** Every host
 > step has to be run by hand as root on `192.168.50.101`, because SSH from the
 > dev VM is refused and the tofu token is read-only (`tofu/README.md`, "The
@@ -123,9 +131,11 @@ pveum acl modify /mapping/pci/arc-b70       --tokens "$T" --roles TofuMapping   
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser # attach the NIC
 ```
 
-- `PVEAuditor` at `/` is what lets `tofu plan` refresh the *other* four
-  resources. Without it a plan 403s on guests this token has no business
-  writing to. Read broad, write narrow.
+- `PVEAuditor` at `/` lets the provider read the datacenter, storages and the
+  container. It does **not** make the four VMs refreshable — that needs
+  `VM.Config.Disk` on each, which is a write privilege and is deliberately not
+  granted. Every plan in this directory therefore runs `-refresh=false`, exactly
+  as it does with the read-only token (C2). Read broad, write narrow.
 - The `/sdn/...` grant reflects PVE 8.2+ checking bridge use as an SDN
   permission. ⚠️ Unverified on this host: if `vmbr0` is a plain Linux bridge and
   this path 404s, confirm the real one with
@@ -249,10 +259,41 @@ carries `prevent_destroy` from the first commit, and
 covers: the VM, `hostpci { mapping = "arc-b70" }`, both disks, and cloud-init.
 
 ```bash
-export PROXMOX_VE_API_TOKEN='tofu@pve!llm=<uuid>'
-tofu plan     # NOT -refresh=false: refreshing is the point, this token can read everything
-tofu apply
+export PROXMOX_VE_API_TOKEN='tofu@pve!llm=<uuid>'   # LastPass
+export CLOUDFLARE_API_TOKEN='<token>'               # both providers configure on every run
+tofu plan  -refresh=false
+tofu apply -refresh=false
 ```
+
+> ⚠️ **Use `-refresh=false`, even though this token can write.** Corrected
+> 2026-09-15 — an earlier draft here said to refresh, and that was wrong.
+> `tofu@pve!llm` is `PVEAuditor` at `/` plus write on `/vms/105`, and
+> **`PVEAuditor` cannot refresh a QEMU guest**: the provider re-resolves every
+> volume through an endpoint PVE gates on `VM.Config.Disk`, a *write*
+> privilege (`tofu/README.md`, "The privilege that blocked the four VMs"). An
+> unqualified `tofu apply` therefore dies on all four existing VMs before it
+> reaches VM 105:
+>
+> ```
+> Error: error get file local-lvm:vm-103-disk-0 ... 403 (/vms/103, VM.Config.Disk)
+> ```
+>
+> Observed exactly this way on 2026-09-15. Skipping refresh is safe for a
+> **create**: there is no prior state for VM 105 to go stale.
+>
+> Granting this token `VM.Config.Disk` on the other four would fix the refresh
+> and destroy the entire point of scoping it. Don't.
+
+**After any host-side change to VM 105** — `qm set`, a disk resized on the pool,
+anything done from the console — reconcile the config and then finish with:
+
+```bash
+tofu apply -refresh-only -target=proxmox_virtual_environment_vm.llm
+```
+
+A `plan` refreshes in memory and throws it away; only an apply persists state.
+Skipping this is what left the LXC's state stale for six days and blocked every
+plan in the directory (`tofu/README.md`, "State drift").
 
 The `qm` equivalent below is the **fallback** — use it only if the provider
 fights, and then import as the other four were. Either way the machine is the
