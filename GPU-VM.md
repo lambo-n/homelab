@@ -75,6 +75,84 @@ pvesh get /cluster/mapping/pci/arc-b70
 
 The UI equivalent is Datacenter → Resource Mappings → PCI Devices → Add.
 
+### A5. A permanent API token scoped to this VMID alone
+
+The existing `tofu@pve!import` token is `PVEAuditor` and stays that way. This VM
+gets a **second token that can write, but only to `/vms/105`** — so tofu creates
+and manages this one guest on its own, while the other four keep their
+read-only, import-only treatment (`tofu/README.md`, "The argument for
+read-only"). Decided with the owner 2026-09-15.
+
+> ⚠️ **The VMID is baked into the ACL path.** If A1's `pvesh get
+> /cluster/nextid` does not return `105`, use the real number in *every* path
+> below and in the tofu config. An ACL on the wrong `/vms/N` silently grants
+> nothing (or grants on a guest that isn't this one).
+
+**Roles** — three, each holding the narrowest set that does its job:
+
+```bash
+# on 192.168.50.101, as root
+pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,VM.Monitor,\
+VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
+VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
+pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace"
+pveum role add TofuMapping --privs "Mapping.Audit,Mapping.Use"
+```
+
+**The token**, with privilege separation on so its own ACLs bound it rather than
+inheriting the user's:
+
+```bash
+pveum user token add tofu@pve llm --privsep 1
+# prints the secret ONCE
+```
+
+**The grants.** Everything the provider touches needs a path, and nothing else
+gets one:
+
+```bash
+T='tofu@pve!llm'
+pveum acl modify /                          --tokens "$T" --roles PVEAuditor    # read-only, everywhere
+pveum acl modify /vms/105                   --tokens "$T" --roles TofuVM        # write, HERE ONLY
+pveum acl modify /storage/local-lvm         --tokens "$T" --roles TofuStorage   # root + EFI disk
+pveum acl modify /storage/llm-pool          --tokens "$T" --roles TofuStorage   # models disk
+pveum acl modify /storage/local             --tokens "$T" --roles TofuStorage   # ISO / cloud image
+pveum acl modify /mapping/pci/arc-b70       --tokens "$T" --roles TofuMapping   # attach the GPU
+pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser # attach the NIC
+```
+
+- `PVEAuditor` at `/` is what lets `tofu plan` refresh the *other* four
+  resources. Without it a plan 403s on guests this token has no business
+  writing to. Read broad, write narrow.
+- The `/sdn/...` grant reflects PVE 8.2+ checking bridge use as an SDN
+  permission. ⚠️ Unverified on this host: if `vmbr0` is a plain Linux bridge and
+  this path 404s, confirm the real one with
+  `pvesh ls /access/acl` or by adding a NIC in the UI as this token and reading
+  the error.
+- **Not granted, deliberately:** `Sys.Modify` (datacenter config, incl. adding
+  storage), `Mapping.Modify` (creating or editing mappings), `VM.Allocate`
+  anywhere above `/vms/105`, `VM.Migrate`, `VM.Backup`, `VM.Snapshot`,
+  `Permissions.Modify`. A5's own `pvesm add` and A4's mapping are therefore
+  one-time console jobs — the token can use both, and change neither.
+- `VM.Allocate` on `/vms/105` does let this token **delete VM 105**. That is
+  what makes `prevent_destroy` on the tofu resource load-bearing rather than
+  decorative.
+
+**Verify from the dev VM** — this proves the scoping rather than assuming it:
+
+```bash
+read -rs TOK && export TOK      # paste: tofu@pve!llm=<uuid>
+curl -sk -H "Authorization: PVEAPIToken=$TOK" \
+  https://192.168.50.101:8006/api2/json/access/permissions | jq '.data'
+```
+
+Expect `VM.Allocate: 1` under `/vms/105` and **not** under `/vms/104`.
+
+**Where the secret lives:** export it as `PROXMOX_VE_API_TOKEN` per shell, and
+keep the only copy in LastPass beside the age key. **Never** in
+`terraform.tfvars`, the repo, or a shell rc file — `AGENTS.md` rule 6: no
+plaintext secret exists on this VM, keep it that way.
+
 ---
 
 ## Phase B — ONE planned host reboot: `vfio-pci` binding + BIOS MMIO
@@ -159,7 +237,24 @@ Get the current 24.04.x **live-server** ISO name from `https://releases.ubuntu.c
 cd /var/lib/vz/template/iso && wget https://releases.ubuntu.com/noble/<ubuntu-24.04.N-live-server-amd64.iso>
 ```
 
-### C2. Create
+### C2. Create — by tofu, with the A5 token
+
+This VM is **authored in tofu and created by apply**, not created by hand and
+imported. It is the one guest where that is safe: it is new and empty, so a
+wrong diff costs a rebuild rather than data, and the A5 token cannot reach the
+other four. The config goes in on a branch (`tofu/` change),
+carries `prevent_destroy` from the first commit, and
+covers: the VM, `hostpci { mapping = "arc-b70" }`, both disks, and cloud-init.
+
+```bash
+export PROXMOX_VE_API_TOKEN='tofu@pve!llm=<uuid>'
+tofu plan     # NOT -refresh=false: refreshing is the point, this token can read everything
+tofu apply
+```
+
+The `qm` equivalent below is the **fallback** — use it only if the provider
+fights, and then import as the other four were. Either way the machine is the
+same:
 
 ```bash
 VMID=<from A1>
@@ -288,10 +383,12 @@ small BAR does and doesn't cost, for LLM inference specifically:
 
 ## Phase E — bring it under tofu, and update the docs
 
-1. **Import the guest** the same way as the other four (`tofu/README.md`, "The sequence"): an `import`
-   block for `pve/$VMID`, `-generate-config-out`, review, and `prevent_destroy`, with a short-lived
-   `TofuDisk` grant. **On a branch** (`tofu/` change). Expect `hostpci { mapping = "arc-b70" }`
-   in the generated config. The PCI mapping itself is cluster config and stays documented here.
+1. **The guest is already in tofu** if C2 went the intended way — authored, applied,
+   `prevent_destroy` on. Only if the `qm` fallback was used does it need the import dance
+   from `tofu/README.md` ("The sequence") with a short-lived `TofuDisk` grant.
+   Either way, `tofu/README.md` needs a section on the A5 token: what it can write,
+   what it deliberately cannot, and that plans for *this* resource refresh normally
+   while the other four still need `-refresh=false`.
 2. `HARDWARE.md`: set `sde` to `llm-pool`, change the GPU section from "not attached" to the VMID, record the
    audio IOMMU group and the Phase B/D outcomes, and add `llm-pool` to "Free capacity".
 3. `README.md`: add the new row to the Guests table.
@@ -304,6 +401,7 @@ small BAR does and doesn't cost, for LLM inference specifically:
 - [ ] A2 `sde` proven orphan, wiped
 - [ ] A3 `llm-pool` created, in `pvesm status`
 - [ ] A4 `arc-b70` mapping exists
+- [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
 - [ ] B1 vfio config + initramfs
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
 - [ ] B3 both functions on `vfio-pci`, pools healthy, Region 2 size recorded
