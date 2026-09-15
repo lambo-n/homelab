@@ -105,7 +105,7 @@ read-only"). Decided with the owner 2026-09-15.
 pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,VM.Monitor,\
 VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
 VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
-pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace"
+pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
 pveum role add TofuMapping --privs "Mapping.Audit,Mapping.Use"
 ```
 
@@ -126,7 +126,7 @@ pveum acl modify /                          --tokens "$T" --roles PVEAuditor    
 pveum acl modify /vms/105                   --tokens "$T" --roles TofuVM        # write, HERE ONLY
 pveum acl modify /storage/local-lvm         --tokens "$T" --roles TofuStorage   # root + EFI disk
 pveum acl modify /storage/llm-pool          --tokens "$T" --roles TofuStorage   # models disk
-pveum acl modify /storage/local             --tokens "$T" --roles TofuStorage   # ISO / cloud image
+pveum acl modify /storage/local             --tokens "$T" --roles TofuStorage   # cloud image download
 pveum acl modify /mapping/pci/arc-b70       --tokens "$T" --roles TofuMapping   # attach the GPU
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser # attach the NIC
 ```
@@ -241,13 +241,27 @@ Then start the guests as usual.
 
 ## Phase C — create the VM and install the guest
 
-### C1. ISO
+### C1. Image — nothing to do by hand
 
-Get the current 24.04.x **live-server** ISO name from `https://releases.ubuntu.com/noble/`:
+**Superseded 2026-09-15 by `tofu/proxmox-llm-vm.tf`.** The VM is built from the
+Ubuntu **cloud image** plus cloud-init, not from an interactive ISO install, so
+tofu downloads the image itself
+(`proxmox_virtual_environment_download_file.ubuntu_noble_cloud` →
+`local`). That is why `TofuStorage` carries `Datastore.AllocateTemplate`.
+
+Two variables have no defaults and must be supplied before the apply:
 
 ```bash
-cd /var/lib/vz/template/iso && wget https://releases.ubuntu.com/noble/<ubuntu-24.04.N-live-server-amd64.iso>
+# SHA256 from https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+export TF_VAR_ubuntu_noble_image_sha256='<sha256 of noble-server-cloudimg-amd64.img>'
+export TF_VAR_llm_ssh_public_keys='["ssh-ed25519 AAAA... you@wherever"]'
 ```
+
+The checksum is required rather than optional: Ubuntu rewrites `current/` in
+place on every respin, so without it the apply imports whatever is published
+that day. The key list is what makes the guest reachable — the `dev` account is
+created with **no password**, so an empty list leaves the Proxmox console as the
+only way in.
 
 ### C2. Create — by tofu, with the A5 token
 
@@ -328,9 +342,20 @@ qm create 105 --name llm --ostype l26 \
 
 `--onboot 0` matches the other guests.
 
-### C3. Install and verify inside the guest
+### C3. First boot and verify inside the guest
 
-Install Ubuntu onto the **32 GiB disk only** and leave the 1400 GiB disk untouched. Then:
+There is no installer to sit through: cloud-init grows the root disk, sets the
+address from `llm_ipv4_address`, and seeds the `dev` account with your keys. SSH
+in at `192.168.50.107` and watch it finish before judging anything:
+
+```bash
+cloud-init status --wait                   # done, not error
+```
+
+The cloud image ships the **6.8 GA kernel**, which predates this card. The HWE
+kernel is what makes `xe` bind, so this step is mandatory, not hygiene — and
+`qemu-guest-agent` is not in the image either, which is why
+`agent { enabled = false }` is in the config for now:
 
 ```bash
 sudo apt update && sudo apt install -y linux-generic-hwe-24.04 qemu-guest-agent && sudo reboot
@@ -351,10 +376,15 @@ echo 'LABEL=models /models ext4 defaults,noatime,nofail 0 2' | sudo tee -a /etc/
 sudo mount -a && df -h /models
 ```
 
-Address: **`192.168.50.107`**, static or as a DHCP reservation — the last guest is
-`.106`, and `.107` was only ever reserved for the TrueNAS VM that was never
-built. Ping it from the dev VM before assigning, in case something outside this
-repo took it.
+Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
+so nothing needs configuring inside the guest. `.107` was only ever reserved for
+the TrueNAS VM that was never built — but **ping it from the dev VM before the
+first apply**, in case something outside this repo took it. `var.llm_ipv4_gateway`
+(`192.168.50.1`) is unverified in this repo; check the router.
+
+Once the guest agent is installed, flip `agent { enabled = true }` in
+`tofu/proxmox-llm-vm.tf` and apply. That second diff is deliberate: enabling it
+before the agent exists makes the provider wait on a guest that cannot answer.
 
 ---
 
