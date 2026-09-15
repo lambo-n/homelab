@@ -37,7 +37,7 @@ This file is the one place that records the metal.
 |---|---|
 | Created | 2026-09-09 |
 | Filled in | 2026-09-09, host console |
-| Physical devices recorded | **9 disks + 1 zvol, all identified** |
+| Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU (2026-09-15) |
 | Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
 | Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
 | ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
@@ -87,6 +87,40 @@ Key architectural findings confirmed 2026-09-09:
   directly on the Proxmox host as **`sas-pool`** in RAIDZ1 (6.85 TiB usable),
   protected by `sanoid` (`archival` template) and exported via Samba. See
   [`SAS-STORAGE.md`](SAS-STORAGE.md).
+
+---
+
+## GPU — Intel Arc (Battlemage), installed 2026-09-15
+
+Installed with a full power cycle of the homelab. Everything below is from the
+host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
+**Not attached to any guest yet** — no VM or k3s node sees it.
+
+| | | Source |
+|---|---|---|
+| Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
+| Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
+| VRAM | **32 GiB** (`0x800000000`), 256 MiB CPU-visible | `dmesg` |
+| Host driver | `xe`, **SR-IOV PF mode** | `dmesg` |
+| Firmware | GuC 70.49.4 · HuC 8.2.10 · DMC 2.6 — all loaded | `dmesg` |
+| Host kernel | `6.17.2-1-pve` | `uname -r` |
+| Device nodes | `/dev/dri/card0`, `card1`, `renderD128` (`render` group) | `ls -l /dev/dri` |
+| IOMMU group | **9 — `53:00.0` alone** | `ls /sys/kernel/iommu_groups/9/devices/` |
+| On-board video | `03:00.0` Matrox G200eW3 (`mgag200`), group 25 — iDRAC console | `lspci -nnk` |
+
+- ✅ **Adding it moved no storage controller.** `05:00.0`, `00:11.5`, `00:17.0`,
+  `c3:00.0` are unchanged, and `zpool status -x` reported all pools healthy.
+- ✅ **Passthrough-eligible, unlike the PERC.** It is alone in its IOMMU group and
+  neither RMRR in `dmesg` (`41fcd000–49fd4fff`, `69424000–69426fff`) covers it.
+  Passing it to a VM means rebinding `53:00.0` from `xe` to `vfio-pci`, which
+  also takes it away from the host. The audio function `54:00.0` is in a
+  different group (group number not yet recorded).
+- ⚠️ **Resizable BAR is off.** `Failed to resize BAR2 to 32768M (-ENOENT)` →
+  `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
+  but compute and model loading that move lots of data to the card will be slower.
+  The fix is in BIOS setup (Resizable BAR / MMIO settings); whether this Dell BIOS
+  offers it has not been checked.
+- ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
 ---
 
