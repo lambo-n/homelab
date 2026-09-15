@@ -31,12 +31,13 @@ provider "registry.opentofu.org/bpg/proxmox" {
     "zh:87f8e413717010959b0a7bbb2258f9586e7b6119db52bc56d2192c03fad41a89",
     "zh:b0f938d5b5e615a1357083215ff16b6c8e43b156f3029ea7918965550d4d54d1",
     "zh:c296d4bb96dfc9549062906ff5be052cbaeb7fc25c4b41e176224c89031e5bed",
+    "zh:f26e0763dbe6a6b2195c94b44696f2110f7f55433dc142839be16b9697fa5597",
   ]
 }
 
 provider "registry.opentofu.org/cloudflare/cloudflare" {
   version     = "5.24.0"
-  constraints = "~> 5.12"
+  constraints = "~> 5.24"
   hashes = [
     "h1:EdatAvZg845pGYfEdzYNkxmQfV8or5y6HDbh6CIJfI8=",
     "h1:F3V4hF42Y/Usl9OhzNFQHwUL8oNXTzbY5x6dQaDaASc=",
