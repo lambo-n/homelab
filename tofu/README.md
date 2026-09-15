@@ -382,6 +382,32 @@ which this import needs: file uploads and some disk operations want root SSH to
 the node. If a future change hits that wall, that is a separate decision about a
 separate credential — not a reason to widen this one.
 
+## Where each credential lives
+
+Written 2026-09-15, after half an hour was spent looking for a Proxmox token
+that had never been stored anywhere. **Infra credentials go to LastPass and are
+exported per shell. They are deliberately not in Infisical and not in SOPS.**
+
+| Credential | Lives in | Used as | Notes |
+|---|---|---|---|
+| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only. Regenerated 2026-09-09 (`SAS-RECLAIM.md` §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
+| `tofu@pve!llm` (planned) | **LastPass** | `PROXMOX_VE_API_TOKEN` | Writes only to `/vms/105`. See [`../GPU-VM.md`](../GPU-VM.md) §A5. |
+| Cloudflare API token | **LastPass** | `CLOUDFLARE_API_TOKEN` | Required scopes are above. The provider configures even when no Cloudflare resource is in the plan, so it must be set for *any* apply. |
+| `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
+| Cluster-only secrets | **git**, as `*.sops.yaml` | Flux → k8s Secrets | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token. |
+| Cross-boundary secrets | **Infisical** (`prod` / `feature`) | operator → k8s Secret, Worker env | `POSTGREST_JWT_SECRET` + the four scoped MinIO Worker keys — the ones that must stay byte-identical on both sides. |
+| Infisical machine identity | **SOPS**, seeded into the cluster | operator auth | Which is why `age.key` still holds exactly one secret. |
+
+**Why the hypervisor token is not in Infisical:** the Infisical operator runs
+inside the cluster, on VMs this directory manages. Putting the token that
+rebuilds those VMs behind a service that needs them running is a bootstrap loop
+— the same reasoning that keeps `age.key` in LastPass. Recovery has to be a human
+login from any device.
+
+**`terraform.tfvars` stays absent.** `variables.tf` leaves both tokens `null` so
+the providers read them from the environment; a tfvars file would put them on
+disk, which `AGENTS.md` rule 6 forbids outright.
+
 ## Versions
 
 Providers are constrained in `versions.tf` and exactly pinned by
