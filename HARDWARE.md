@@ -37,7 +37,7 @@ This file is the one place that records the metal.
 |---|---|
 | Created | 2026-09-09 |
 | Filled in | 2026-09-09, host console |
-| Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU (2026-09-15) |
+| Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU, Intel Arc Pro B70 (2026-09-15) |
 | Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
 | Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
 | ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
@@ -90,7 +90,7 @@ Key architectural findings confirmed 2026-09-09:
 
 ---
 
-## GPU — Intel Arc (Battlemage), installed 2026-09-15
+## GPU — Intel Arc Pro B70, installed 2026-09-15
 
 Installed with a full power cycle of the homelab. Everything below is from the
 host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
@@ -98,6 +98,7 @@ host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
 
 | | | Source |
 |---|---|---|
+| Model | **Intel Arc Pro B70** (ASRock) — `lspci` shows only the GPU family, "Battlemage G21" | owner, 2026-09-15 |
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
 | VRAM | **32 GiB** (`0x800000000`), 256 MiB CPU-visible | `dmesg` |
