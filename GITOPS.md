@@ -99,6 +99,15 @@ blocking; each entry says what it is waiting on.
 
 - [ ] kubeconform or [`flux-schema`](https://github.com/fluxcd/flux-schema) validation in CI
       *(my own recommendation — the reference repo does **not** do this)*
+- [ ] **`tofu validate` + `tofu fmt -check` in CI for PRs touching `tofu/`.** Neither
+      needs credentials, so no secret has to reach GitHub Actions — but `tofu init`
+      does download providers, so the job is not hermetic. Added 2026-09-15 after
+      Renovate raised the provider constraints in `versions.tf` without refreshing
+      `.terraform.lock.hcl`: **every tofu command then failed on a fresh checkout**
+      (`Required plugins are not installed`) and nothing noticed for six days,
+      because `validate-manifests.yaml` covers `kubernetes/` only. A job that runs
+      `init` would have failed the Renovate PR itself. See
+      [`tofu/README.md`](tofu/README.md#versions)
 - [ ] Loki + Promtail for logs — the third Flux dashboard (`logs.json`) is deliberately not
       deployed because there is nothing to back it. Wants its own storage answer first:
       the TSDB argument in Phase 7 applies again, and worker1's root disk is already the
