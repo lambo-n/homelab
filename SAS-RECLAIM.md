@@ -288,6 +288,16 @@ stays on.
 > confirmed 0 changes. Branch `fix/ts-ssh-records-on-archive-pool` merged to
 > main and deleted. Proxmox API token regenerated (`tofu@pve!import`); Cloudflare
 > provider was skipped with `-target` since only the container resource changed.
+>
+> ⚠️ **Correction, 2026-09-15: that `0 changes` did not stick.** A `plan`
+> refreshes in memory and discards it; only an `apply` persists state. The state
+> file still records `/mnt/sas1/tailscale-gateway-logs`, so the repo's everyday
+> `tofu plan -refresh=false` proposes **destroying this container** and dies on
+> `prevent_destroy`, blocking every other plan. The one-line fix — `tofu apply
+> -refresh-only -target=...` — and why the two commands differ are in
+> [`tofu/README.md`](tofu/README.md#state-drift-a-plan-can-say-0-changes-and-still-leave-the-state-stale).
+> **Verifying a host-side change with `plan` alone is not enough; finish with
+> `apply -refresh-only`.**
 
 ## 6. Put the new dataset under sanoid
 
