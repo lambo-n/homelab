@@ -382,8 +382,110 @@ which this import needs: file uploads and some disk operations want root SSH to
 the node. If a future change hits that wall, that is a separate decision about a
 separate credential — not a reason to widen this one.
 
+## Where each credential lives
+
+Written 2026-09-15, after half an hour was spent looking for a Proxmox token
+that had never been stored anywhere. **Infra credentials go to LastPass and are
+exported per shell. They are deliberately not in Infisical and not in SOPS.**
+
+| Credential | Lives in | Used as | Notes |
+|---|---|---|---|
+| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only. Regenerated 2026-09-09 (`SAS-RECLAIM.md` §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
+| `tofu@pve!llm` (planned) | **LastPass** | `PROXMOX_VE_API_TOKEN` | Writes only to `/vms/105`. See [`../GPU-VM.md`](../GPU-VM.md) §A5. |
+| Cloudflare API token | **LastPass** | `CLOUDFLARE_API_TOKEN` | Required scopes are above. The provider configures even when no Cloudflare resource is in the plan, so it must be set for *any* apply. |
+| `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
+| Cluster-only secrets | **git**, as `*.sops.yaml` | Flux → k8s Secrets | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token. |
+| Cross-boundary secrets | **Infisical** (`prod` / `feature`) | operator → k8s Secret, Worker env | `POSTGREST_JWT_SECRET` + the four scoped MinIO Worker keys — the ones that must stay byte-identical on both sides. |
+| Infisical machine identity | **SOPS**, seeded into the cluster | operator auth | Which is why `age.key` still holds exactly one secret. |
+
+**Why the hypervisor token is not in Infisical:** the Infisical operator runs
+inside the cluster, on VMs this directory manages. Putting the token that
+rebuilds those VMs behind a service that needs them running is a bootstrap loop
+— the same reasoning that keeps `age.key` in LastPass. Recovery has to be a human
+login from any device.
+
+**`terraform.tfvars` stays absent.** `variables.tf` leaves both tokens `null` so
+the providers read them from the environment; a tfvars file would put them on
+disk, which `AGENTS.md` rule 6 forbids outright.
+
 ## Versions
 
 Providers are constrained in `versions.tf` and exactly pinned by
 `.terraform.lock.hcl`, which **is** committed. Renovate's terraform manager
 tracks both.
+
+> ⚠️ **Renovate bumps the constraint; only `tofu init` refreshes the lock.**
+> Found 2026-09-15: `versions.tf` had been raised to `bpg/proxmox ~> 0.113` and
+> `cloudflare ~> 5.24`, but the lock still carried the 0.112 package and the old
+> cloudflare constraint line. The result is that **every tofu command fails
+> outright** on a fresh checkout or after a cache clear:
+>
+> ```
+> Error: Required plugins are not installed
+>   - registry.opentofu.org/bpg/proxmox: there is no package for
+>     registry.opentofu.org/bpg/proxmox 0.113.1 cached in .terraform/providers
+> ```
+>
+> **After merging any Renovate provider PR, run `tofu init` here and commit the
+> resulting `.terraform.lock.hcl`.** There is no CI that would catch it — the
+> only workflow is `validate-manifests.yaml`, which covers `kubernetes/`, not
+> `tofu/`.
+
+## State drift: a plan can say "0 changes" and still leave the state stale
+
+**A `plan` never writes refreshed state. Only an `apply` does.** That distinction
+cost this repo a latent broken plan for six days, and it is worth understanding
+before it happens again.
+
+On 2026-09-09 the LXC's bind mount was repointed on the host with `pct set`
+(`SAS-RECLAIM.md` §3), because `mount_point.volume` is ForceNew and changing it
+in tofu would plan a destroy/recreate of the tailnet gateway. The config was then
+reconciled and verified with `tofu plan -target=...` — which **refreshed in
+memory, reported `0 to change`, and exited without persisting anything.** The
+state file on disk still said `/mnt/sas1/tailscale-gateway-logs`.
+
+That is invisible until someone runs the repo's *documented everyday command*,
+which disables refresh precisely because `PVEAuditor` cannot refresh the four
+VMs (see "The privilege that blocked the four VMs"):
+
+```
+$ tofu plan -refresh=false
+  ~ volume = "/mnt/sas1/tailscale-gateway-logs" -> "/archive-pool/ts-ssh-records" # forces replacement
+Error: Resource instance cannot be destroyed
+  ... proxmox_virtual_environment_container.tailscale_gateway has prevent_destroy set
+```
+
+With refresh off, stale state *is* reality as far as the plan is concerned, so it
+proposes destroying the container that is the only tailnet member, the exit node,
+and the `ProxyJump` for every SSH entry. `prevent_destroy` refuses — correctly —
+but the refusal **fails the whole plan**, so no other change can be planned until
+this is fixed.
+
+### The fix: persist the refresh, once
+
+Needs the read-only `tofu@pve!import` token. Target the container: an untargeted
+refresh also touches the four VMs, which 403 on `VM.Config.Disk` under
+`PVEAuditor`.
+
+```bash
+export PROXMOX_VE_API_TOKEN='tofu@pve!import=<uuid>'   # from LastPass
+export CLOUDFLARE_API_TOKEN='<token>'                  # provider configures even when unused
+cd ~/homelab/tofu
+tofu apply -refresh-only -target=proxmox_virtual_environment_container.tailscale_gateway
+```
+
+Read the proposed state change before accepting: the only difference should be
+`path_in_datastore` moving to `/archive-pool/ts-ssh-records`. **`-refresh-only`
+cannot create, destroy or modify infrastructure** — it only reconciles state with
+what the API reports, which is why it is safe to run with `prevent_destroy` in
+place and a read-only token.
+
+Then confirm the everyday command is clean again:
+
+```bash
+tofu plan -refresh=false     # expect: No changes.
+```
+
+**The general rule:** whenever a change is made on the host and reconciled in
+config afterwards — the "config-follows-reality" shape this repo uses for
+anything ForceNew — finish with `tofu apply -refresh-only`, not `tofu plan`.
