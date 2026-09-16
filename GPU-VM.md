@@ -1108,6 +1108,14 @@ The gateway
 (`192.168.50.1`) is confirmed: `ip route show default` on `.103` reports
 `default via 192.168.50.1 dev ens18`, on the same flat `/24` every guest uses.
 
+✅ **Guest agent on, 2026-09-16** (PR #22). The apply rebooted VM 105; afterwards
+`systemctl is-active qemu-guest-agent` → `active`, `/models` came back from fstab,
+`xe` stayed bound, and `qm agent 105 ping` answered. It needed one more grant:
+see the A5 correction (token needs `PVEAuditor,TofuVM` at `/vms/105`). Then
+`tofu apply -refresh-only -target=proxmox_virtual_environment_vm.llm` recorded
+`ipv4_addresses` `192.168.50.107` on `eth0` via the agent, and
+`tofu plan -refresh=false` → **No changes**.
+
 Once the guest agent is installed, flip `agent { enabled = true }` in
 `tofu/proxmox-llm-vm.tf` and apply. That second diff is deliberate: enabling it
 before the agent exists makes the provider wait on a guest that cannot answer.
@@ -1365,4 +1373,4 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
 - [ ] D model load time in the guest measured and written down
-- [ ] E tofu import clean, docs updated
+- [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated (2026-09-16). ⚠️ smartd line for `sde` still to add on the host.

@@ -103,7 +103,17 @@ in `HARDWARE.md` are `sdh/sdi/sdj` in `SAS-STORAGE.md`, which is the whole argum
 /dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Z -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 /dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I1505855 -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 /dev/disk/by-id/ata-MTFDDAK1T9TDT_222939CA58D4 -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+
+# llm-pool (single disk, no redundancy) — long self-test Fridays 03:00
+/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Y -a -s L/../../5/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 ```
+
+> ⚠️ **The `llm-pool` line was added to this file 2026-09-16 and still has to be
+> added to `/etc/smartd.conf` on the host** (after the other by-id lines, never
+> after a `DEVICESCAN`), then `systemctl restart smartd`. It gets its own day
+> because it is the pool with no redundancy — the one where SMART is the only
+> early warning before a re-download. `sdf` (`…1505850`, the cold spare) stays
+> unlisted until it joins a pool.
 
 Separate days so the two pools do not self-test at once. If `smartctl -i <by-id>`
 on the SATA three needs `-d sat`, add it — or drop `-d` and let smartd
