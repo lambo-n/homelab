@@ -401,8 +401,9 @@ sudo mount -a && df -h /models
 Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
 so nothing needs configuring inside the guest. `.107` was only ever reserved for
 the TrueNAS VM that was never built — but **ping it from the dev VM before the
-first apply**, in case something outside this repo took it. `var.llm_ipv4_gateway`
-(`192.168.50.1`) is unverified in this repo; check the router.
+first apply**, in case something outside this repo took it. The gateway
+(`192.168.50.1`) is confirmed: `ip route show default` on `.103` reports
+`default via 192.168.50.1 dev ens18`, on the same flat `/24` every guest uses.
 
 Once the guest agent is installed, flip `agent { enabled = true }` in
 `tofu/proxmox-llm-vm.tf` and apply. That second diff is deliberate: enabling it
