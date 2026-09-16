@@ -4,6 +4,43 @@ This document details the architecture, ZFS pool layout, snapshot automation,
 and Samba access for **`sas-pool`**, built on the three 3.84 TB Samsung SAS SSDs
 on `192.168.50.101` (`pve`).
 
+> ✅ **Resolved 2026-09-16 — but read this before the next reboot.**
+> `sas-pool` was found **not imported** while running [`GPU-VM.md`](GPU-VM.md)
+> A2, and had been since the host booted for the GPU install on 2026-09-15
+> 14:20 PDT. The owner imported it (**140 GiB intact, no data lost**) and
+> enabled `zfs-import-scan`.
+>
+> **Why it happened, and why nothing complained:**
+>
+> - **This pool has no owner for its import.** It is host-native and *not* in
+>   `/etc/pve/storage.cfg`, so nothing brings it up at boot. `archive-pool` is a
+>   PVE storage, so `pvestatd` activates it — which is why that one was imported
+>   and snapshotting all evening while this one sat idle. The difference is not
+>   ZFS, it is who owns the import.
+> - On that boot `/etc/zfs/zpool.cache` was missing or empty, so
+>   `zfs-import-cache` skipped itself on `ConditionFileNotEmpty`, and
+>   `zfs-import-scan` was **disabled**. Nothing was left to try.
+> - `smbd` started regardless and served `/sas-pool` — an **empty directory** —
+>   as the `[data]` share, and `sanoid` kept firing every 15 minutes against a
+>   dataset that did not exist. **Both dependants reported healthy.**
+>
+> **The durable fix is `systemctl enable zfs-import-scan`, not the cachefile.**
+> The PVE ZFS plugin imports with `-o cachefile=none`, so `zpool get cachefile`
+> reads `none`/`local` and setting it back to `/etc/zfs/zpool.cache` can be
+> reverted on the next activation. `zfs-import-scan` protects both pools.
+>
+> ⚠️ **`zpool status -x` does not catch this.** An unimported pool is not
+> unhealthy, it is absent, and `-x` happily reports "all pools are healthy".
+> After any reboot of `.101`, check **`zpool list`** and confirm all three pools
+> are present by name before trusting `/sas-pool/data` or the `[data]` share.
+>
+> ✅ **Fix proven across a real reboot, 2026-09-16 00:48 PDT.** The
+> [`GPU-VM.md`](GPU-VM.md) B2 power cycle was the same kind of boot that dropped
+> the pool the first time, and `sas-pool` imported on its own alongside
+> `archive-pool` and `llm-pool`. `zpool list` then read `ALLOC 210G` — raw space
+> including RAIDZ1 parity, ~1.5 × the ~140 GiB `USED` seen at recovery, not new
+> data.
+
 ---
 
 ## Architecture & Topology
