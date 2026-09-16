@@ -1466,6 +1466,14 @@ systemctl start gpu-rebar.service
 journalctl -u gpu-rebar -n 5 --no-pager        # "BAR 2 already 32 GiB; nothing to do"
 ```
 
+✅ **Installed and enabled 2026-09-16 09:48 PDT.** `enable` created the
+`multi-user.target.wants` symlink, and a manual start logged
+`gpu-rebar: BAR 2 already 32 GiB; nothing to do`. Expected SHA-256 of the installed
+copies (from the repo): `gpu-rebar.sh` `8d6f8110…`, `gpu-rebar.service`
+`882228fa…`. The first `scp -3` left the `.service` in `/usr/local/sbin`, so
+`enable` reported `Unit … does not exist` until it was moved to
+`/etc/systemd/system`.
+
 **Real test: the next host reboot** (e.g. through `homelab-shutdown.sh`). Before
 starting VM 105, check:
 
@@ -1686,6 +1694,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
 - [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via a 4 GiB resize first to release the SR-IOV reservation
-- [ ] D resize made persistent across host reboots
+- [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
+- [ ] D boot-time resize verified across a real host reboot (`journalctl -u gpu-rebar -b` → `resize complete`)
 - [ ] D model load time in the guest measured and written down
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
