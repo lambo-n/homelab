@@ -4,3 +4,20 @@ resources:
   - llm-api-key.sops.yaml
   - scrapeconfig.yaml
   - prometheusrule.yaml
+configMapGenerator:
+  # Committed JSON, same pattern as flux-monitoring. Every panel query was run
+  # against the live Prometheus before commit (2026-09-16) and returned series;
+  # the metric names and hwmon labels are in GPU-VM.md F6b.
+  - name: llm-vm-grafana-dashboards
+    namespace: observability
+    files:
+      - dashboards/llm-vm.json
+    options:
+      labels:
+        # What the kube-prometheus-stack Grafana sidecar watches for.
+        grafana_dashboard: "1"
+      annotations:
+        # Grafana ${...} expressions; keep Flux substitution off them.
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+generatorOptions:
+  disableNameSuffixHash: true
