@@ -1373,4 +1373,4 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
 - [ ] D model load time in the guest measured and written down
-- [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated (2026-09-16). ⚠️ smartd line for `sde` still to add on the host.
+- [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
