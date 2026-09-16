@@ -581,7 +581,20 @@ lands, which is a different knob from ReBAR itself):
 
 Record what's actually there, including "no such option". A1 confirms this is a
 **PowerEdge T550 on BIOS 1.8.2** — Dell 15G, so the names above are the right
-generation's, though still unverified on this particular machine.
+generation's.
+
+✅ **Recorded 2026-09-16 (owner, at POST).** Both settings exist under exactly
+those names on this machine:
+
+| Setting | Found | Left as |
+|---|---|---|
+| Memory Mapped I/O above 4 GB | **Enabled** — already, and apparently all along | Enabled |
+| Memory Mapped I/O Base | **12 TB** | **56 TB** (the highest offered) |
+
+So the 12 TB base was in effect during every ReBAR attempt on 2026-09-15. Moving
+it up does not resize anything by itself — B3 below still reads 256M — but it
+raises where firmware places the 64-bit MMIO window, which is the room Phase D's
+resize needs if it is to avoid `-ENOSPC`.
 
 ### B3. After boot, verify
 
@@ -601,6 +614,44 @@ lspci -vvv -s 53:00.0 | sed -n '/Resizable BAR/,/^\t[A-Z]/p'
 > enabled, which is what should make this reboot behave — **this is the boot that
 > tests that fix.** If `sas-pool` is missing again:
 > `zpool import 5068010059978323696`, then find out why before continuing.
+
+✅ **Ran 2026-09-16 00:48 PDT, after the B2 power cycle. Every check passed.**
+
+```
+53:00.0 Kernel driver in use: vfio-pci
+54:00.0 Kernel driver in use: vfio-pci
+
+NAME           SIZE  ALLOC   FREE  ...  CAP  HEALTH
+archive-pool  1.73T   289M  1.73T        0%  ONLINE
+llm-pool      1.73T   552K  1.73T        0%  ONLINE
+sas-pool      10.5T   210G  10.3T        1%  ONLINE
+all pools are healthy
+
+Region 2: Memory at 220e00000000 (64-bit, prefetchable) [disabled] [size=256M]
+Capabilities: [420 v1] Physical Resizable BAR
+    BAR 2: current size: 256MB, supported: 256MB 512MB 1GB 2GB 4GB 8GB 16GB 32GB
+Capabilities: [220 v1] Virtual Resizable BAR
+```
+
+What that settles:
+
+- **B1 worked.** Both functions came up on `vfio-pci`; the `lsinitramfs` check
+  was not wasted caution — the binding happened in the initramfs as intended.
+- **The `zfs-import-scan` fix is proven, by the same kind of reboot that broke
+  it.** All three pools imported on their own, `sas-pool` included. That closes
+  the question [`SAS-STORAGE.md`](SAS-STORAGE.md) left open.
+- **`sas-pool` at `ALLOC 210G` is not 70 GiB of new data** against the ~140 GiB
+  seen at recovery. `zpool list` counts raw space *including RAIDZ1 parity*;
+  on a 3-disk RAIDZ1 that is ~1.5 × the `zfs list USED` figure, and
+  140 × 1.5 = 210. Same ALLOC-vs-USED trap as `archive-pool`, different cause.
+- **`[disabled]` on Region 2 is normal, not a fault.** `vfio-pci` leaves memory
+  decoding off until a VM opens the device.
+- **Region 2 is still 256M, so Phase D is still needed** — but it is now far
+  better motivated than before. **The card advertises a Physical Resizable BAR
+  capability supporting every size up to 32GB.** The hardware is willing; the
+  only thing missing is something to perform the resize, and with `xe` gone,
+  the kernel's `-EBUSY` refusal that blocked every 2026-09-15 attempt no longer
+  applies. Phase D's precondition is met exactly.
 
 If **Region 2 is already `[size=32G]`**, ReBAR is solved: skip Phase D. If
 it's still `[size=256M]`, continue to Phase C anyway. The VM works with a small BAR and only loads data onto the card more slowly.
@@ -811,7 +862,8 @@ So the resize happens **on the host, while nothing is bound to the card, before 
 ```bash
 # VM stopped
 for f in 0000:53:00.0 0000:54:00.0; do echo $f > /sys/bus/pci/devices/$f/driver/unbind; done
-cat /sys/bus/pci/devices/0000:53:00.0/resource2_resize   # bitmask of supported sizes
+cat /sys/bus/pci/devices/0000:53:00.0/resource2_resize   # bitmask of supported sizes: expect 000000000000ff00
+                                                         # (bits 8-15 = 256MB..32GB, per B3's lspci)
 echo 15 > /sys/bus/pci/devices/0000:53:00.0/resource2_resize   # 2^15 MB = 32 GiB
 lspci -vv -s 53:00.0 | grep 'Region 2'
 for f in 0000:53:00.0 0000:54:00.0; do echo $f > /sys/bus/pci/drivers_probe; done
@@ -1002,7 +1054,8 @@ bash homelab-shutdown.sh --yes --poweroff-host
 ```
 
 At POST, F2 → **System BIOS → Integrated Devices**: confirm *Memory Mapped I/O
-above 4 GB* is Enabled and *Memory Mapped I/O Base* is the highest option
+above 4 GB* is Enabled (it was, 2026-09-16) and *Memory Mapped I/O Base* is the highest option
+(56 TB on this machine; it was found at 12 TB)
 offered. **Do not hunt for a Resizable BAR setting — this BIOS has none** (owner,
 2026-09-15). Write down what the menu actually says. Then boot.
 
@@ -1030,8 +1083,9 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] A5 scoping verified: `VM.Allocate` on `/vms/105`, absent on `/vms/104`, `!import` still read-only
 - [x] **Phase A complete 2026-09-16.** Next is B1, then the B2 cluster-wide reboot.
 - [x] B1 vfio config written, initramfs regenerated (2026-09-16) — confirm `vfio-arc-b70.conf` is bundled with `lsinitramfs` before the B2 reboot
-- [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
-- [ ] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 size recorded
+- [x] B2 clean shutdown, BIOS MMIO settings recorded (2026-09-16: above-4GB already Enabled; Base 12 TB → 56 TB)
+- [x] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 = 256M, ReBAR cap advertises up to 32GB (2026-09-16)
+- [x] **Phase B complete.** `sas-pool` survived the reboot — `zfs-import-scan` fix proven.
 - [ ] C2 VM created
 - [ ] C3 guest on `xe`, `/models` mounted
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
