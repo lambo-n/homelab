@@ -1341,6 +1341,26 @@ unchanged at 31.89 GiB. OVMF placed the 4G BAR without any `X-PciMmio64Mb` or
 `args`. **Not persistent yet:** a host reboot returns the card to 256M. Settle the
 size (32 GiB retry below) before writing the boot-time unit, so it is written once.
 
+✅ **32 GiB, 2026-09-16: the host-side resize succeeded, on the second try.**
+Card at 4 GiB (VF BAR 2 already unassigned), same D-1/D-2/D-3 with `echo 15`:
+
+```
+echo 15 > resource2_resize    RESIZE-WRITE-OK
+lspci Region 2                Memory at 220000000000 [size=32G]
+SR-IOV Region 2               Memory at 0000000000000000          <- still unassigned
+pci 0000:53:00.0: BAR 2 [mem 0x220000000000-0x2207ffffffff 64bit pref]: assigned
+pcieport 0000:51:00.0 / 0000:52:01.0: bridge window [mem 0x220000000000-0x220bffffffff 64bit pref]  (48G)
+pcieport 0000:50:02.0: bridge window [mem 0x220000000000-0x2211ffffffff 64bit pref]                 (root port still 72G)
+both functions rebound to vfio-pci
+```
+
+**The hypothesis held: the 56G VF BAR reservation was the only obstacle.** The
+first direct 32 GiB attempt failed with it assigned; resizing to 4 GiB first made
+the kernel drop it; 32 GiB then fit with room to spare inside the root port's
+72G. **This fixes the shape of any boot-time persistence:** VF BAR 2 is assigned
+again after every host boot, so the unit must resize **12 then 15**, never 15
+directly. Guest verification pending.
+
 > Watch the kernel log with `dmesg -wT | grep -iE 'dmar|vfio|lockup'`. It is
 > short enough not to wrap when pasted, and it never opens a pager. A wrapped
 > `journalctl` / `-kf …` paste on 2026-09-16 ran bare `journalctl` and dropped
