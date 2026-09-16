@@ -200,14 +200,21 @@ pvesm status          -> llm-pool  zfspool  active  1804599296  408  1804598888 
 free — the ~20% headroom ZFS wants, so the figure in C2's table stands against
 the real pool rather than the estimated one.
 
-> ⚠️ **Confirm `blocksize 64k` actually landed, now rather than later.** It
-> applies only to zvols created *after* it is set, and the VM's models disk is
-> the zvol it exists for. If it is missing, the disk is created at the 16k
-> default and cannot be changed without destroying and recreating it:
->
-> ```bash
-> grep -A4 'zfspool: llm-pool' /etc/pve/storage.cfg   # expect blocksize 64k, content images
-> ```
+`blocksize 64k` is confirmed to have landed — it applies only to zvols created
+*after* it is set, and VM 105's models disk is the zvol it exists for, so a
+missing value would have meant the 16k default and no way to change it without
+recreating the disk:
+
+```
+zfspool: llm-pool
+    pool llm-pool
+    blocksize 64k
+    content images
+    mountpoint /llm-pool
+```
+
+**Phase A storage is finished.** Next is A4, and it needs the GPU's IOMMU group
+read first.
 
 > **A clean `zpool create` is expected, and if it refuses with `contains a
 > filesystem of type 'zfs_member'`, `-f` is the right answer here.** Re-running
@@ -803,7 +810,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
 - [x] A2 `sde` proven orphan, wiped (2026-09-16)
-- [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable) — `blocksize 64k` still to confirm in `storage.cfg`
+- [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable, `blocksize 64k` confirmed)
 - [ ] A4 `arc-b70` mapping exists
 - [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
 - [ ] B1 vfio config + initramfs
