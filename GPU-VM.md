@@ -399,9 +399,19 @@ sudo mount -a && df -h /models
 ```
 
 Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
-so nothing needs configuring inside the guest. `.107` was only ever reserved for
-the TrueNAS VM that was never built — but **ping it from the dev VM before the
-first apply**, in case something outside this repo took it. The gateway
+so nothing needs configuring inside the guest. `.107` is taken as decided (owner,
+2026-09-16) — it was only ever reserved for the TrueNAS VM that was never built,
+and **the homelab guests are the only static addresses on this network; everything
+else is DHCP**. If something does answer on it, the fix is a router reset, not a
+redesign.
+
+> The residual risk is not another static host but the **DHCP pool overlapping
+> `.102`–`.107`**. A lease handed out inside the static range collides silently
+> and intermittently — the guest keeps its address and the DHCP client loses
+> connectivity at random. Worth checking the pool's start address once, at the
+> router, and reserving the low range if it overlaps.
+
+The gateway
 (`192.168.50.1`) is confirmed: `ip route show default` on `.103` reports
 `default via 192.168.50.1 dev ens18`, on the same flat `/24` every guest uses.
 
