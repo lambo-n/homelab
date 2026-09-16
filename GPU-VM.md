@@ -1917,6 +1917,17 @@ Verified, with the SSH rule added before `ufw enable`:
     `grep -c`, which also counts blank lines.
   - An F6b rotation or revocation is: edit the SOPS Secret, replace that line,
     restart both units.
+- ✅ **Grafana dashboard "LLM VM — Arc Pro B70"** (uid `llm-vm-gpu`, PR #28,
+  `llm-vm/app/dashboards/llm-vm.json`). It has four rows:
+  - GPU gauges: pkg/VRAM temperature (75 °C yellow, 90 °C red), board power, fan;
+  - GPU history: temperatures, power, the 16 VRAM channels;
+  - llama-fast tok/s and requests;
+  - VM CPU, memory and disk.
+
+  All 22 queries were run against the live Prometheus before commit. Board power comes
+  from `rate(node_hwmon_energy_joule_total)` (`card` = board, `pkg` = GPU); idle was
+  46 W board / 26 W pkg. Not shown: VRAM *usage* (node_exporter has no source for it)
+  and which router preset is loaded (the router isn't scraped).
 
 ## Phase E — bring it under tofu, and update the docs
 
