@@ -1559,6 +1559,14 @@ sudo llm-mode status                                # both llama units active
 If the resize failed, VM 105 still runs with a smaller BAR (only loads are slower).
 Stop it, run `systemctl restart gpu-rebar` on the host, then start it again.
 
+✅ **Autostart applied 2026-09-16** (PR #26, `tofu apply` with the `!llm` token):
+the plan was clean, one in-place change, `on_boot = false -> true`. **Every later
+plan for VM 105 needs the two creation-time variables** from C1, or `tofu plan`
+prompts for `llm_ssh_public_keys`:
+- `TF_VAR_ubuntu_noble_image_sha256` = the recorded `612b2c0c…7354`. Don't re-read
+  it: a respun image's new checksum would plan to replace the download.
+- `TF_VAR_llm_ssh_public_keys` from the dev VM's `~/.ssh/authorized_keys` (2 keys).
+
 ### Living with a small BAR
 
 > ℹ️ **Superseded on this host, 2026-09-16:** full 32 GiB ReBAR works (above). This
