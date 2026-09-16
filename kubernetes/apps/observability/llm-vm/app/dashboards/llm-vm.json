@@ -8,7 +8,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-3h",
@@ -16,7 +16,7 @@
   },
   "editable": true,
   "graphTooltip": 1,
-  "description": "VM 105 (llm, 192.168.50.107): GPU thermals and power from node_exporter hwmon, llama-fast metrics, VM resources. homelab GPU-VM.md F6b.",
+  "description": "VM 105 (llm, 192.168.50.107): GPU thermals and power from node_exporter hwmon, per-model llama-server metrics (llama-metrics textfile collector), VM resources. homelab GPU-VM.md F6b.",
   "templating": {
     "list": [
       {
@@ -35,6 +35,34 @@
         "regex": "",
         "skipUrlSync": false,
         "type": "datasource"
+      },
+      {
+        "type": "query",
+        "name": "model",
+        "label": "Model",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(llamacpp:model_loaded{instance=\"llm\"}, model)",
+        "query": {
+          "query": "label_values(llamacpp:model_loaded{instance=\"llm\"}, model)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
       }
     ]
   },
@@ -820,9 +848,10 @@
     },
     {
       "type": "row",
-      "title": "fast model \u2014 llama-fast :8081 (Qwen3.5-4B)",
-      "id": 13,
+      "title": "Model: $model",
+      "id": 23,
       "collapsed": false,
+      "repeat": "model",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -833,16 +862,16 @@
     },
     {
       "type": "stat",
-      "title": "Generation speed (last request)",
-      "id": 14,
+      "title": "Status",
+      "id": 24,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "tokens/s, as llama-server reports it for recent requests.",
+      "description": "fast is its own service (always on). The router holds one of qwen27 / qwen27-agent / chat at a time; collected every 15 s by llama-metrics on llm.",
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 4,
         "x": 0,
         "y": 25
       },
@@ -852,8 +881,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(llamacpp:predicted_tokens_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"})",
-          "legendFormat": "gen",
+          "expr": "max(llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"})",
+          "legendFormat": "",
           "refId": "A",
           "range": false,
           "instant": true
@@ -861,20 +890,38 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: tok/s",
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "text",
                 "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "decimals": 1
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "unloaded",
+                  "color": "text"
+                },
+                "1": {
+                  "text": "LOADED",
+                  "color": "green"
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -888,25 +935,23 @@
         },
         "textMode": "value_and_name",
         "colorMode": "background",
-        "graphMode": "area",
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "graphMode": "none",
+        "orientation": "auto"
       }
     },
     {
       "type": "stat",
-      "title": "Prompt speed (last request)",
-      "id": 15,
+      "title": "Generation speed (5m)",
+      "id": 25,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "",
+      "description": "Tokens generated \u00f7 time spent generating, over the last 5 minutes. Idle when nothing was generated.",
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 6,
+        "w": 4,
+        "x": 4,
         "y": 25
       },
       "targets": [
@@ -915,8 +960,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(llamacpp:prompt_tokens_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"})",
-          "legendFormat": "prompt",
+          "expr": "(sum(increase(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) / sum(increase(llamacpp:tokens_predicted_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m]))) and (sum(increase(llamacpp:tokens_predicted_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) > 0)",
+          "legendFormat": "",
           "refId": "A",
           "range": false,
           "instant": true
@@ -925,6 +970,9 @@
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: tok/s",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -934,10 +982,8 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "decimals": 0
+          "decimals": 1,
+          "noValue": "idle"
         },
         "overrides": []
       },
@@ -951,16 +997,76 @@
         },
         "textMode": "value_and_name",
         "colorMode": "background",
-        "graphMode": "area",
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Prompt speed (5m)",
+      "id": 26,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Prompt tokens processed \u00f7 time spent on prompts (excludes tokens reused from cache).",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 25
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "(sum(increase(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) / sum(increase(llamacpp:prompt_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m]))) and (sum(increase(llamacpp:prompt_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) > 0)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: tok/s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "idle"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "auto"
       }
     },
     {
       "type": "stat",
       "title": "Requests in flight",
-      "id": 16,
+      "id": 27,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -968,7 +1074,7 @@
       "description": "",
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 4,
         "x": 12,
         "y": 25
       },
@@ -978,7 +1084,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(llamacpp:requests_processing{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"})",
+          "expr": "max(llamacpp:requests_processing{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"})",
           "legendFormat": "processing",
           "refId": "A",
           "range": false,
@@ -989,7 +1095,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(llamacpp:requests_deferred{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"})",
+          "expr": "max(llamacpp:requests_deferred{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"})",
           "legendFormat": "queued",
           "refId": "B",
           "range": false,
@@ -999,6 +1105,9 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1012,9 +1121,7 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          }
+          "noValue": "\u2014"
         },
         "overrides": []
       },
@@ -1028,25 +1135,23 @@
         },
         "textMode": "value_and_name",
         "colorMode": "background",
-        "graphMode": "area",
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "graphMode": "none",
+        "orientation": "auto"
       }
     },
     {
       "type": "stat",
       "title": "Tokens generated (24h)",
-      "id": 17,
+      "id": 28,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "",
+      "description": "Across model reloads (increase() handles counter resets).",
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
+        "w": 4,
+        "x": 16,
         "y": 25
       },
       "targets": [
@@ -1055,8 +1160,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"}[24h]))",
-          "legendFormat": "24h",
+          "expr": "sum(increase(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h]))",
+          "legendFormat": "",
           "refId": "A",
           "range": false,
           "instant": true
@@ -1065,6 +1170,9 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1074,10 +1182,8 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
-          "decimals": 0
+          "decimals": 0,
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1091,26 +1197,24 @@
         },
         "textMode": "value_and_name",
         "colorMode": "background",
-        "graphMode": "area",
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "graphMode": "none",
+        "orientation": "auto"
       }
     },
     {
-      "type": "timeseries",
-      "title": "Token throughput",
-      "id": 18,
+      "type": "stat",
+      "title": "Prompt cache reuse (24h)",
+      "id": 29,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Tokens per second averaged over the rate window (scrape interval is 60 s). The router on :8080 is not scraped.",
+      "description": "Share of prompt tokens served from the KV cache instead of recomputed. High is good for agent sessions.",
       "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 30
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 25
       },
       "targets": [
         {
@@ -1118,7 +1222,77 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "rate(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"}[$__rate_interval])",
+          "expr": "(sum(increase(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])) / (sum(increase(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])) + sum(increase(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])))) and ((sum(increase(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])) + sum(increase(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h]))) > 0)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput",
+      "id": 30,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "description": "Tokens per second over the rate window. Gaps are periods the model was not loaded.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(rate(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[$__rate_interval]))",
           "legendFormat": "generated",
           "refId": "A",
           "range": true,
@@ -1129,9 +1303,20 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "rate(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-fast\"}[$__rate_interval])",
+          "expr": "sum(rate(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[$__rate_interval]))",
           "legendFormat": "prompt",
           "refId": "B",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(rate(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[$__rate_interval]))",
+          "legendFormat": "prompt (cached)",
+          "refId": "C",
           "range": true,
           "instant": false
         }
@@ -1139,31 +1324,16 @@
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: tok/s",
+          "min": 0,
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 10,
             "showPoints": "never",
-            "spanNulls": true,
-            "thresholdsStyle": {
-              "mode": "off"
-            },
-            "stacking": {
-              "mode": "none"
-            }
+            "spanNulls": false
           },
           "color": {
             "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "min": 0
+          }
         },
         "overrides": []
       },
