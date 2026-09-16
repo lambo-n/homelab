@@ -386,7 +386,25 @@ error. Use `pveum role modify` if a set ever needs changing.
 > **Alternative, if touching `!import` is unappealing:** put the `llm` token under
 > a separate user (`tofu-llm@pve`) carrying these grants, leaving `tofu@pve`
 > untouched. Cleaner isolation, at the cost of a new token id in LastPass and in
-> every document that names one.
+> every document that names one. **Not taken** — the fix above was applied instead.
+>
+> ✅ **Applied and verified 2026-09-16.** `!import` moved to `--privsep 1` (the
+> secret was *not* regenerated), the user was widened, and all three claims now
+> hold:
+>
+> | Query | Result |
+> |---|---|
+> | `!llm --path /vms/105` | `VM.Allocate`, `VM.Audit`, `VM.PowerMgmt` + the eight `VM.Config.*` — **exactly `TofuVM`** |
+> | `!llm --path /vms/104` | the 7 auditor privileges, **no `VM.Allocate`, no `VM.Config.*`** |
+> | `!import --path /vms/105` | the 7 auditor privileges — **still read-only**, though the user now holds `TofuVM` there |
+>
+> That third row is the one that proves `--privsep 1` did its job: the user has
+> write on `/vms/105` and the import token still cannot use it.
+>
+> Note the token gets `TofuVM` alone at `/vms/105`, not `TofuVM` ∪ `PVEAuditor` —
+> nearest-path-wins again, on the token's own side. That is sufficient:
+> `Sys.Audit` and `Datastore.Audit` are checked at `/` and the `/storage/*` paths,
+> where the token still holds `PVEAuditor` and `TofuStorage`.
 
 **The token**, with privilege separation on so its own ACLs bound it rather than
 inheriting the user's — **bounded by the user's rights as well, which is the trap
@@ -961,8 +979,9 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable, `blocksize 64k` confirmed)
 - [x] A4 `arc-b70` mapping exists and `iommugroup=9` verified against the running kernel (2026-09-16)
 - [x] A5 roles created, `tofu@pve!llm` created, secret in LastPass, seven token ACLs applied (2026-09-16)
-- [ ] A5 🔴 **effective permissions are wrong** — privsep intersection leaves the token with `VM.Audit` alone on `/vms/105`. Mirror the grants onto `tofu@pve`, and set `!import` to `--privsep 1` first. See A5.
-- [ ] A5 scoping re-verified: `VM.Allocate` on `/vms/105`, absent on `/vms/104`, `!import` still read-only
+- [x] A5 grants mirrored onto `tofu@pve`, `!import` moved to `--privsep 1` (2026-09-16)
+- [x] A5 scoping verified: `VM.Allocate` on `/vms/105`, absent on `/vms/104`, `!import` still read-only
+- [x] **Phase A complete 2026-09-16.** Next is B1, then the B2 cluster-wide reboot.
 - [ ] B1 vfio config + initramfs
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
 - [ ] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 size recorded
