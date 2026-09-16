@@ -1,0 +1,25 @@
+# Install: GPU-VM.md F5. The always-on fast model, separate from the router
+# because the router's LRU eviction counts instances, not VRAM, and cannot pin one.
+[Unit]
+Description=llama.cpp fast model (Qwen3.5-4B) on :8081 (homelab GPU-VM.md F5)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/models
+
+[Service]
+User=llama
+Group=llama
+SupplementaryGroups=render video
+# -c 8192 with auto slots is the exact config the F4d paired fit was measured with.
+# --fit off: fail loudly on a full card instead of silently shrinking or offloading.
+ExecStart=/usr/local/bin/llama-oneapi \
+  /models/src/llama.cpp/build-sycl/bin/llama-server \
+  --host 0.0.0.0 --port 8081 \
+  --api-key-file /etc/llama/api-keys \
+  -m /models/gguf/Qwen3.5-4B-Q8_0.gguf --alias fast \
+  -c 8192 -ngl all -fa on --fit off --metrics
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
