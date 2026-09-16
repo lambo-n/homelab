@@ -106,7 +106,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Model | **Intel Arc Pro B70** (ASRock) — `lspci` shows only the GPU family, "Battlemage G21" | owner, 2026-09-15 |
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
-| VRAM | **32 GiB** (`0x800000000`), 256 MiB CPU-visible | `dmesg` |
+| VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105; 256 MiB CPU-visible (`0x10000000`, small BAR). Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
 | Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
 | Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
 | BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
