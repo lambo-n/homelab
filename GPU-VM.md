@@ -252,10 +252,32 @@ tofu downloads the image itself
 Two variables have no defaults and must be supplied before the apply:
 
 ```bash
-# SHA256 from https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
-export TF_VAR_ubuntu_noble_image_sha256='<sha256 of noble-server-cloudimg-amd64.img>'
-export TF_VAR_llm_ssh_public_keys='["ssh-ed25519 AAAA... you@wherever"]'
+# Read 2026-09-16 from https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+export TF_VAR_ubuntu_noble_image_sha256='612b2c0cc1bc413a6cb8c38fd611794caf0f2b436c50013d8b3794db12ad7354'
+# Reuse the same keys that already open the dev VM (two ed25519, ssh-import-id gh:lambo-n)
+export TF_VAR_llm_ssh_public_keys="$(jq -R -s -c 'split("\n")|map(select(length>0))' < ~/.ssh/authorized_keys)"
 ```
+
+⚠️ **Re-read that checksum before applying if any time has passed.** Ubuntu
+respins `noble-server-cloudimg-amd64.img` in place, and a stale value fails the
+download with a checksum mismatch — which is the failure you want, but only if
+you recognise it:
+
+```bash
+curl -s https://cloud-images.ubuntu.com/noble/current/SHA256SUMS | grep 'noble-server-cloudimg-amd64.img$'
+```
+
+It is a variable rather than a default in `variables.tf` for exactly this
+reason: a default would rot silently, and the point of pinning is to notice.
+
+**On the keys:** `~/.ssh/authorized_keys` on the dev VM holds two ed25519 keys
+imported from GitHub (`ssh-import-id gh:lambo-n`), so the command above gives
+VM 105 the same keys that already open this workstation — no new keypair, no
+private key created anywhere, nothing to store. They are public keys; the
+`llm_ssh_public_keys` variable is not marked `sensitive` because it does not
+need to be. **Do not** substitute `~/.ssh/flux-homelab-deploy.pub`: that is
+Flux's repo deploy key and reusing it for host login would put one key in two
+trust domains.
 
 The checksum is required rather than optional: Ubuntu rewrites `current/` in
 place on every respin, so without it the apply imports whatever is published
