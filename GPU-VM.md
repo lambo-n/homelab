@@ -1957,6 +1957,54 @@ immediately, and `chat` loads and answers.
   subdirectory an earlier session made.
 - From the laptop (fish), switch to bash and load an ssh-agent first.
 
+✅ **F6d coding agents: Claude Code, 2026-09-16** (PR #30). The owner has an
+extensive existing Claude Code setup, so Claude Code runs **on the dev VM** and only
+model requests go to the router: file edits, commands and MCP servers all execute on
+the dev VM.
+- **`scripts/llm/claude-local`** (installed to `~/.local/bin`) sets everything for
+  its own process only, so the normal `claude` and its claude.ai login are
+  untouched:
+  - `ANTHROPIC_BASE_URL=http://192.168.50.107:8080`, plus `ANTHROPIC_AUTH_TOKEN`
+    from `~/.config/llama/api-key` (600);
+  - **every model role** (default, opus, sonnet, haiku, fable, subagents, with
+    `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`) on **one** preset. The router holds a
+    single model, so a background "haiku" call to another preset would evict the
+    working model;
+  - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the preset's real window (81,920 / 195,072
+    / 262,144);
+  - `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, and nonessential traffic and
+    telemetry off;
+  - request timeout and both stream-idle watchdogs at 30 min (a cold load or a big
+    prefill can be silent for longer than the 5-min default);
+  - `CLAUDE_CONFIG_DIR=~/.claude-local`: separate settings, history and MCP config.
+  - Choose the preset with `CLAUDE_LOCAL_MODEL=qwen27|qwen27-agent|chat`.
+- **Third API key** (agents), generated on the dev VM, appended to `llm` with the
+  64-character guard. `/etc/llama/api-keys` now holds owner, cluster and agents,
+  each 64 characters.
+- ❌→✅ **Chat template.** The first session failed with `500 … Jinja Exception:
+  System message must be at the beginning`, retried for 3 min, then gave up.
+  - Cause: Claude Code sends `system` messages mid-conversation. The Qwen3.8 GGUF's
+    embedded template raises on them; Qwen3.6's (Unsloth-fixed) silently drops them.
+  - Fix: `scripts/llm/templates/qwen3.8-27b.jinja` is the template **read from the
+    GGUF header** (not Qwen's repo copy, which differs) with that one branch
+    rendering a `system` turn instead. It is rendered-tested with Jinja2 and installed
+    to `/etc/llama/templates/`, loaded by `chat-template-file` on both `qwen27`
+    presets.
+- **Verified from the dev VM:**
+  - direct `/v1/messages`: thinking block + text;
+  - `claude-local -p` with `Read`: correct answer, 2 turns, 60 s (includes the
+    model load and ~15.5K tokens of Claude Code system prompt);
+  - `Write`/`Edit`/`Bash`: wrote a module plus tests and ran them, 4 turns, 82 s;
+    the tests pass when re-run independently. `cache_read_input_tokens` is
+    reported, so prompt reuse works.
+- **Limits:**
+  - Anthropic does not support Claude Code with non-Claude models;
+  - WebSearch doesn't work (it runs on Anthropic's servers);
+  - WebFetch's domain check still calls `api.anthropic.com`;
+  - MCP tool search is off for a non-first-party base URL;
+  - the API is LAN-only (F6a), so another machine (e.g. the home PC) must be on
+    the LAN and needs its own copy of the wrapper and key.
+
 ## Phase E — bring it under tofu, and update the docs
 
 1. **The guest is already in tofu** if C2 went the intended way — authored, applied,
@@ -2149,5 +2197,5 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
 - [x] F4 benchmarks + cold load time recorded (2026-09-16): SYCL chosen; 27B cold 66.6 s / warm 20.3 s; `qwen27-agent` ~190K ctx alone (q8_0 KV); `qwen27` 2 × 40,960 beside Qwen3.5-4B
 - [x] F5 `llama-fast` + `llama-router` services, presets `qwen27`/`chat`/`qwen27-agent`, `llm-mode` (2026-09-16)
-- [ ] F6 LAN consumers — ✅ F6a firewall, ✅ F6b monitoring + cluster key (2026-09-16); ✅ F6c CLI client; ⬜ F6d agents
+- [x] F6 LAN consumers — ✅ F6a firewall, ✅ F6b monitoring + cluster key (2026-09-16); ✅ F6c CLI client; ✅ F6d Claude Code via `claude-local`
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
