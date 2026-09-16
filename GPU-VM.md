@@ -1493,7 +1493,51 @@ lspci (after):  Region 2 [size=4G]; SR-IOV Region 2 at 0x220000000000   <- VF BA
 
 Its failure handling worked as designed (card at 4 GiB, both functions rebound,
 boot unaffected), but the sequence was wrong: see the correction in "32 GiB, on the
-second try" above. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
+second try" above.
+
+**The boot's own kernel log shows the mechanism**
+(`dmesg | grep -iE '53:00|52:01|51:00|bridge window'`, at ~12.7 s):
+
+```
+pcieport 0000:51:00.0: bridge window [mem size 0x1608000000 64bit pref]: can't assign; no space   <- 64G + 24G optional > 72G root port
+pcieport 0000:51:00.0: bridge window [mem 0x220000000000-0x220fffffffff 64bit pref]: assigned
+pcieport 0000:52:01.0: bridge window [mem 0x220000000000-0x220bffffffff 64bit pref]: assigned
+pci 0000:53:00.0: BAR 2 [mem 0x220000000000-0x2207ffffffff 64bit pref]: assigned                 <- 32G WAS placed
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: can't assign; no space
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: failed to assign
+```
+
+and the sysfs `resource` file afterwards (line N+1 = index N):
+
+```
+3:  0x0000220000000000 0x00002200ffffffff   BAR 2, back to 4G after the rollback
+8:  0x0000220801000000 0x0000220807ffffff   VF BAR 0 (112M), which confirms the indexing
+10: 0x0000000000000000 0x0000000000000000   VF BAR 2: UNASSIGNED
+```
+
+So during the 32 GiB step the kernel placed BAR 2 at 32G, could not also place the
+56G VF BAR 2, **counted that single failure as failure of the whole resize**,
+returned `-ENOSPC` and rolled BAR 2 back to 4G. **The rollback does not restore VF
+BAR 2**, which is why every later resize succeeds. `lspci`'s SR-IOV
+`Region 2: Memory at 0x220000000000` after boot was the card's stale register, not
+an assignment; the sysfs `resource` file is the authority. The rule, from all four
+attempts: **a resize fails whenever the kernel must place VF BAR 2 and can't; the
+first 32 GiB attempt always fails but unassigns it.** Hence 15 (ENOSPC) → 12 → 15,
+and why 4 GiB at boot (4 + 56 fits) left VF BAR 2 in place.
+
+✅ **Fixed script installed and run, 2026-09-16 10:18 PDT** (SHA-256 `988b541b…`).
+From the post-boot state it predicted exactly:
+
+```
+gpu-rebar: BAR 2 is 4096 MiB, VF BAR 2 0 GiB; trying 32 GiB directly
+gpu-rebar: resize complete (32 GiB on the first try)
+gpu-rebar: BAR 2 is 32768 MiB
+gpu-rebar: 0000:53:00.0 driver: vfio-pci        0000:54:00.0 driver: vfio-pci
+```
+
+That exercised the early-success path only. **The full boot path (32 GiB refused →
+`VF BAR 2 0 GiB` → 4 GiB → 32 GiB) is proven only by the next host reboot**; check
+`journalctl -u gpu-rebar -b` before starting VM 105. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
 at each step. **Re-test: `systemctl restart gpu-rebar` with VM 105 stopped, then
 another host reboot.**
 
@@ -1533,6 +1577,212 @@ small BAR does and doesn't cost, for LLM inference specifically:
 > only figure that settles whether small BAR actually matters for this workload.
 
 ---
+
+## Phase F — the inference stack: llama.cpp server
+
+**Decided 2026-09-16 (owner):** `llama.cpp`'s `llama-server`, serving an
+OpenAI-compatible API to two consumers:
+
+- **the owner's workstation**, over an SSH tunnel through the tailscale gateway
+  (`ssh -N -L 8080:127.0.0.1:8080 llm`). No new exposure; it works whether or not
+  the tailnet routes the LAN.
+- **homelab apps** (k3s workloads, other VMs) at `http://192.168.50.107:8080/v1`,
+  with an API key.
+
+Not chosen: Ollama (runs Intel GPUs through Vulkan, with fewer knobs) and vLLM XPU
+(pays off only with many concurrent users).
+
+**Backend: build both SYCL and Vulkan, then benchmark.** SYCL (Intel oneAPI + Level
+Zero) is usually faster on Arc but needs a multi-GB toolchain. Vulkan (Mesa ANV)
+needs none. Measuring both on this card settles it, and the same run produces the
+model-load timing Phase D asked for, now with a full 32 GiB BAR.
+
+**All commands run in the guest (`ssh llm`),** as short separate pastes.
+
+### F0. Preflight — read-only
+
+```bash
+df -h / /models
+lsb_release -ds; uname -r; nproc; free -g
+groups
+ls -l /dev/dri/
+apt policy intel-opencl-icd libze-intel-gpu1 libze1 mesa-vulkan-drivers 2>/dev/null | grep -E '^[a-z]|Installed'
+```
+
+What it decides:
+
+- **Root disk space.** It is 32 GiB, and a full oneAPI Base Toolkit can use most of
+  that. If `/` has less than ~15 GiB free, install only the two oneAPI parts
+  llama.cpp's SYCL build needs (the DPC++ compiler and MKL), and build under
+  `/models/src` rather than `~`.
+- **Group membership.** `dev` must be in `render` (for `/dev/dri/renderD128`) to
+  use the GPU without sudo.
+- **What GPU user-space is already there.** Ubuntu 24.04's stock Level Zero /
+  compute runtime may predate Battlemage support, in which case F1 installs a
+  current one from Intel's repository.
+
+✅ **Ran 2026-09-16.** `/` 27 GiB free of 30; `/models` 1.4 TiB, empty. Ubuntu
+24.04.5, kernel `7.0.0-31-generic`, 8 vCPUs, 62 GiB RAM, no swap. `/dev/dri` has
+`card0` (the emulated display), `card1` and `renderD128` (the B70). `dev` was in
+neither `render` nor `video`: fixed with `sudo usermod -aG render,video dev` plus a
+re-login, verified with `groups`. None of `intel-opencl-icd`, `libze-intel-gpu1`,
+`libze1` or `mesa-vulkan-drivers` is installed.
+
+Correction to the plan above: llama.cpp's SYCL build needs **oneDNN and oneDPL as
+well**, not just the compiler and MKL (`docs/backend/SYCL.md`). Its recommended
+bundle is **Intel Deep Learning Essentials**, which contains all four. Space is
+no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
+
+### F1–F6 (filled in as they run)
+
+- **F1** GPU user-space: Level Zero + compute runtime (Intel's `kobuk-team/intel-graphics`
+  PPA), Vulkan (Mesa ANV from `noble-updates`), oneAPI Deep Learning Essentials 2025.3. Verify with `sycl-ls` and `vulkaninfo --summary`.
+  ✅ **Ran 2026-09-16.** Package versions were checked against Launchpad and Intel's
+  apt index before installing.
+  - **F1a** `ppa:kobuk-team/intel-graphics` → `libze-intel-gpu1 libze1 libze-dev
+    intel-opencl-icd intel-ocloc intel-gsc intel-metrics-discovery clinfo`
+    (compute runtime 26.31.39395.13, Level Zero 1.32.0). `clinfo -l`:
+    `Intel(R) Arc(TM) Pro B70 Graphics`.
+  - **F1b** `mesa-vulkan-drivers vulkan-tools libvulkan-dev glslc spirv-headers`
+    from `noble-updates` (Mesa 25.2.8, no PPA needed). `vulkaninfo --summary`:
+    `Intel(R) Graphics (BMG G31)` on the Mesa driver, plus `llvmpipe`.
+  - **F1c** Intel oneAPI apt repo → `intel-deep-learning-essentials-2025.3`
+    (llama.cpp's CI version; ~6.7 GiB vs 11 GiB for the Base Toolkit). After
+    `source /opt/intel/oneapi/setvars.sh`, `sycl-ls` shows
+    `[level_zero:gpu][level_zero:0] … Arc(TM) Pro B70 Graphics 20.2.0 [1.17.39395+13]`.
+    `/` 18 GiB free afterwards.
+  - The first F1c paste failed harmlessly: the `wget … .PUB \` line wrapped, and
+    `set -e` stopped before anything was written. Long URLs go in variables.
+- **F2** Build `llama.cpp` twice (`-DGGML_SYCL=ON` with `icx`/`icpx`, and
+  `-DGGML_VULKAN=ON`), pinned to one release tag: **`v0.4.1`** (2026-09-14; the
+  project now cuts semver releases alongside the per-commit `bNNNNN` prereleases).
+  ✅ **Built 2026-09-16** in `/models/src/llama.cpp` (shallow clone of `v0.4.1`;
+  reports `0.4.1-dev`, ggml 0.24.0 `b29c606`). Build tools: `build-essential cmake
+  git ninja-build libssl-dev`.
+  - `build-vulkan` (GCC 13.3, 747 steps): `--list-devices` →
+    `Vulkan0: Intel(R) Graphics (BMG G31) (32656 MiB, 29368 MiB free)`.
+  - `build-sycl` (icx/icpx 2025.3.3, `GGML_SYCL_F16=ON`, Level Zero API ON,
+    oneDNN 3.9, MKL 2025.3): `--list-devices` →
+    `SYCL0: Intel(R) Arc(TM) Pro B70 Graphics (32656 MiB, 32601 MiB free)`.
+  - ⚠️ **Vulkan caveat for F4:** noble's `glslc` (2023.8) lacks
+    `GL_EXT_integer_dot_product` and `GL_EXT_bfloat16`, so the Vulkan build is
+    missing some shader paths that help quantized models on Intel. If Vulkan comes
+    close to SYCL in F4, rebuild it with a current `glslc` (LunarG Vulkan SDK) before
+    choosing.
+  - Both builds embed the web UI from Hugging Face's `latest` bucket (the pinned
+    `b1` checksum download returned an error), so the UI is not pinned with the tag.
+- **F3** Model weights into `/models`: a small one to validate the builds, then
+  the real one (up to ~28 GiB of weights plus KV cache within 31.89 GiB).
+- **F4** `llama-bench` on both backends, plus a timed cold model load.
+  ✅ **F3a 2026-09-16:** `/models/gguf/llama-2-7b.Q4_0.gguf` (TheBloke, 3.56 GiB,
+  SHA-256 `78b8f977…` verified). Chosen because most published llama.cpp Vulkan/SYCL
+  numbers use it. `/models` is root-owned: create subdirectories with `sudo mkdir`,
+  then `chown dev:dev`.
+
+  ✅ **F4 on the 7B, 2026-09-16** (`llama-bench -ngl 99`, 5 reps):
+
+  | backend | pp512 t/s | tg128 t/s | load, cache dropped | load, warm |
+  |---|---:|---:|---:|---:|
+  | **SYCL** (F16, oneDNN, Level Zero) | **3256 ± 133** | **110.8 ± 0.2** | 9.8 s | 5.2 s |
+  | Vulkan (Mesa 25.2.8, `int dot: 0`) | 1676 ± 19 | 95.7 ± 0.5 | 4.9 s | 1.9 s |
+
+  Load time = `time llama-bench -p 0 -n 1 -r 1`, including process start. Only the
+  guest's page cache was dropped; the host's ZFS ARC may still hold the blocks.
+
+  **Decision: SYCL.** It is ~2× faster at prompt processing, which matters most for
+  agents re-reading long contexts, and 16% faster at generation. Its ~3 s of extra
+  startup is paid once by a resident server. The `glslc` rebuild for Vulkan is not
+  worth doing: even a large prompt-processing gain would not close a 2× gap, and
+  generation is limited by memory bandwidth. `build-vulkan` stays as a fallback.
+
+  ✅ **F4 on the production models, 2026-09-16** (SYCL, `-fa on -p 512 -n 128
+  -d 0,16384 -r 2`, each model alone, `ngl` auto = all layers):
+
+  | model | size | pp512 | tg128 | pp512 @16K | tg128 @16K |
+  |---|---:|---:|---:|---:|---:|
+  | Qwen3.8-27B UD-Q6_K_XL | 23.55 GiB | 1050 | **18.7** | 608 | 16.6 |
+  | Qwen3.6-35B-A3B UD-Q4_K_XL | 20.81 GiB | 1115 | **74.8** | 921 | 73.1 |
+  | Llama 3.1 8B Q8_0 | 7.95 GiB | 3921 | **56.9** | 1103 | 37.3 |
+
+  - The two Qwen models are hybrid (1 in 4 layers full attention) and barely slow down
+    at 16K. Llama 3.1 has full attention in every layer and loses 35% of its
+    generation speed. The MoE generates faster than the 8B, which is a point for
+    re-examining the `fast` role later.
+  - **Load of the 23.55 GiB Qwen3.8-27B (F4a):** 66.6 s with the guest page cache
+    dropped, 20.3 s warm. The cold extra (~46 s ≈ 0.5 GiB/s) is the SATA SSD under
+    `llm-pool`. The warm 20 s is SYCL start-up plus mmap/copy into VRAM, CPU-bound
+    (`sys` 9 s), not BAR-bound. **Full ReBAR leaves nothing to fix on the load path.**
+  - **Thermals during the runs:**
+    - `sensors` (`xe-pci-0100`): package peaked ~63 °C (its `high` mark is 60 °C,
+      `crit` 100 °C); VRAM 70–72 °C peak (`crit` 105 °C).
+    - Fan 1522 RPM; card power cap 275 W.
+    - `…/gt0/freq0/throttle/status` read `0` every time it was checked.
+  - **Context fit (F4c)** — `llama-server` with `-c` unset, so `--fit` (default on,
+    1024 MiB margin) shrinks context from 262K; 4 auto slots, unified KV, so
+    `n_ctx_slot` is the whole pool:
+    - Qwen3.8-27B Q6_K_XL alone, f16 KV: **116,480**
+    - alone, q8_0 KV: **195,072** (≈6.3 GiB KV, ~34 KiB/token)
+    - **beside Llama 3.1 8B** (`-c 8192`, ≈9.3 GiB), q8_0 KV: **4,096 = the fit
+      minimum. ❌ The `qwen27` preset as planned does not fit.** ~22.6 GiB is left
+      beside the 8B, less than the 23.55 GiB of weights alone.
+    - **Change, decided 2026-09-16 (owner):** the `fast` role needs little reasoning
+      (a text-only voice gag assistant with quips and a quick web search). It moves to
+      **Qwen3.5-4B Q8_0** (`unsloth/Qwen3.5-4B-GGUF` @ `e87f1764`, 4.17 GiB, SHA-256
+      `10cc391b…`). The 4B is hybrid (8 of 32 layers full attention), so its KV cache
+      is tiny; expected ~4.7 GiB in use vs 9.3 GiB for the 8B, leaving an estimated
+      ~45–60K context for Q6_K_XL beside it. UD-Q5_K_XL (19.44 GiB) is the fallback
+      if the measured fit is under ~40K. **All downloaded models are kept** (owner),
+      including Llama 3.1 8B.
+    - ✅ **Measured with the 4B, 2026-09-16.**
+      - `Qwen3.5-4B-Q8_0.gguf` downloaded, checksum OK. `llama-bench`: pp512 **5162**,
+        tg128 **76.9**; at 16K, pp 2534, tg 64.8. Generation came in below my ">100"
+        estimate; the linear-attention layers are the likely cost on SYCL.
+      - Paired fit, with the 4B at `-c 8192` (4 slots) and Qwen3.8-27B Q6_K_XL at
+        `-np 2 -ctk q8_0 -ctv q8_0`: `n_slots = 2, n_ctx_slot = 40960,
+        kv_unified = 'false'`. That is **40,960 tokens per slot, 81,920 in total**,
+        above the ~45–60K estimate. Fit kept context well above its 4096 floor, so no
+        layers were moved off the GPU.
+      - **The `qwen27` preset fits with Q6_K_XL; Q5_K_XL is not needed.**
+  - `xpu-smi` 2.0.1 (from the PPA) sees the card and reports power, frequency and
+    memory, but shows `N/A` for temperatures, fan and utilization. Use `sensors`.
+    `intel_gpu_top` 1.28 (noble) is i915-only. The card idles at **48 W** at 650 MHz,
+    possibly PCIe ASPM being off under passthrough; not investigated yet.
+
+  📝 **F3b model set, decided 2026-09-16 (owner).** The router can swap models, so
+  more can be added later. Hashes and repo revisions were read from the Hugging Face
+  API, and each download is pinned to that revision:
+
+  | Model | File | Size | Repo @ revision | SHA-256 |
+  |---|---|---:|---|---|
+  | Llama 3.1 8B Instruct | `Meta-Llama-3.1-8B-Instruct-Q8_0.gguf` | 7.95 GiB | `bartowski/…-GGUF` @ `bf5b95e9` | `9da71c45…` |
+  | Qwen3.8-27B | `Qwen3.8-27B-UD-Q6_K_XL.gguf` | 23.56 GiB | `unsloth/Qwen3.8-27B-GGUF` @ `4ca72078` | `701d8fa9…` |
+  | Qwen3.6-35B-A3B | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | 20.82 GiB | `unsloth/Qwen3.6-35B-A3B-GGUF` @ `a483e9e6` | `707a55a8…` |
+
+  Total 52.3 GiB. ✅ **Downloaded 2026-09-16** to `/models/gguf`; byte sizes match
+  the API and all three `sha256sum -c` checks passed. `/models`: 58 GiB used.
+
+  Router presets planned for F5:
+  - **`fast`**: Llama 3.1 8B, always loaded; quick API calls from LAN apps.
+  - **`qwen27`**: Qwen3.8-27B beside `fast`, for everyday coding. Context is tight,
+    roughly 0–25K (estimated); F4 measures it, with plain Q6_K (20.5 GiB) as the fallback.
+  - **`qwen27-agent`**: the same file alone on the card, for long agent runs and
+    architecture work. ~110K context at f16 KV, ~200K at q8_0 (estimated). Only 16 of
+    the 64 layers use full attention, so the KV cache is ~64 KiB/token.
+  - **`chat`**: Qwen3.6-35B-A3B beside `fast` (28.8 GiB).
+
+  Considered and deferred (owner's earlier list):
+  - Llama 3.1 70B Q4_K_M: 39.6 GiB, so ~20 GiB would run on the CPU; estimated 2–5 tok/s.
+  - DeepSeek-R1-Distill-Qwen-32B: its reported GPQA 62.1 vs 89.2 for Qwen3.8-27B.
+  - Devstral 2 123B Q4_K_M: 69.75 GiB, ~46–52 GiB on the CPU at 32–64K context,
+    estimated 1–2 tok/s; needs VM 105 raised to ~96 GiB RAM.
+
+  Any of these can be added later as a measured experiment. Qwen3.8-Flash-Next is not
+  yet supported by llama.cpp `v0.4.1`.
+
+- **F5** `llama-server` as a systemd service on the winning backend, bound to
+  `0.0.0.0:8080`, with `--api-key` from a root-only env file.
+- **F6** Consumers: the workstation tunnel, and the key delivered to cluster apps
+  (SOPS, since only the cluster reads it; `secrets_architecture`).
 
 ## Phase E — bring it under tofu, and update the docs
 
@@ -1718,6 +1968,13 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
 - [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via 32 GiB (fails, releases the SR-IOV reservation) → 4 GiB → 32 GiB
 - [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
-- [ ] D boot-time resize verified across a real host reboot (`journalctl -u gpu-rebar -b` → `resize complete`)
-- [ ] D model load time in the guest measured and written down
+- [ ] D boot-time resize verified across a real host reboot (first try 2026-09-16 failed at 32 GiB; sequence fixed in PR #24; expect `direct 32 GiB refused … VF BAR 2 0 GiB` then `resize complete`)
+- [x] D model load time in the guest measured and written down (F4a, 2026-09-16: disk- and CPU-bound, not BAR-bound)
+- [x] F0 preflight (2026-09-16): 27 GiB free on `/`, 62 GiB RAM, `dev` added to `render`/`video`, no GPU user-space installed
+- [x] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified (2026-09-16): `clinfo`, `vulkaninfo` and `sycl-ls` all see the B70
+- [x] F2 llama.cpp `v0.4.1` built, SYCL + Vulkan, both see the B70 (2026-09-16)
+- [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
+- [x] F4 benchmarks + cold load time recorded (2026-09-16): SYCL chosen; 27B cold 66.6 s / warm 20.3 s; `qwen27-agent` ~190K ctx alone (q8_0 KV); `qwen27` 2 × 40,960 beside Qwen3.5-4B
+- [ ] F5 `llama-server` systemd service
+- [ ] F6 workstation tunnel + cluster API key
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
