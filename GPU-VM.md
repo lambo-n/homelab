@@ -277,11 +277,28 @@ read-only"). Decided with the owner 2026-09-15.
 > else has claimed the id, and an ACL on the wrong `/vms/N` grants write on a
 > guest that isn't this one.
 
-**Roles** — three, each holding the narrowest set that does its job:
+**Roles** — three, each holding the narrowest set that does its job.
+
+> ⚠️ **`VM.Monitor` is not a valid privilege on this host and is not in the list
+> below.** An earlier draft included it; PVE 9.1.1 rejected the role outright with
+> `400 Parameter verification failed. privs: invalid format - invalid privilege
+> 'VM.Monitor'` (2026-09-16). It was over-specified in the first place — the
+> `bpg/proxmox` provider never uses the QEMU monitor — so it was dropped rather
+> than replaced, which suits a role whose whole purpose is to be minimal. The
+> authoritative list for any future edit comes from the host, not from memory:
+>
+> ```bash
+> pveum role add --help 2>&1 | tr ',' '\n' | grep -o 'VM\.[A-Za-z.]*' | sort -u
+> ```
+>
+> Note the failure mode: `pveum role add` is **all-or-nothing**, so one bad
+> privilege means the role does not exist at all, while the commands after it in
+> the same paste still run. Check what actually landed with
+> `pveum role list | grep Tofu` before assuming a clean slate.
 
 ```bash
 # on 192.168.50.101, as root
-pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,VM.Monitor,\
+pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,\
 VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
 VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
 pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
@@ -757,7 +774,7 @@ readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # MUST be 9, or fix the
 # PVE compares iommugroup against the hardware when the VM starts, not now.
 
 ### 4. Roles, token, ACLs
-pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,VM.Monitor,\
+pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,\
 VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
 VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
 pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
