@@ -130,6 +130,10 @@ fi
 #   .104 control   Nothing stateful; it just needs to outlive the kubelets so
 #                  their shutdown is recorded rather than looking like a crash.
 #   .103 dev       The kubectl/deploy box.
+#   .107 llm       VM 105, the LLM inference API (GPU-VM.md F5). After every
+#                  guest that may call it (cluster apps, agents on dev), so no
+#                  consumer loses the API mid-request. It holds no state that a
+#                  hard stop could damage: models are read-only files.
 #   .102 tailscale The VPN entry point, and the way in from outside. Last, so
 #                  remote access outlives everything it might be needed to
 #                  watch. Stopping it earlier would cut the operator off
@@ -140,6 +144,7 @@ declare -a ORDER=(
   "192.168.50.106|k3s-worker2|vm|PostgreSQL + PostgREST"
   "192.168.50.104|k3s-control|vm|k3s control plane"
   "192.168.50.103|dev|vm|dev / deploy VM"
+  "192.168.50.107|llm|vm|LLM inference API (VM 105)"
   "192.168.50.102|tailscale|lxc|Tailscale VPN entry — LAST, it is your way in"
 )
 
