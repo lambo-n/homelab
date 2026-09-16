@@ -551,8 +551,20 @@ that will be loaded.
 
 ```bash
 bash homelab-shutdown.sh --dry-run
-bash homelab-shutdown.sh --yes --poweroff-host   # or reboot; from the console / LAN, not via Tailscale
+bash homelab-shutdown.sh --yes --poweroff-host   # or reboot
 ```
+
+The script now **re-runs itself inside tmux and attaches you to it**, so an SSH
+or Tailscale session that drops mid-shutdown no longer takes the run with it —
+which matters here because `192.168.50.102`, the Tailscale entry container, is
+deliberately the *last* guest stopped. Reattach when the host is reachable again:
+
+```bash
+tmux attach -t homelab-shutdown
+```
+
+Running from the Proxmox console is still fine; pass `--no-tmux` there if you
+would rather not have the extra layer.
 
 > ❌ **This BIOS has no Resizable BAR option. Established 2026-09-15 by the
 > owner, before this document existed** — the Dell EMC BIOS setup was searched,
@@ -978,8 +990,10 @@ is not inside the initramfs, `xe` will claim the card on the next boot regardles
 of what `/etc/modprobe.d` says, and the reboot below is wasted.
 
 🛑 **The next step takes the whole cluster down**, including the Postgres VM and
-the tailnet gateway. Run it from the Proxmox console or the LAN — not through
-Tailscale, which the script stops last and which would kill an interactive run.
+the tailnet gateway. The script wraps itself in tmux, so a dropped connection
+costs you the view rather than the run — reattach with
+`tmux attach -t homelab-shutdown`. The Proxmox console is still the calmest place
+to watch it from.
 
 ```bash
 ### 6. Down, BIOS, up
