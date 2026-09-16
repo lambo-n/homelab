@@ -1,0 +1,9 @@
+#!/bin/bash
+# Run a command with the oneAPI environment loaded (llama.cpp SYCL build).
+# Installed to /usr/local/bin/llama-oneapi. See homelab GPU-VM.md F5.
+# setvars.sh reads "$@" as its own options when sourced, so clear the
+# positional parameters first or it would parse llama-server's flags.
+args=("$@")
+set --
+source /opt/intel/oneapi/setvars.sh >/dev/null
+exec "${args[@]}"

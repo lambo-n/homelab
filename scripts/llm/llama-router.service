@@ -1,0 +1,23 @@
+# Install: GPU-VM.md F5. Router for the large models, one loaded at a time.
+[Unit]
+Description=llama.cpp router (Qwen3.8-27B / Qwen3.6-35B-A3B) on :8080 (homelab GPU-VM.md F5)
+Wants=network-online.target
+After=network-online.target llama-fast.service
+RequiresMountsFor=/models
+
+[Service]
+User=llama
+Group=llama
+SupplementaryGroups=render video
+# --models-max 1: a request for another preset unloads the current one first.
+ExecStart=/usr/local/bin/llama-oneapi \
+  /models/src/llama.cpp/build-sycl/bin/llama-server \
+  --host 0.0.0.0 --port 8080 \
+  --api-key-file /etc/llama/api-keys \
+  --models-preset /etc/llama/models.ini \
+  --models-max 1 --metrics
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
