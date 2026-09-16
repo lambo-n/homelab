@@ -1418,6 +1418,49 @@ Reading the result:
   `0x380000000000` (56 TiB, from C3), so OVMF already sizes a large window from
   the 46-bit `cpu: host` address width, and this may well not be needed.
 
+### D4. Make it survive a host reboot
+
+The resize is lost at every host boot, and the SR-IOV reservation comes back with
+it, so the boot unit repeats **both** steps: `scripts/gpu-rebar.sh`, run by
+`scripts/gpu-rebar.service`. It:
+
+- exits immediately if BAR 2 is already 32 GiB (safe to re-run);
+- refuses if VM 105 is running (its QEMU pid is alive) or `vfio-pci` is absent;
+- sets `driver_override=vfio-pci` **before** unbinding, since `xe` is loaded on the host;
+- resizes to 4 GiB, then to 32 GiB;
+- **always** rebinds both functions to `vfio-pci` on exit (`trap`), and logs the
+  final BAR size and drivers to the journal.
+
+It orders itself `Before=pve-guests.service`, and nothing `Requires` it. A failed
+resize leaves the card at 256 MiB or 4 GiB, still bound and still usable by VM 105,
+and never blocks boot.
+
+**Install on the host.** Fetch the files with `scp`, not by pasting (tonight's
+pastes wrapped and mangled lines):
+
+```bash
+scp dev@192.168.50.103:/home/dev/homelab/scripts/gpu-rebar.sh /usr/local/sbin/gpu-rebar.sh
+scp dev@192.168.50.103:/home/dev/homelab/scripts/gpu-rebar.service /etc/systemd/system/
+chmod 755 /usr/local/sbin/gpu-rebar.sh
+systemctl daemon-reload && systemctl enable gpu-rebar.service
+```
+
+**Test without a reboot.** The card is already at 32 GiB, so a run should exit
+through the no-op path:
+
+```bash
+systemctl start gpu-rebar.service
+journalctl -u gpu-rebar -n 5 --no-pager        # "BAR 2 already 32 GiB; nothing to do"
+```
+
+**Real test: the next host reboot** (e.g. through `homelab-shutdown.sh`). Before
+starting VM 105, check:
+
+```bash
+journalctl -u gpu-rebar -b --no-pager          # "resize complete", BAR 2 32768 MiB, both vfio-pci
+lspci -vv -s 53:00.0 | grep 'Region 2'          # [size=32G]
+```
+
 ### Living with a small BAR
 
 > ℹ️ **Superseded on this host, 2026-09-16:** full 32 GiB ReBAR works (above). This
