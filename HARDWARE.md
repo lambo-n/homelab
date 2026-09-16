@@ -50,7 +50,10 @@ This file is the one place that records the metal.
 |---|---|---|
 | Proxmox VE | `192.168.50.101` (`pve`) | `README.md:83` |
 | Also runs | NFS server exporting `/archive-pool` | `README.md:84` |
-| Platform | Dell, Ice Lake generation — `fe:00.x Intel Ice Lake Ubox Registers`, Dell subsystem IDs `1028:*` on every controller | `lspci -nnk`, 2026-09-09 |
+| Model | **Dell PowerEdge T550** (15G), BIOS **1.8.2** | `dmidecode`, 2026-09-16 |
+| CPU | **Xeon Silver 4314** @ 2.40 GHz — 1 socket, 32 threads, **1 NUMA node** (`node0` = 0–31) | `lscpu`, 2026-09-16 |
+| Proxmox VE | `pve-manager/9.1.1`, kernel `6.17.2-1-pve` | `pveversion`, 2026-09-16 |
+| Platform | Ice Lake generation — `fe:00.x Intel Ice Lake Ubox Registers`, Dell subsystem IDs `1028:*` on every controller | `lspci -nnk`, 2026-09-09 |
 | RAM | **503 GiB total**, 35 GiB used, 467 GiB free | `free -g`, 2026-09-09 |
 | Swap | 8 GiB, on `pve-swap` (LVM, on the boot device) | `lsblk`, 2026-09-09 |
 
@@ -107,7 +110,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Firmware | GuC 70.49.4 · HuC 8.2.10 · DMC 2.6 — all loaded | `dmesg` |
 | Host kernel | `6.17.2-1-pve` | `uname -r` |
 | Device nodes | `/dev/dri/card0`, `card1`, `renderD128` (`render` group) | `ls -l /dev/dri` |
-| IOMMU group | **9 — `53:00.0` alone** | `ls /sys/kernel/iommu_groups/9/devices/` |
+| IOMMU group | **9 — `53:00.0` alone**; the audio function `54:00.0` is group **10** | `ls /sys/kernel/iommu_groups/9/devices/`; `readlink …/54:00.0/iommu_group`, 2026-09-16 |
 | On-board video | `03:00.0` Matrox G200eW3 (`mgag200`), group 25 — iDRAC console | `lspci -nnk` |
 
 - ✅ **Adding it moved no storage controller.** `05:00.0`, `00:11.5`, `00:17.0`,
@@ -116,13 +119,17 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   neither RMRR in `dmesg` (`41fcd000–49fd4fff`, `69424000–69426fff`) covers it.
   Passing it to a VM means rebinding `53:00.0` from `xe` to `vfio-pci`, which
   also takes it away from the host. The audio function `54:00.0` is in a
-  different group (group number not yet recorded).
+  different group — **10**, read 2026-09-16 — so the card is assignable without
+  it. `GPU-VM.md` B1 binds it to `vfio-pci` all the same, so that no host driver
+  holds a device under the card's bridges during the Phase D BAR attempt; it is
+  not attached to the VM.
 - ⚠️ **Resizable BAR is off.** `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.
   ❌ **No fix available in firmware: this Dell EMC BIOS has no Resizable BAR
   option** (owner, 2026-09-15 — setup searched, IOMMU settings varied, GRUB
-  kernel parameters tried; none helped). One attempt remains, with the card
+  kernel parameters tried; none helped) — **on BIOS 1.8.2**, the version running
+  as of 2026-09-16. A Dell BIOS update is the only thing that could reopen this. One attempt remains, with the card
   unbound from `xe` and held by `vfio-pci`, since a bound driver makes the
   kernel refuse a resize outright — see [`GPU-VM.md`](GPU-VM.md) Phase D. Treat
   small BAR as permanent until that says otherwise.

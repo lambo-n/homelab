@@ -38,11 +38,53 @@ pvesh get /cluster/nextid                       # expect 105; anything else mean
 qm list; pct list
 nproc; lscpu | grep -E 'Model name|Socket|NUMA node'
 cat /sys/bus/pci/devices/0000:53:00.0/numa_node # GPU's NUMA node; matters if 2 sockets
+readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # GPU group; A4 asserts 9, and group numbers move
 readlink /sys/bus/pci/devices/0000:54:00.0/iommu_group   # audio group, unrecorded in HARDWARE.md
 lspci -nnk -s 53:00.0; lspci -nnk -s 54:00.0    # current drivers (expect xe / snd_hda_intel)
 dmidecode -s system-product-name; dmidecode -s bios-version
 pveversion
 ```
+
+✅ **Run 2026-09-16 on the host console. What it printed:**
+
+| | |
+|---|---|
+| `nextid` | **105** — still free, so A5's literal `/vms/105` ACL paths stand |
+| Guests | VMs 101 `dev`, 102 `k3s-control`, 103 `k3s-worker1`, 104 `k3s-worker2`, all running; LXC 100 `tailscale-gateway`. **No 105.** |
+| CPU | Xeon Silver 4314 @ 2.40 GHz — **1 socket**, 32 threads, **1 NUMA node** (`node0` = CPUs 0–31) |
+| GPU NUMA node | `0` — i.e. the only one |
+| IOMMU group, audio `54:00.0` | **10**. The GPU `53:00.0` is **9** (`HARDWARE.md`, 2026-09-09): **different groups.** |
+| Drivers in use | `53:00.0` → `xe`; `54:00.0` → `snd_hda_intel` — exactly what B1's `softdep` lines name |
+| Machine | **Dell PowerEdge T550**, BIOS **1.8.2** |
+| Proxmox | `pve-manager/9.1.1`, kernel `6.17.2-1-pve` |
+
+What that settles:
+
+- **No CPU pinning, and the C2 conditional is closed.** One socket and one NUMA
+  node leave `--affinity` / `--numa 1` nothing to choose between; the GPU's
+  `numa_node=0` is the same node as every core. VM 105 takes 8 of 32 threads,
+  unpinned.
+- **The audio function is bound to `vfio-pci` for Phase D's sake, not the
+  IOMMU's.** Groups 9 and 10 are separate, so `53:00.0` is assignable on its own
+  and `54:00.0` is *not* dragged along by group membership. B1 binds it anyway so
+  that no host driver holds a device under the card's bridges while Phase D
+  rearranges those bridge windows — a choice, not a requirement. It is still not
+  attached to the VM.
+- **The B2 menu names are the right family to look for.** The T550 is Dell 15G,
+  so *Integrated Devices → Memory Mapped I/O above 4 GB* / *Memory Mapped I/O
+  Base* is 15G naming rather than a guess from a different generation. Still
+  read the screen and record what it actually says.
+- **"This BIOS has no ReBAR option" is now stamped at version 1.8.2.** A Dell
+  BIOS update is the one thing that could reopen ReBAR; nothing in Phase D can.
+  If the T550 ever ships a newer BIOS, that — and only that — is cause to retest.
+- **Memory still fits.** 297 GiB of 503 is committed to the five existing guests
+  (`HARDWARE.md`); VM 105 pins 64 more, leaving ~142 GiB free.
+
+⚠️ **Not read: the GPU's own IOMMU group.** Only the audio function's was, and
+A4's mapping asserts `iommugroup=9` from a reading taken 2026-09-09, before the
+host moved to kernel `6.17.2-1-pve`. Group numbers are assigned at boot and can
+shift. The line is now in the block above — run it before A4, and if it is not 9,
+correct the `pvesh create` rather than letting PVE reject the mapping.
 
 ### A2. Prove `sde` is an orphan, then wipe it
 
@@ -81,6 +123,10 @@ pvesh create /cluster/mapping/pci --id arc-b70 \
   --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=9
 pvesh get /cluster/mapping/pci/arc-b70
 ```
+
+`iommugroup=9` is an assertion PVE checks, not a label: confirm it against
+`readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group` in A1 first. The 9 comes
+from 2026-09-09, and group numbers are handed out at boot.
 
 The UI equivalent is Datacenter → Resource Mappings → PCI Devices → Add.
 
@@ -219,8 +265,9 @@ lands, which is a different knob from ReBAR itself):
 - **Memory Mapped I/O above 4 GB** → Enabled
 - **Memory Mapped I/O Base** → the highest option offered (e.g. 56 TB / 12 TB rather than 512 GB)
 
-Record what's actually there, including "no such option" — the names above are
-from Dell 14G/15G setup and are unverified on this machine.
+Record what's actually there, including "no such option". A1 confirms this is a
+**PowerEdge T550 on BIOS 1.8.2** — Dell 15G, so the names above are the right
+generation's, though still unverified on this particular machine.
 
 ### B3. After boot, verify
 
@@ -357,7 +404,7 @@ qm create 105 --name llm --ostype l26 \
 | `q35` + `ovmf` | PCIe passthrough, and a 64-bit MMIO window big enough for a 32 GiB BAR. SeaBIOS/i440fx, which the other guests use, is the wrong platform for this. |
 | `cpu host` | Passes through the host's physical address width (46-bit on Ice Lake), which is what OVMF uses to size that window. It also gives llama.cpp's CPU fallback AVX-512 and AMX. |
 | `memory 64 GiB`, `balloon 0` | A VM with a passthrough device pins **all** of its RAM, so ballooning can't work. 64 GiB is twice the VRAM, enough to page models through. 206 GiB is uncommitted. |
-| `cores 8` | A starting point. If A1 shows two sockets, pin to the GPU's NUMA node (`--affinity` with that node's cores, `--numa 1`). |
+| `cores 8` | A starting point, out of 32 threads. **No pinning:** A1 found one socket and one NUMA node, so there is no node to pin to. |
 | `scsi1 1400 GiB`, `backup=0` | Leaves ~20% of the 1.75 TiB pool free for ZFS. vzdump backups of re-downloadable models would waste space. |
 | `pre-enrolled-keys=0` | Secure Boot off. It removes one failure mode with no security cost for this use. |
 | no `x-vga`, `rombar` default | Compute only. The console stays on Proxmox's virtual display. |
@@ -516,6 +563,7 @@ pvesh get /cluster/nextid                  # expect 105
 qm list; pct list
 nproc; lscpu | grep -E 'Model name|^Socket|^NUMA node\(s\)'
 cat /sys/bus/pci/devices/0000:53:00.0/numa_node
+readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # must be 9, or fix step 3
 readlink /sys/bus/pci/devices/0000:54:00.0/iommu_group
 lspci -nnk -s 53:00.0; lspci -nnk -s 54:00.0
 dmidecode -s system-product-name; dmidecode -s bios-version; pveversion
@@ -524,6 +572,11 @@ dmidecode -s system-product-name; dmidecode -s bios-version; pveversion
 🛑 **Record that output somewhere before continuing** — socket count and the
 GPU's NUMA node decide whether VM 105 wants CPU pinning, and none of it can be
 re-derived from inside the cluster later.
+
+> ✅ **Done 2026-09-16 — see A1 for what it printed.** One socket, one NUMA
+> node, so no pinning; `nextid` is still 105; both functions are on their
+> expected host drivers. Re-run it anyway if the host has rebooted since, for the
+> IOMMU group numbers that step 3 depends on.
 
 ```bash
 ### 1. Prove sde is an orphan
@@ -621,7 +674,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 
 ## Checklist
 
-- [ ] A1 preflight read and recorded
+- [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
 - [ ] A2 `sde` proven orphan, wiped
 - [ ] A3 `llm-pool` created, in `pvesm status`
 - [ ] A4 `arc-b70` mapping exists
