@@ -1656,6 +1656,21 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
 - **F2** Build `llama.cpp` twice (`-DGGML_SYCL=ON` with `icx`/`icpx`, and
   `-DGGML_VULKAN=ON`), pinned to one release tag: **`v0.4.1`** (2026-09-14; the
   project now cuts semver releases alongside the per-commit `bNNNNN` prereleases).
+  ✅ **Built 2026-09-16** in `/models/src/llama.cpp` (shallow clone of `v0.4.1`;
+  reports `0.4.1-dev`, ggml 0.24.0 `b29c606`). Build tools: `build-essential cmake
+  git ninja-build libssl-dev`.
+  - `build-vulkan` (GCC 13.3, 747 steps): `--list-devices` →
+    `Vulkan0: Intel(R) Graphics (BMG G31) (32656 MiB, 29368 MiB free)`.
+  - `build-sycl` (icx/icpx 2025.3.3, `GGML_SYCL_F16=ON`, Level Zero API ON,
+    oneDNN 3.9, MKL 2025.3): `--list-devices` →
+    `SYCL0: Intel(R) Arc(TM) Pro B70 Graphics (32656 MiB, 32601 MiB free)`.
+  - ⚠️ **Vulkan caveat for F4:** noble's `glslc` (2023.8) lacks
+    `GL_EXT_integer_dot_product` and `GL_EXT_bfloat16`, so the Vulkan build is
+    missing some shader paths that help quantized models on Intel. If Vulkan comes
+    close to SYCL in F4, rebuild it with a current `glslc` (LunarG Vulkan SDK) before
+    choosing.
+  - Both builds embed the web UI from Hugging Face's `latest` bucket (the pinned
+    `b1` checksum download returned an error), so the UI is not pinned with the tag.
 - **F3** Model weights into `/models`: a small one to validate the builds, then
   the real one (up to ~28 GiB of weights plus KV cache within 31.89 GiB).
 - **F4** `llama-bench` on both backends, plus a timed cold model load.
@@ -1852,7 +1867,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [ ] D model load time in the guest measured and written down (now part of F4)
 - [x] F0 preflight (2026-09-16): 27 GiB free on `/`, 62 GiB RAM, `dev` added to `render`/`video`, no GPU user-space installed
 - [x] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified (2026-09-16): `clinfo`, `vulkaninfo` and `sycl-ls` all see the B70
-- [ ] F2 llama.cpp built, SYCL + Vulkan
+- [x] F2 llama.cpp `v0.4.1` built, SYCL + Vulkan, both see the B70 (2026-09-16)
 - [ ] F3 models in `/models`
 - [ ] F4 benchmarks + cold load time recorded
 - [ ] F5 `llama-server` systemd service
