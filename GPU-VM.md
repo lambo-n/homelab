@@ -439,6 +439,37 @@ pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser 
   right zone for `vmbr0` on PVE 9.1.1, and the grant was accepted. All seven
   ACLs applied, giving eight `tofu` rows in `pveum acl list`: the pre-existing
   `tofu@pve` user row plus seven for the token.
+- 🔴 **An eighth grant turned out to be required: `Sys.AccessNetwork` on
+  `/nodes/pve`.** Found 2026-09-16 when the first apply failed on the image
+  download with `received an HTTP 403 response - Reason: Permission check
+  failed`. That 403 came from PVE, not Ubuntu: the provider calls
+  `/nodes/pve/query-url-metadata`, then `download-url`. Read from the API source
+  on the host, since `pvesh usage --verbose` does not print permissions:
+
+  ```
+  Nodes.pm          query_url_metadata: 'or', perm / [Sys.Audit, Sys.Modify],
+                                              perm /nodes/{node} [Sys.AccessNetwork]
+  Storage/Status.pm download_url:       'and', perm /storage/{storage} [Datastore.AllocateTemplate],
+                                              (Sys.Modify on / "for backwards compatibility"
+                                               OR Sys.AccessNetwork on the node)
+  ```
+
+  `Sys.AccessNetwork` is the narrow side of that `or`: it lets the token make
+  the node fetch a URL and nothing else, while `Sys.Modify` would open node and
+  datacenter configuration. It is granted permanently because every future
+  image checksum change goes through the same download. Two traps from earlier
+  in A5 apply here too, so the grant goes to **both** the user and the token
+  (privsep intersection), with **`PVEAuditor` alongside** at that path
+  (nearest-path-wins would otherwise strip the node-level audit privileges the
+  provider reads):
+
+  ```bash
+  pveum role add TofuNet --privs "Sys.AccessNetwork"
+  pveum acl modify /nodes/pve --users  tofu@pve       --roles PVEAuditor,TofuNet
+  pveum acl modify /nodes/pve --tokens 'tofu@pve!llm' --roles PVEAuditor,TofuNet
+  pveum user permissions 'tofu@pve!llm'    --path /nodes/pve   # Sys.AccessNetwork + auditor set
+  pveum user permissions 'tofu@pve!import' --path /nodes/pve   # auditor set only
+  ```
 - **Not granted, deliberately:** `Sys.Modify` (datacenter config, incl. adding
   storage), `Mapping.Modify` (creating or editing mappings), `VM.Allocate`
   anywhere above `/vms/105`, `VM.Migrate`, `VM.Backup`, `VM.Snapshot`,
@@ -1032,6 +1063,9 @@ pveum acl modify /storage/llm-pool             --tokens "$T" --roles TofuStorage
 pveum acl modify /storage/local                --tokens "$T" --roles TofuStorage
 pveum acl modify /mapping/pci/arc-b70          --tokens "$T" --roles TofuMapping
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser
+# The image download needs Sys.AccessNetwork on the node, not Sys.Modify (A5).
+pveum role add TofuNet --privs "Sys.AccessNetwork"
+pveum acl modify /nodes/pve --tokens "$T" --roles PVEAuditor,TofuNet
 # NB: no --token flag -- the FULL token id is the userid. And do not grep by
 # path: the table blanks that column on continuation rows, so a grep keeps only
 # the first privilege of the block and hides the rest.
