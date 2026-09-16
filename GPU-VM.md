@@ -99,6 +99,41 @@ zdb -l "${D}-part1"          # expect the OLD raidz2 pool's label, not a live po
 wipefs -a "$D"               # irreversible. Paste the path, don't type it.
 ```
 
+✅ **Run 2026-09-16. All four proofs passed; `sde` is wiped.**
+
+| Check | What came back |
+|---|---|
+| `ls -l "$D"` | → `../../sde`, serial ends **584Y** ✓ |
+| `zpool status archive-pool` | ONLINE, `mirror-0` = **584Z · 5855 · Micron 58D4**. 584Y absent ✓ |
+| `zpool import` | offers **`sas-pool`** only — no pool built from 584Y ✓ (but see the `sas-pool` note below) |
+| `zdb -l "${D}-part1"` | the **old 5-disk raidz2**: `pool_guid 326662858968651967`, `txg 989116`, 584Y as `children[3]`, `sdf`/`…5850` as `children[4]` ✓ |
+| `wipefs -a "$D"` | GPT at `0x200`, backup GPT at `0x1bf1fc55e00`, PMBR at `0x1fe` erased; partition table re-read OK |
+
+⚠️ **The stale label carries the live pool's name.** `zdb -l` reports
+`name: 'archive-pool'` — the same string as the pool that is running right now.
+The name proves nothing; what proves these are different pools is their shape.
+The live one is a 3-way `mirror-0`; the label is `type: 'raidz'`, `nparity: 2`,
+five children, and a different `pool_guid`. **`sdf` (`…1505850`) still carries
+that identical label**, so the same trap is waiting the day the spare gets used.
+Consequence: never run `zpool import archive-pool` or `zpool import -f -a` on
+this host — if an import is ever needed, name the pool by **guid**.
+
+❗ **Unrelated to this runbook, and unresolved: `zpool import` offered
+`sas-pool`.** A pool is only listed there when it is **not currently imported** —
+yet `README.md:147` and `HARDWARE.md:418` have `sas-pool` as an active host-native
+RAIDZ1, snapshotted by sanoid and exported over Samba. All three members
+(`…2950`, `…2700`, `…be0`) read ONLINE and importable. Either the pool is
+genuinely exported right now — in which case the Samba share and its sanoid
+snapshots have been silently dead — or the docs are describing something that
+was undone. **Do not import it to find out**; read the state first:
+
+```bash
+zpool list; zpool status sas-pool; ls /sas-pool; systemctl status smbd sanoid.timer
+```
+
+This has no bearing on Phase A — `llm-pool` takes `sde`, which touches neither
+pool — so it does not block the GPU work. It does need chasing separately.
+
 ### A3. Create `llm-pool` and register it with Proxmox
 
 ```bash
@@ -110,6 +145,14 @@ pvesm status | grep llm-pool
 - `ashift=12` because the SK hynix disks are 512e drives with 4K physical sectors. It can't be changed later.
 - `blocksize 64k` sets the block size of each zvol Proxmox creates. Model files are large and read in long runs, so bigger blocks mean less metadata than the 16k default. It only applies to new zvols, so set it before creating the VM.
 - `lz4` rather than `zstd`: model weights barely compress, and lz4 gives up quickly on data that doesn't.
+
+> **If `zpool create` refuses with `contains a filesystem of type 'zfs_member'`,
+> `-f` is the right answer here.** A2's `wipefs` removed the *partition table*,
+> not the ZFS labels — those lived inside `part1`, and the bytes are still on the
+> disk with nothing pointing at them. The `zdb -l` output recorded in A2 is the
+> proof of what they belong to: the decommissioned 5-disk raidz2, not a live
+> pool. `zpool create` writes its own GPT with `part1` at the same 1 MiB offset,
+> so the new labels land on top of the old ones and the ambiguity ends there.
 
 ### A4. PCI resource mapping
 
@@ -589,7 +632,11 @@ zdb -l "${D}-part1"                        # old raidz2 label, not a live pool
 
 🛑 **Read all four outputs before the next line.** The next command is
 irreversible, and `archive-pool`'s members are three disks with nearly identical
-serials.
+serials. The `zdb` label also reports the name `archive-pool` — it is the *old*
+raidz2's, and matching names are not evidence; compare the vdev shape (A2).
+
+> ✅ **Done 2026-09-16.** All four proofs passed, `wipefs` completed. See A2 for
+> what each one printed, including the `sas-pool` question `zpool import` raised.
 
 ```bash
 ### 2. Claim it
@@ -675,7 +722,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
-- [ ] A2 `sde` proven orphan, wiped
+- [x] A2 `sde` proven orphan, wiped (2026-09-16)
 - [ ] A3 `llm-pool` created, in `pvesm status`
 - [ ] A4 `arc-b70` mapping exists
 - [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass

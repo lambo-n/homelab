@@ -149,7 +149,7 @@ differently (`STORAGE.md:189-190`).
 | `sdb` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Z` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Z` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
 | `sdc` | `ata-MTFDDAK1T9TDT_222939CA58D4` | `MTFDDAK1T9TDT` | `222939CA58D4` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
 | `sdg` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505855` | `HFS1T9G3H2X069N` | `ADB5N4365I1505855` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
-| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **FREE** — planned `llm-pool` ([`GPU-VM.md`](GPU-VM.md)) |
+| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **wiped 2026-09-16** (partition table gone), `llm-pool` pending ([`GPU-VM.md`](GPU-VM.md) A3) |
 | `sdf` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` | `HFS1T9G3H2X069N` | `ADB5N4365I1505850` | 1.75 TiB | SATA (PERC) | **FREE** — cold spare for `archive-pool` |
 | `sdh` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
 | `sdi` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
@@ -265,9 +265,18 @@ freed"**. These are those two.
 A mirror of the two gives **1.75 TiB usable**, which is the additive,
 non-disruptive capacity available today with no purchase and no migration.
 
-> ⚠️ **They still look like pool members.** The ZFS partitions were never wiped,
-> so anything that auto-imports could try. Before using them, prove they are
-> orphans rather than trusting this file:
+> ⚠️ **They still look like pool members, and the label says `archive-pool`.**
+> Confirmed 2026-09-16 by `zdb -l` on `sde`: the residue is the old **5-disk
+> raidz2**, `pool_guid 326662858968651967`, and it carries the *same pool name as
+> the live pool*. A matching name is therefore not evidence of anything — the
+> live `archive-pool` is a 3-way `mirror-0`, the label is `raidz`/`nparity: 2`
+> over five children, and the guids differ. **Never `zpool import archive-pool`
+> or `zpool import -f -a` on this host; resolve by guid.**
+>
+> `sde`'s partition table was wiped 2026-09-16 (the labels inside the old `part1`
+> are still on the platter until `zpool create` overwrites them). **`sdf`
+> (`…1505850`) is untouched and still carries the identical label.**
+> Before using either, prove it is an orphan rather than trusting this file:
 >
 > ```bash
 > zpool import                 # must NOT offer a pool built from sde/sdf
@@ -415,8 +424,8 @@ autodetection on a 512e drive.
 
 | Where | Amount | Cost to claim it |
 |---|---|---|
-| `sas-pool` free space | **6.85 TiB** | none — native ZFS RAIDZ1 pool active, exported via Samba ([`SAS-STORAGE.md`](SAS-STORAGE.md)) |
-| `sde` + `sdf`, mirrored | **1.75 TiB usable** | none — reserved cold spares for `archive-pool` |
+| `sas-pool` free space | **6.85 TiB** | ❗ **verify first** — on 2026-09-16 `zpool import` offered `sas-pool`, which means it was *not imported* at that moment. See [`GPU-VM.md`](GPU-VM.md) A2. Documented as an active RAIDZ1 under sanoid, exported via Samba ([`SAS-STORAGE.md`](SAS-STORAGE.md)). |
+| `sde` + `sdf`, mirrored | ~~**1.75 TiB usable**~~ | **superseded 2026-09-16** — `sde` is wiped and becoming `llm-pool` ([`GPU-VM.md`](GPU-VM.md)); `sdf` alone stays the cold spare |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
 | `local-lvm` | 82.12 GiB | guest root disks only |
 
