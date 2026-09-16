@@ -1,0 +1,46 @@
+---
+# VM 105 `llm` (192.168.50.107) lives outside the cluster, so it is scraped by
+# static target, not discovered. See GPU-VM.md F6b.
+#
+# The guest's ufw admits :9100 and :8081 only from the three k3s nodes
+# (192.168.50.104-106). Pod egress to the LAN is masqueraded to the node's
+# address, so that is where Prometheus' scrapes appear to come from.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: llm-node
+  namespace: observability
+spec:
+  # node_exporter from Ubuntu's prometheus-node-exporter package. Its hwmon
+  # collector is the only way to see the Arc Pro B70's temperatures, fan and
+  # power: the host has the card on vfio-pci and cannot read them, and iDRAC
+  # does not see third-party GPUs (GPU-VM.md F4).
+  staticConfigs:
+    - targets: ["192.168.50.107:9100"]
+      labels:
+        instance: llm
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: llm-fast
+  namespace: observability
+spec:
+  # llama-server --metrics on the always-on fast model. /metrics is behind the
+  # API key (only /health is public), and llama-server keys carry no scopes:
+  # this key is a full API key, which is why it is SOPS-encrypted and also
+  # the key cluster apps will use.
+  #
+  # The router (:8080) is deliberately not scraped. In router mode /metrics
+  # needs ?model=, so each preset would be its own target, and every preset
+  # that is not loaded would show as a permanently down target.
+  metricsPath: /metrics
+  authorization:
+    type: Bearer
+    credentials:
+      name: llm-api-key
+      key: key
+  staticConfigs:
+    - targets: ["192.168.50.107:8081"]
+      labels:
+        instance: llm

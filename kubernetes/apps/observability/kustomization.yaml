@@ -4,3 +4,4 @@ resources:
   - namespace.yaml
   - kube-prometheus-stack/ks.yaml
   - flux-monitoring/ks.yaml
+  - llm-vm/ks.yaml
