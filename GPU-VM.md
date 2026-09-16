@@ -247,20 +247,19 @@ numbers are handed out at boot.
 ✅ **Created 2026-09-16**, `digest ae08d033`, map stored as
 `node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=9`.
 
-> ⚠️ **Creating the mapping does not validate it, and neither does reading it
-> back.** `pvesh get /cluster/mapping/pci/arc-b70` returns the stored string
-> verbatim — it will echo a wrong group number just as happily as a right one.
-> PVE compares the assertion against the hardware at **VM start**, so a stale
-> number surfaces in Phase C as a refusal to start VM 105, where it reads like a
-> provider or tofu fault rather than a one-character mismatch here. Settle it now:
->
-> ```bash
-> readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # authoritative: expect .../9
-> pvesh get /cluster/mapping/pci                           # list form, incl. PVE's own checks
-> ```
->
-> If it is not 9, correct the mapping rather than the runbook:
-> `pvesh set /cluster/mapping/pci/arc-b70 --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=<N>`
+✅ **And verified against the running kernel**, which creating it does not do:
+`readlink …/0000:53:00.0/iommu_group` → `…/kernel/iommu_groups/9` on
+`6.17.2-1-pve`, matching the assertion. `HARDWARE.md`'s 2026-09-09 reading holds
+across the kernel change.
+
+> ⚠️ Worth keeping for the next mapping, since this one happened to be right:
+> `pvesh get /cluster/mapping/pci/arc-b70` returns the stored string **verbatim**
+> and will echo a wrong group number as happily as a right one. PVE compares the
+> assertion against the hardware at **VM start**, so a stale number would not
+> surface until Phase C — as VM 105 refusing to start, looking like a provider or
+> tofu fault rather than a one-character mismatch here. The fix would be
+> `pvesh set /cluster/mapping/pci/arc-b70 --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=<N>`,
+> not an edit to this document.
 
 The UI equivalent is Datacenter → Resource Mappings → PCI Devices → Add.
 
@@ -832,7 +831,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
 - [x] A2 `sde` proven orphan, wiped (2026-09-16)
 - [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable, `blocksize 64k` confirmed)
-- [x] A4 `arc-b70` mapping exists (2026-09-16) — ⚠️ `iommugroup=9` asserted but **not yet verified against the running kernel**; PVE only checks it at VM start
+- [x] A4 `arc-b70` mapping exists and `iommugroup=9` verified against the running kernel (2026-09-16)
 - [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
 - [ ] B1 vfio config + initramfs
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
