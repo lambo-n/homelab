@@ -1674,6 +1674,29 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
 - **F3** Model weights into `/models`: a small one to validate the builds, then
   the real one (up to ~28 GiB of weights plus KV cache within 31.89 GiB).
 - **F4** `llama-bench` on both backends, plus a timed cold model load.
+  ✅ **F3a 2026-09-16:** `/models/gguf/llama-2-7b.Q4_0.gguf` (TheBloke, 3.56 GiB,
+  SHA-256 `78b8f977…` verified). Chosen because most published llama.cpp Vulkan/SYCL
+  numbers use it. `/models` is root-owned: create subdirectories with `sudo mkdir`,
+  then `chown dev:dev`.
+
+  ✅ **F4 on the 7B, 2026-09-16** (`llama-bench -ngl 99`, 5 reps):
+
+  | backend | pp512 t/s | tg128 t/s | load, cache dropped | load, warm |
+  |---|---:|---:|---:|---:|
+  | **SYCL** (F16, oneDNN, Level Zero) | **3256 ± 133** | **110.8 ± 0.2** | 9.8 s | 5.2 s |
+  | Vulkan (Mesa 25.2.8, `int dot: 0`) | 1676 ± 19 | 95.7 ± 0.5 | 4.9 s | 1.9 s |
+
+  Load time = `time llama-bench -p 0 -n 1 -r 1`, including process start. Only the
+  guest's page cache was dropped; the host's ZFS ARC may still hold the blocks.
+
+  **Decision: SYCL.** It is ~2× faster at prompt processing, which matters most for
+  agents re-reading long contexts, and 16% faster at generation. Its ~3 s of extra
+  startup is paid once by a resident server. The `glslc` rebuild for Vulkan is not
+  worth doing: even a large prompt-processing gain would not close a 2× gap, and
+  generation is limited by memory bandwidth. `build-vulkan` stays as a fallback.
+
+  Load time for the 32 GiB BAR on a production-size model: still to measure, after F3b.
+
 - **F5** `llama-server` as a systemd service on the winning backend, bound to
   `0.0.0.0:8080`, with `--api-key` from a root-only env file.
 - **F6** Consumers: the workstation tunnel, and the key delivered to cluster apps
@@ -1868,8 +1891,8 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] F0 preflight (2026-09-16): 27 GiB free on `/`, 62 GiB RAM, `dev` added to `render`/`video`, no GPU user-space installed
 - [x] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified (2026-09-16): `clinfo`, `vulkaninfo` and `sycl-ls` all see the B70
 - [x] F2 llama.cpp `v0.4.1` built, SYCL + Vulkan, both see the B70 (2026-09-16)
-- [ ] F3 models in `/models`
-- [ ] F4 benchmarks + cold load time recorded
+- [ ] F3 models in `/models` — F3a 7B test model done (2026-09-16); F3b production models pending the owner's choice
+- [ ] F4 benchmarks + cold load time recorded — 7B done, **SYCL chosen** (2026-09-16); production-model load time pending
 - [ ] F5 `llama-server` systemd service
 - [ ] F6 workstation tunnel + cluster API key
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
