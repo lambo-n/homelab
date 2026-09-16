@@ -1929,6 +1929,34 @@ Verified, with the SSH rule added before `ufw enable`:
   46 W board / 26 W pkg. Not shown: VRAM *usage* (node_exporter has no source for it)
   and which router preset is loaded (the router isn't scraped).
 
+✅ **F6c CLI chat, 2026-09-16** (PR #29). Simon Willison's `llm` 0.35 on `llm`, as `dev`:
+- Install with `sudo apt-get install -y pipx` and `pipx install llm==0.35`. Binaries
+  are in `~/.local/bin`, which is on `PATH` after the next login.
+- Copy `scripts/llm/extra-openai-models.yaml` to `$(dirname "$(llm logs path)")/`.
+  It defines `fast` (:8081), plus `chat`, `qwen27` and `qwen27-agent` (router :8080).
+- Store the key with `llm keys set llama --value "$(sudo head -n1 /etc/llama/api-keys)"`.
+  ⚠️ **Piping into `llm keys set` does not work:** its hidden prompt reads the
+  terminal, not stdin, so it stops at `Enter key:` (`Ctrl-C` aborts without saving).
+- Default model: `llm models default chat`. Use `llm chat` or `llm chat -m qwen27`.
+  `llm` logs every exchange to SQLite (`llm logs`); `llm logs off` stops that.
+
+⚠️ **Runaway on the first test.** `llm -m fast "One-line joke…"` sent no `max_tokens`.
+Qwen3.5-4B, with thinking on and llama.cpp's generic sampling, generated **6,556
+hidden reasoning tokens** at 73 tok/s before it was cancelled. Fixed server-side:
+- **`llama-fast`:** thinking off (`--chat-template-kwargs '{"enable_thinking":false}'`),
+  `-n 2048` default cap, and the Qwen3.5-4B card's non-thinking sampling (temp 0.7,
+  top-p 0.8, top-k 20, min-p 0, presence 1.5);
+- **router presets:** the Qwen cards' thinking sampling (temp 1.0, top-p 0.95,
+  top-k 20, min-p 0; presence 1.5 for `chat`, 0 for the 27B).
+
+These are defaults; request fields still override them. Verified: `fast` answers
+immediately, and `chat` loads and answers.
+
+**Gotchas:**
+- `/tmp` on `llm` is cleared at boot, so `scp -3` into `/tmp/`, not into a
+  subdirectory an earlier session made.
+- From the laptop (fish), switch to bash and load an ssh-agent first.
+
 ## Phase E — bring it under tofu, and update the docs
 
 1. **The guest is already in tofu** if C2 went the intended way — authored, applied,
@@ -2121,5 +2149,5 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
 - [x] F4 benchmarks + cold load time recorded (2026-09-16): SYCL chosen; 27B cold 66.6 s / warm 20.3 s; `qwen27-agent` ~190K ctx alone (q8_0 KV); `qwen27` 2 × 40,960 beside Qwen3.5-4B
 - [x] F5 `llama-fast` + `llama-router` services, presets `qwen27`/`chat`/`qwen27-agent`, `llm-mode` (2026-09-16)
-- [ ] F6 LAN consumers — ✅ F6a firewall, ✅ F6b monitoring + cluster key (2026-09-16); ⬜ F6c CLI client, ⬜ F6d agents
+- [ ] F6 LAN consumers — ✅ F6a firewall, ✅ F6b monitoring + cluster key (2026-09-16); ✅ F6c CLI client; ⬜ F6d agents
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
