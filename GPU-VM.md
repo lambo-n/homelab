@@ -285,10 +285,12 @@ read-only"). Decided with the owner 2026-09-15.
 > 'VM.Monitor'` (2026-09-16). It was over-specified in the first place — the
 > `bpg/proxmox` provider never uses the QEMU monitor — so it was dropped rather
 > than replaced, which suits a role whose whole purpose is to be minimal. The
-> authoritative list for any future edit comes from the host, not from memory:
+> authoritative list for any future edit comes from the host, not from memory.
+> `--help` does **not** enumerate them (tried 2026-09-16; it prints nothing).
+> The built-in `Administrator` role holds every valid privilege, so read it there:
 >
 > ```bash
-> pveum role add --help 2>&1 | tr ',' '\n' | grep -o 'VM\.[A-Za-z.]*' | sort -u
+> pveum role list | grep -w Administrator
 > ```
 >
 > Note the failure mode: `pveum role add` is **all-or-nothing**, so one bad
@@ -304,6 +306,24 @@ VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
 pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
 pveum role add TofuMapping --privs "Mapping.Audit,Mapping.Use"
 ```
+
+✅ **All three roles exist as of 2026-09-16**, `TofuVM` with the eleven
+privileges above and no `VM.Monitor`. `TofuStorage` and `TofuMapping` had already
+been created by the first, partially-failed paste, so re-running their `role add`
+returns `role 'X' already exists` — harmless, and confirmation rather than an
+error. Use `pveum role modify` if a set ever needs changing.
+
+> ⚠️ **`pveum role list` also shows `TofuDisk` (`VM.Config.Disk`), left from the
+> import in [`tofu/README.md`](tofu/README.md) §"The sequence".** The role
+> existing is expected — only its **ACL** was meant to be temporary
+> (`tofu/README.md:250`). Confirm that grant really was removed, because if it is
+> still on `tofu@pve` at `/`, the "read-only" `!import` token has disk-write on
+> every guest and this repo's central claim about it is false:
+>
+> ```bash
+> pveum acl list | grep -i tofu          # expect NO TofuDisk row
+> pveum user permissions tofu@pve --token import | grep -i 'Config.Disk'
+> ```
 
 **The token**, with privilege separation on so its own ACLs bound it rather than
 inheriting the user's:
