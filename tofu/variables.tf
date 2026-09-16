@@ -91,7 +91,11 @@ variable "llm_ipv4_address" {
 }
 
 variable "llm_ipv4_gateway" {
-  description = "Default gateway for VM 105. Unverified in this repo -- check the router before the first apply."
+  description = <<-EOT
+    Default gateway for VM 105. Verified 2026-09-16: `ip route show default` on
+    the dev VM (.103) reports `default via 192.168.50.1 dev ens18 proto static`,
+    and the owner confirmed it. Every guest sits on the same flat 192.168.50.0/24.
+  EOT
   type        = string
   default     = "192.168.50.1"
 }
