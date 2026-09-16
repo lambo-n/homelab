@@ -37,10 +37,16 @@ resource "proxmox_virtual_environment_download_file" "ubuntu_noble_cloud" {
   # host drives this card on 6.17 and Intel's compute packages target this
   # release; the image ships the 6.8 GA kernel, so GPU-VM.md C3 installs the HWE
   # kernel on first boot before expecting `xe` to bind.
-  content_type = "iso"
+  #
+  # `import`, not `iso`: PVE 9 refuses a disk `import_from` any volume of type
+  # iso ("has wrong type 'iso' - needs to be 'images' or 'import'", first apply,
+  # 2026-09-16). The `.qcow2` name is deliberate too -- Ubuntu's `.img` is a qcow2
+  # file under a generic extension, and the import content type is recognised by
+  # extension. Requires `import` in the `local` storage's content list (GPU-VM.md C1).
+  content_type = "import"
   datastore_id = "local"
   node_name    = "pve"
-  file_name    = "noble-server-cloudimg-amd64.img"
+  file_name    = "noble-server-cloudimg-amd64.qcow2"
   url          = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
   # Ubuntu publishes SHA256SUMS beside the image and rewrites `current/` in
