@@ -294,8 +294,8 @@ auditor-only at the time, so this was not a widening.
 > privsep token's rights are the **intersection** of its own ACLs and its user's,
 > so a token cannot exceed its user ([`../GPU-VM.md`](../GPU-VM.md) §A5). With
 > `--privsep 0`, `!import` would inherit every one of those write roles and stop
-> being read-only. It must be switched to `--privsep 1` with its own
-> `PVEAuditor` grant at `/` **before** the user is widened:
+> being read-only. ✅ **Done 2026-09-16** — switched to `--privsep 1` with its own
+> `PVEAuditor` grant at `/`, *before* the user was widened:
 >
 > ```bash
 > pveum user token modify tofu@pve import --privsep 1
@@ -303,8 +303,12 @@ auditor-only at the time, so this was not a widening.
 > pveum user permissions 'tofu@pve!import' --path /vms/105   # audit only
 > ```
 >
-> This does not regenerate the secret, so the LastPass copy stays valid. The command prints the secret **once**;
-it is a UUID, and the provider wants it joined to the token's full name.
+> Verified afterwards: that last command returns the seven auditor privileges
+> only, although `tofu@pve` itself now holds `TofuVM` on `/vms/105`. Switching
+> the flag does **not** regenerate the secret, so the LastPass copy stays valid.
+
+The `token add` command prints the secret **once**; it is a UUID, and the
+provider wants it joined to the token's full name.
 
 ### Back on this VM
 
@@ -406,7 +410,7 @@ exported per shell. They are deliberately not in Infisical and not in SOPS.**
 
 | Credential | Lives in | Used as | Notes |
 |---|---|---|---|
-| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only. Regenerated 2026-09-09 (`SAS-RECLAIM.md` §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. ⚠️ Read-only **only once it is `--privsep 1`** — see the box in "The sequence". |
+| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1` since 2026-09-16** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 (`SAS-RECLAIM.md` §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
 | `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | Created 2026-09-16, `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping and the bridge. See [`../GPU-VM.md`](../GPU-VM.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
 | Cloudflare API token | **LastPass** | `CLOUDFLARE_API_TOKEN` | Required scopes are above. The provider configures even when no Cloudflare resource is in the plan, so it must be set for *any* apply. |
 | `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
