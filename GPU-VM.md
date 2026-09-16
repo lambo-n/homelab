@@ -1079,6 +1079,9 @@ after editing fstab, or `mount -a` warns that systemd still uses the old version
 > later with `tune2fs -m 0`, but inode density is fixed at format time, so choose
 > it while the disk is empty. The fstab line uses `LABEL=models`, so it survives
 > a reformat unchanged.
+>
+> ✅ **Reformatted this way 2026-09-16, while still empty:** `358400 inodes`
+> (was 91,750,400), and `df -h /models` shows `Avail 1.4T` (was `1.3T`).
 
 Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
 so nothing needs configuring inside the guest. `.107` is taken as decided (owner,
