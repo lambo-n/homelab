@@ -1418,6 +1418,70 @@ Reading the result:
   `0x380000000000` (56 TiB, from C3), so OVMF already sizes a large window from
   the 46-bit `cpu: host` address width, and this may well not be needed.
 
+### D4. Make it survive a host reboot
+
+The resize is lost at every host boot, and the SR-IOV reservation comes back with
+it, so the boot unit repeats **both** steps: `scripts/gpu-rebar.sh`, run by
+`scripts/gpu-rebar.service`. It:
+
+- exits immediately if BAR 2 is already 32 GiB (safe to re-run);
+- refuses if VM 105 is running (its QEMU pid is alive) or `vfio-pci` is absent;
+- sets `driver_override=vfio-pci` **before** unbinding, since `xe` is loaded on the host;
+- resizes to 4 GiB, then to 32 GiB;
+- **always** rebinds both functions to `vfio-pci` on exit (`trap`), and logs the
+  final BAR size and drivers to the journal.
+
+It orders itself `Before=pve-guests.service`, and nothing `Requires` it. A failed
+resize leaves the card at 256 MiB or 4 GiB, still bound and still usable by VM 105,
+and never blocks boot.
+
+**Install.** Copy the files **from the workstation** with `scp -3`, which relays
+through the local machine. Don't paste them (pastes wrap and mangle lines).
+
+The host and the dev VM **cannot copy between each other directly**. On
+2026-09-16, `scp dev@192.168.50.103:…` run on the host failed with
+`Permission denied (publickey)`: the dev VM's sshd was reached, but it accepts
+only the owner's GitHub keys, and root on the host holds none of them. The
+workstation reaches both through its `ProxyJump tailscale-gateway` aliases.
+
+On the workstation:
+
+```bash
+scp -3 dev:/home/dev/homelab/scripts/gpu-rebar.sh proxmox-host:/usr/local/sbin/gpu-rebar.sh
+scp -3 dev:/home/dev/homelab/scripts/gpu-rebar.service proxmox-host:/etc/systemd/system/
+```
+
+Then on the host:
+
+```bash
+chmod 755 /usr/local/sbin/gpu-rebar.sh
+systemctl daemon-reload && systemctl enable gpu-rebar.service
+```
+
+**Test without a reboot.** The card is already at 32 GiB, so a run should exit
+through the no-op path:
+
+```bash
+systemctl start gpu-rebar.service
+journalctl -u gpu-rebar -n 5 --no-pager        # "BAR 2 already 32 GiB; nothing to do"
+```
+
+✅ **Installed and enabled 2026-09-16 09:48 PDT.** `enable` created the
+`multi-user.target.wants` symlink, and a manual start logged
+`gpu-rebar: BAR 2 already 32 GiB; nothing to do`. Expected SHA-256 of the installed
+copies (from the repo): `gpu-rebar.sh` `8d6f8110…`, `gpu-rebar.service`
+`882228fa…`. The first `scp -3` left the `.service` in `/usr/local/sbin`, so
+`enable` reported `Unit … does not exist` until it was moved to
+`/etc/systemd/system`.
+
+**Real test: the next host reboot** (e.g. through `homelab-shutdown.sh`). Before
+starting VM 105, check:
+
+```bash
+journalctl -u gpu-rebar -b --no-pager          # "resize complete", BAR 2 32768 MiB, both vfio-pci
+lspci -vv -s 53:00.0 | grep 'Region 2'          # [size=32G]
+```
+
 ### Living with a small BAR
 
 > ℹ️ **Superseded on this host, 2026-09-16:** full 32 GiB ReBAR works (above). This
@@ -1630,6 +1694,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
 - [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via a 4 GiB resize first to release the SR-IOV reservation
-- [ ] D resize made persistent across host reboots
+- [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
+- [ ] D boot-time resize verified across a real host reboot (`journalctl -u gpu-rebar -b` → `resize complete`)
 - [ ] D model load time in the guest measured and written down
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).

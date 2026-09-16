@@ -1,0 +1,18 @@
+# Install: GPU-VM.md Phase D, "Make it survive a host reboot".
+[Unit]
+Description=Resize Arc Pro B70 BAR 2 to 32 GiB before guests start (homelab GPU-VM.md Phase D)
+# vfio-pci binds the card in the initramfs (GPU-VM.md B1); this only needs sysfs.
+After=systemd-modules-load.service
+# pve-guests starts onboot guests. VM 105 is onboot 0, but order before it anyway
+# so no guest can ever hold the card while it is being resized.
+Before=pve-guests.service
+ConditionPathExists=/sys/bus/pci/devices/0000:53:00.0/resource2_resize
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gpu-rebar.sh
+RemainAfterExit=yes
+
+[Install]
+# Deliberately not RequiredBy anything: a failed resize must never block boot.
+WantedBy=multi-user.target
