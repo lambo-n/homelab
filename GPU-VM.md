@@ -900,8 +900,11 @@ through.
 
 **What the crash left behind.** Everything exists on the host, and **none of it is
 in tofu state**. tofu's last state write was 08:44:42 UTC, before the apply. It
-left its lock file behind (ID `0645dbbf-9d8f-54c8-5fe6-f21087b2eae1`), which is
-kept on purpose until the fix is proven, so nothing can re-run the apply early:
+left `.terraform.tfstate.lock.info` behind (ID `0645dbbf-…`). **That file is
+not a lock.** The local backend's lock is an OS-level lock held by the tofu
+process, released when the process died. The file only describes it, so it
+blocks nothing (`tofu force-unlock` answers `LocalState not locked`). Delete it
+and move on; do not count on it to stop an apply.
 
 | On the host | |
 |---|---|
@@ -945,8 +948,11 @@ own again, and `53:00.0` came back on `vfio-pci`.
    **`pci=noats` fixes the lockup.**
 5. **Then rebuild through tofu, so state and host agree again.** Run
    `qm destroy 105 --purge 1 --destroy-unreferenced-disks 1` and
-   `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then
-   `tofu force-unlock 0645dbbf-9d8f-54c8-5fe6-f21087b2eae1` and plan/apply as in C2.
+   `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then remove the
+   stale `.terraform.tfstate.lock.info` and plan/apply as in C2.
+   ✅ **Host side done 2026-09-16:** VM 105, its three LVM volumes and the
+   `llm-pool` zvol destroyed, image freed. `llm-pool` is back to `612K`, and state
+   still lists only the original seven resources.
    The VM is empty, so a clean rebuild costs about a minute and avoids an
    import with its generated diffs.
 
