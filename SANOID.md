@@ -48,6 +48,11 @@ there are four things here worth snapshotting:
 | `sas-pool/data` | Personal storage / Samba share (`sas-pool`) | live, added 2026-09-09 (`SAS-STORAGE.md`) |
 | `archive-pool/postgres-data` | the old NFS data directory | **legacy** — frozen at cutover |
 
+**`llm-pool` is deliberately not in `sanoid.conf`.** It holds VM 105's model
+weights: multi-GB files that are re-downloadable, where every snapshot would pin
+gigabytes for nothing. The pool is a single disk with no redundancy by the same
+reasoning ([`GPU-VM.md`](GPU-VM.md) Decisions).
+
 Keep snapshotting `postgres-data` while the old Deployment is still the rollback
 path; it costs nothing on a copy-on-write pool and stops changing the moment the
 cutover lands.

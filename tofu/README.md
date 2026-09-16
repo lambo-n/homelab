@@ -27,6 +27,7 @@ local and gitignored; it is backed up with this VM.
 | Ingress routing | Flux, `cloudflared/app/configmap.yaml` | the entire point of the local-management conversion |
 | MinIO CORS Transform Rule | **nobody — delete it** | vestigial; no browser addresses that hostname. See "The CORS rule" below |
 | Proxmox guests | **tofu, read-only** | all five imported 2026-09-04, `0 to change, 0 to destroy`; each carries `prevent_destroy` |
+| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply 2026-09-16 (`proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../GPU-VM.md`](../GPU-VM.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
 
 ## The Cloudflare token — kept out of disk, so re-created when needed
 

@@ -106,10 +106,12 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Model | **Intel Arc Pro B70** (ASRock) — `lspci` shows only the GPU family, "Battlemage G21" | owner, 2026-09-15 |
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
-| VRAM | **32 GiB** (`0x800000000`), 256 MiB CPU-visible | `dmesg` |
+| VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105; 256 MiB CPU-visible (`0x10000000`, small BAR). Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
 | Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
 | Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
 | BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
+| PCIe windows | Root port `50:02.0` → switch `51:00.0` → ports `52:01.0` (GPU) / `52:02.0` (audio). Prefetchable: root port **72G**, switch and GPU port **64G**; root bus `0000:50` 64-bit aperture `220000000000-22ffffffffff` = **1 TiB**. Nothing else under the root port | `lspci -vv`, `/proc/iomem`, 2026-09-16 |
+| SR-IOV reservation | 7 VFs × 8G = **56G** of VF BAR 2 reserved in the GPU window (plus 112M VF BAR 0), `Number of VFs: 0`. No sysfs control to shrink it | `lspci -vvv`, sysfs, 2026-09-16 |
 | Firmware | GuC 70.49.4 · HuC 8.2.10 · DMC 2.6 — all loaded | `dmesg` |
 | Host kernel | `6.17.2-1-pve` | `uname -r` |
 | Device nodes | `/dev/dri/card0`, `card1`, `renderD128` (`render` group) | `ls -l /dev/dri` |
@@ -129,7 +131,14 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 - ⚠️ **Resizable BAR is off — but the card supports it.** Confirmed 2026-09-16
   with `vfio-pci` holding the card: the `Physical Resizable BAR` capability lists
   every size from 256MB to **32GB**, so the limit is the missing resize, not the
-  hardware. See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
+  hardware. ❌ **The host-side resize to 32 GiB then failed with `-ENOSPC`**
+  (2026-09-16, card unbound): the 56G SR-IOV VF reservation fills the 64G GPU
+  window, and the kernel neither grew the windows nor dropped the VFs. ✅ **Full 32 GiB ReBAR
+  works in two steps** (2026-09-16, verified in VM 105: CPU-accessible VRAM equals
+  usable VRAM, 31.89 GiB, with no `Small BAR device`). Resize to 4 GiB first, which
+  makes the kernel drop the unused 56G VF BAR reservation, then to 32 GiB, which
+  fits in the root port's 72G. A direct 32 GiB resize fails with `-ENOSPC`
+  because the reservation is reassigned at every boot. See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
   `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.

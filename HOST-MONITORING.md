@@ -103,7 +103,42 @@ in `HARDWARE.md` are `sdh/sdi/sdj` in `SAS-STORAGE.md`, which is the whole argum
 /dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Z -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 /dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I1505855 -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 /dev/disk/by-id/ata-MTFDDAK1T9TDT_222939CA58D4 -a -s L/../../7/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
+
+# llm-pool (single disk, no redundancy) — long self-test Fridays 03:00
+/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Y -a -s L/../../5/03 -W 4,45,55 -m root -M exec /usr/share/smartmontools/smartd-runner
 ```
+
+> ✅ **The `llm-pool` line is live on the host since 2026-09-16.** `smartd -q
+> onecheck` opened `…150584Y` as `[SAT]` and added it to the monitor list, and
+> after a restart the journal reads `Monitoring 4 ATA/SATA, 3 SCSI/SAS and 0 NVMe
+> devices`. It gets its own day (Friday) because it is the pool with no
+> redundancy. `sdf` (`…1505850`, the cold spare) stays unlisted until it joins a
+> pool.
+>
+> Two things learned adding it:
+>
+> - **The unit is `smartmontools.service`.** `smartd` is only an alias:
+>   `systemctl is-active smartd` follows it, but **`journalctl -u smartd` does
+>   not** and prints `-- No entries --`. That looks like a dead daemon and isn't.
+>   Use `journalctl -u smartmontools`.
+> - **Don't retype a by-id line.** The first attempt was typed by hand and came
+>   out with three wrong characters in the path (it named a device that doesn't
+>   exist) and `smartontools` in the runner path. Build the line from ZFS's own
+>   record of the disk and an existing working line instead:
+>   ```bash
+>   D=$(zpool status -P llm-pool | awk '/by-id/ {sub(/-part1$/,"",$1); print $1}')
+>   grep 'MTFDDAK1T9TDT_222939CA58D4' /etc/smartd.conf | sed "s#^[^ ]*#$D#; s#/7/03#/5/03#" >> /etc/smartd.conf
+>   ```
+>
+> ⚠️ **SMART on the SK hynix `HFS1T9G3H2X069N` (FW `DZ02`) is thin**, per smartd:
+> `not capable of SMART Health Status check`, no Attribute 197
+> (`Current_Pending_Sector`), `no SMART Self-test Log`, `no SMART Error Log`. So
+> smartd cannot raise a health-FAILED alert and cannot report self-test results
+> for this model. What it can watch is temperature (`-W 4,45,55`) and attribute
+> threshold crossings. The same model backs `archive-pool`'s `584Z` and `5855`
+> (they show the same "no SMART Error Log"). For these disks the **ZFS scrub's
+> checksum errors are the more meaningful early warning**, especially on
+> `llm-pool`, which has no second copy to repair from.
 
 Separate days so the two pools do not self-test at once. If `smartctl -i <by-id>`
 on the SATA three needs `-d sat`, add it — or drop `-d` and let smartd

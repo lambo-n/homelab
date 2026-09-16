@@ -125,6 +125,7 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 | `k3s-control` | VM | 102 | `.104` | 2 vCPU, 8 GiB RAM, 9.75 GiB root |
 | `k3s-worker1` | VM | 103 | `.105` | 4 vCPU, 128 GiB RAM, 17.83 GiB root |
 | `k3s-worker2` | VM | 104 | `.106` | 4 vCPU, 128 GiB RAM, 17.83 GiB root |
+| `llm` | VM | 105 | `.107` | 8 vCPU (`host`), 64 GiB RAM (pinned — passthrough), 32 GiB root, 1400 GiB models disk on `llm-pool`, **Intel Arc Pro B70 passed through whole**. The only guest authored in tofu rather than imported. See [`GPU-VM.md`](GPU-VM.md) |
 
 > **VMID + 2 = last octet holds for the four VMs by coincidence, not by rule** —
 > the LXC at CTID 100 sits outside that run. Do not rely on it.
@@ -143,6 +144,7 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 | Postgres backups | `archive-pool` | into MinIO, which is itself on the pool |
 | Prometheus TSDB | `k3s-worker1` root disk | `local-path`, capped by `retentionSize` |
 | Legacy Postgres data | `archive-pool` | NFS PV, 100 GiB, `Retain`, no longer read |
+| LLM model weights | `llm-pool` (single disk, `sde`) | 1400 GiB zvol attached to VM 105 as `/models` (ext4, `largefile4`). **No redundancy, no snapshots** — weights are re-downloadable |
 | Tailscale SSH recordings | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
 | Personal storage / media | `sas-pool` | `/sas-pool/data`, native host RAIDZ1 under sanoid, exported via Samba (`[data]`) |
 
