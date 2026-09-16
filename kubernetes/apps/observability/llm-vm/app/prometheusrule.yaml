@@ -1,0 +1,47 @@
+---
+# Arc Pro B70 temperature alerts, from node_exporter's hwmon collector on VM 105.
+#
+# The driver's own limits (`sensors`, 2026-09-16): pkg high 60 / crit 100 C,
+# vram crit 105 C. F4's benchmarks peaked at pkg 63 and vram 70-72 C with no
+# throttling, so `high` is already crossed under normal load and is useless as
+# an alert threshold. 90 C sits well above observed load and well below crit.
+#
+# hwmon exposes temps as node_hwmon_temp_celsius{chip,sensor="tempN"} and the
+# human names ("pkg", "vram") in the separate node_hwmon_sensor_label series,
+# hence the join. VERIFY THIS RULE RETURNS SERIES once deployed (GPU-VM.md
+# F6b): a rule over a metric that returns nothing is silently "inactive".
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: llm-vm
+  namespace: observability
+spec:
+  groups:
+    - name: llm-vm
+      rules:
+        - alert: LlmGpuHot
+          expr: |
+            max by (instance, label) (
+              node_hwmon_temp_celsius{instance="llm"}
+              * on (instance, chip, sensor) group_left (label)
+              node_hwmon_sensor_label{instance="llm", label=~"pkg|vram"}
+            ) > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Arc Pro B70 {{ $labels.label }} at {{ $value }} C on VM 105"
+            description: >-
+              Above 90 C for 5 minutes. Check `sensors` and the throttle
+              status in the guest; if sustained, the iDRAC third-party PCIe
+              card cooling response is the next lever (GPU-VM.md F4).
+        - alert: LlmVmDown
+          expr: up{instance="llm", job="scrapeConfig/observability/llm-node"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "node_exporter on VM 105 (llm) unreachable"
+            description: >-
+              VM 105 is off, node_exporter stopped, or its ufw rule for :9100
+              no longer admits the k3s nodes.
