@@ -313,17 +313,19 @@ been created by the first, partially-failed paste, so re-running their `role add
 returns `role 'X' already exists` — harmless, and confirmation rather than an
 error. Use `pveum role modify` if a set ever needs changing.
 
-> ⚠️ **`pveum role list` also shows `TofuDisk` (`VM.Config.Disk`), left from the
-> import in [`tofu/README.md`](tofu/README.md) §"The sequence".** The role
-> existing is expected — only its **ACL** was meant to be temporary
-> (`tofu/README.md:250`). Confirm that grant really was removed, because if it is
-> still on `tofu@pve` at `/`, the "read-only" `!import` token has disk-write on
-> every guest and this repo's central claim about it is false:
+> ✅ **`pveum role list` also shows `TofuDisk` (`VM.Config.Disk`), left from the
+> import in [`tofu/README.md`](tofu/README.md) §"The sequence" — and its ACL is
+> confirmed gone.** The role surviving is expected; only the **grant** was meant
+> to be temporary (`tofu/README.md:250`). Checked 2026-09-16:
 >
-> ```bash
-> pveum acl list | grep -i tofu          # expect NO TofuDisk row
-> pveum user permissions tofu@pve --token import | grep -i 'Config.Disk'
 > ```
+> pveum acl list | grep -i tofu
+> │ /  │ PVEAuditor │ user │ tofu@pve │ 1 │        <- the only row. No TofuDisk.
+> ```
+>
+> That one row is what makes "read-only `!import`" true rather than aspirational.
+> A `TofuDisk` row at `/` would have given that token disk-write on every guest.
+> Worth re-running after any future import.
 
 **The token**, with privilege separation on so its own ACLs bound it rather than
 inheriting the user's:
@@ -366,7 +368,16 @@ pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser 
   what makes `prevent_destroy` on the tofu resource load-bearing rather than
   decorative.
 
-**Verify from the dev VM** — this proves the scoping rather than assuming it:
+**Verify the scoping rather than assuming it.** On the host, pass the *full token
+id* as the userid — `pveum user permissions` has **no `--token` flag**, and
+supplying one fails with `Unknown option: token` (tried 2026-09-16):
+
+```bash
+pveum user permissions 'tofu@pve!llm' | grep -E '/vms/10[45]'
+```
+
+**Or from the dev VM**, authenticating *as* the token, which is the stronger test
+because it exercises the credential rather than describing it:
 
 ```bash
 read -rs TOK && export TOK      # paste: tofu@pve!llm=<uuid>
@@ -815,7 +826,8 @@ pveum acl modify /storage/llm-pool             --tokens "$T" --roles TofuStorage
 pveum acl modify /storage/local                --tokens "$T" --roles TofuStorage
 pveum acl modify /mapping/pci/arc-b70          --tokens "$T" --roles TofuMapping
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser
-pveum user permissions tofu@pve --token llm | grep -E '/vms/10[45]'
+# NB: there is no --token flag. Pass the FULL token id as the userid.
+pveum user permissions 'tofu@pve!llm' | grep -E '/vms/10[45]'
 ```
 
 Expect write privileges under `/vms/105` and **nothing** under `/vms/104`. If
