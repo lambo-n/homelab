@@ -1781,8 +1781,70 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
 
 - **F5** `llama-server` as a systemd service on the winning backend, bound to
   `0.0.0.0:8080`, with `--api-key` from a root-only env file.
-- **F6** Consumers: the workstation tunnel, and the key delivered to cluster apps
-  (SOPS, since only the cluster reads it; `secrets_architecture`).
+  ✅ **F5 done 2026-09-16** (files in `scripts/llm/`, branch `feat/llm-server`).
+
+  The router's LRU eviction counts instances, not VRAM, and it cannot pin a model
+  (`server_lru_sched` in `tools/server/server-models.cpp` @ `v0.4.1`). So the
+  always-on model is its own service, and the router holds one large model at a time:
+
+  | Unit | Port | Serves | Notes |
+  |---|---|---|---|
+  | `llama-fast.service` | 8081 | Qwen3.5-4B as `fast`, `-c 8192`, auto slots | always on |
+  | `llama-router.service` | 8080 | presets from `/etc/llama/models.ini`, `--models-max 1` | loads on first request, evicts the previous preset |
+
+  | Preset | Model | Context (q8_0 KV, 1 slot) | Beside `fast`? |
+  |---|---|---:|---|
+  | `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 81,920 | yes |
+  | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | **262,144** (full; fit chose it beside `fast`) | yes |
+  | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL | 195,072 | **no**: `sudo llm-mode agent` first |
+
+  - Every preset pins `ctx-size` with `n-gpu-layers = all` and `fit = off`, so a
+    preset that doesn't fit fails to load instead of shrinking or offloading silently.
+  - Both units run as system user `llama` (`render`, `video`; home `/var/lib/llama`)
+    via `/usr/local/bin/llama-oneapi`, which loads oneAPI. Binaries run from
+    `/models/src/llama.cpp/build-sycl` (dev-owned; installing a pinned root-owned
+    copy is a later hardening step).
+  - API key: `/etc/llama/api-keys` (root:llama 640), generated on the VM with
+    `openssl rand -hex 32`, never printed. Both ports bind `0.0.0.0` and answer 401
+    without it.
+  - `/usr/local/sbin/llm-mode agent|normal|status`: `agent` stops `llama-fast`;
+    `normal` unloads `qwen27-agent`, starts `llama-fast` and waits for `/health`.
+
+  **Install (F5a–b):**
+  - Workstation: `scp -3 -r dev:/home/dev/homelab/scripts/llm llm:/tmp/`
+  - On `llm`: `useradd --system … --groups render,video llama`; install the wrapper
+    to `/usr/local/bin`, `llm-mode` to `/usr/local/sbin`, `models.ini` and the key to
+    `/etc/llama` (dir 750 root:llama); `systemctl enable --now` both units.
+
+  **Verified 2026-09-16:**
+  - `fast` answered; unauthenticated `/v1/models` returned 401.
+  - `chat` loaded on demand at 262,144; requesting `qwen27` logged
+    `evicting idle LRU name=chat` and loaded it at 81,920.
+  - `llm-mode agent` → `qwen27-agent` loaded at 195,072 with `llama-fast` inactive;
+    `llm-mode normal` → agent unloaded, `fast` ready and answering.
+
+  **Gotchas hit:**
+  - `setvars.sh` parses the sourcing script's `"$@"` and uses a variable named
+    `args`, so the wrapper clears `$@` and keeps the command in
+    `_llama_oneapi_cmd`. Before that fix, `exec: SETVARS_CALL=1: not found`,
+    exit 127.
+  - The first start as the new `llama` user took **72 s**: an empty GPU compile
+    cache. Later restarts take **8.2 s** (measured).
+  - `curl` without `-f` treats `503 Loading model` as success; readiness checks
+    must use `-f`.
+  - Not yet tested: both units starting on their own after a VM reboot.
+
+- **F6** Consumers. Scope changed 2026-09-16 (owner): **API from the LAN only**, and
+  CLI use goes through `ssh llm`. The workstation tunnel is dropped, which also
+  removes its port-8080 clash with `grafana-tunnel`. Remaining:
+  - a CLI chat client on `llm` that talks to the local server;
+  - coding agents on a LAN machine (e.g. the dev VM) pointed at `:8080`;
+  - the key delivered to cluster apps (SOPS, since only the cluster reads it;
+    `secrets_architecture`);
+  - check whether the tailscale gateway's `192.168.50.0/24` route exposes `:8080`
+    and `:8081` to tailnet devices;
+  - `node_exporter` for GPU temperature/power in Grafana, plus `--metrics`
+    scraping.
 
 ## Phase E — bring it under tofu, and update the docs
 
@@ -1975,6 +2037,6 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] F2 llama.cpp `v0.4.1` built, SYCL + Vulkan, both see the B70 (2026-09-16)
 - [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
 - [x] F4 benchmarks + cold load time recorded (2026-09-16): SYCL chosen; 27B cold 66.6 s / warm 20.3 s; `qwen27-agent` ~190K ctx alone (q8_0 KV); `qwen27` 2 × 40,960 beside Qwen3.5-4B
-- [ ] F5 `llama-server` systemd service
-- [ ] F6 workstation tunnel + cluster API key
+- [x] F5 `llama-fast` + `llama-router` services, presets `qwen27`/`chat`/`qwen27-agent`, `llm-mode` (2026-09-16)
+- [ ] F6 LAN consumers: CLI client, agents, cluster API key (SOPS), tailnet exposure check, node_exporter
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
