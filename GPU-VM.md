@@ -1511,6 +1511,63 @@ small BAR does and doesn't cost, for LLM inference specifically:
 
 ---
 
+## Phase F — the inference stack: llama.cpp server
+
+**Decided 2026-09-16 (owner):** `llama.cpp`'s `llama-server`, serving an
+OpenAI-compatible API to two consumers:
+
+- **the owner's workstation**, over an SSH tunnel through the tailscale gateway
+  (`ssh -N -L 8080:127.0.0.1:8080 llm`). No new exposure; it works whether or not
+  the tailnet routes the LAN.
+- **homelab apps** (k3s workloads, other VMs) at `http://192.168.50.107:8080/v1`,
+  with an API key.
+
+Not chosen: Ollama (runs Intel GPUs through Vulkan, with fewer knobs) and vLLM XPU
+(pays off only with many concurrent users).
+
+**Backend: build both SYCL and Vulkan, then benchmark.** SYCL (Intel oneAPI + Level
+Zero) is usually faster on Arc but needs a multi-GB toolchain. Vulkan (Mesa ANV)
+needs none. Measuring both on this card settles it, and the same run produces the
+model-load timing Phase D asked for, now with a full 32 GiB BAR.
+
+**All commands run in the guest (`ssh llm`),** as short separate pastes.
+
+### F0. Preflight — read-only
+
+```bash
+df -h / /models
+lsb_release -ds; uname -r; nproc; free -g
+groups
+ls -l /dev/dri/
+apt policy intel-opencl-icd libze-intel-gpu1 libze1 mesa-vulkan-drivers 2>/dev/null | grep -E '^[a-z]|Installed'
+```
+
+What it decides:
+
+- **Root disk space.** It is 32 GiB, and a full oneAPI Base Toolkit can use most of
+  that. If `/` has less than ~15 GiB free, install only the two oneAPI parts
+  llama.cpp's SYCL build needs (the DPC++ compiler and MKL), and build under
+  `/models/src` rather than `~`.
+- **Group membership.** `dev` must be in `render` (for `/dev/dri/renderD128`) to
+  use the GPU without sudo.
+- **What GPU user-space is already there.** Ubuntu 24.04's stock Level Zero /
+  compute runtime may predate Battlemage support, in which case F1 installs a
+  current one from Intel's repository.
+
+### F1–F6 (filled in as they run)
+
+- **F1** GPU user-space: Level Zero + compute runtime, Vulkan (Mesa ANV), oneAPI
+  compiler + MKL. Verify with `sycl-ls` and `vulkaninfo --summary`.
+- **F2** Build `llama.cpp` twice (`-DGGML_SYCL=ON` with `icx`/`icpx`, and
+  `-DGGML_VULKAN=ON`), pinned to one release tag.
+- **F3** Model weights into `/models`: a small one to validate the builds, then
+  the real one (up to ~28 GiB of weights plus KV cache within 31.89 GiB).
+- **F4** `llama-bench` on both backends, plus a timed cold model load.
+- **F5** `llama-server` as a systemd service on the winning backend, bound to
+  `0.0.0.0:8080`, with `--api-key` from a root-only env file.
+- **F6** Consumers: the workstation tunnel, and the key delivered to cluster apps
+  (SOPS, since only the cluster reads it; `secrets_architecture`).
+
 ## Phase E — bring it under tofu, and update the docs
 
 1. **The guest is already in tofu** if C2 went the intended way — authored, applied,
@@ -1696,5 +1753,12 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via a 4 GiB resize first to release the SR-IOV reservation
 - [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
 - [ ] D boot-time resize verified across a real host reboot (`journalctl -u gpu-rebar -b` → `resize complete`)
-- [ ] D model load time in the guest measured and written down
+- [ ] D model load time in the guest measured and written down (now part of F4)
+- [ ] F0 preflight
+- [ ] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified
+- [ ] F2 llama.cpp built, SYCL + Vulkan
+- [ ] F3 models in `/models`
+- [ ] F4 benchmarks + cold load time recorded
+- [ ] F5 `llama-server` systemd service
+- [ ] F6 workstation tunnel + cluster API key
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
