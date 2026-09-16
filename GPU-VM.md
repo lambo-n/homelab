@@ -1281,7 +1281,25 @@ The kernel neither grew the bridge windows into the 1 TiB root aperture nor drop
 the 56G of optional VF BARs to make room. `dmesg | tail` showed nothing useful:
 it was entirely AppArmor `ALLOWED` audit lines from CT 100's `rsyslogd`, logged
 every ~5 s, which push kernel PCI messages out of any short tail. Filter instead:
-`dmesg | grep -iE '53:00|52:01|51:00|50:02|bridge window|resiz'`.
+`dmesg | grep -iE '53:00|52:01|51:00|50:02|bridge window|resiz'`. That shows what
+the kernel actually did:
+
+```
+pcieport 0000:50:02.0:   bridge window [mem 0x220000000000-0x2211ffffffff 64bit pref]   <- root port, left at 72G
+pcieport 0000:51:00.0:   bridge window [mem size 0x1000000000 64bit pref]               <- re-sized to 64G
+pcieport 0000:52:01.0:   bridge window [mem size 0x1000000000 64bit pref]               <- re-sized to 64G
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: can't assign; no space
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: failed to assign
+```
+
+So **the kernel did try.** It released and re-sized the switch and port windows,
+but **would not grow the root port past its firmware-set 72G**, despite 1 TiB of
+free aperture above it. That capped everything below at 64G. 32G BAR 2 plus 56G
+VF BAR 2 doesn't fit in 64G, and the VF BAR's failure made the whole resize
+return `-ENOSPC` and roll back (D-3 then showed VF Region 2 back at
+`220000000000`). The kernel won't trade the optional VF BARs for the resize
+either. **The root port's 72G window is the hard limit**, which also confirms the
+4 GiB arithmetic below: ~60.4G fits in the 64G the kernel itself chose.
 
 **One smaller size remains untried, and it's the owner's call.** The GPU port's
 existing 64G window holds ~56.4G today (56G VF BAR 2 + 256M BAR 2 + 16M BAR 0 +
