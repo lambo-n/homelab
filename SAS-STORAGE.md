@@ -4,33 +4,35 @@ This document details the architecture, ZFS pool layout, snapshot automation,
 and Samba access for **`sas-pool`**, built on the three 3.84 TB Samsung SAS SSDs
 on `192.168.50.101` (`pve`).
 
-> ❗ **`sas-pool` is NOT IMPORTED as of 2026-09-16, and everything below
-> describes a pool the host cannot currently see.** Found incidentally while
-> running [`GPU-VM.md`](GPU-VM.md) A2 — `zpool import` offered it, and
-> `zpool status sas-pool` returns `cannot open 'sas-pool': no such pool`.
+> ✅ **Resolved 2026-09-16 — but read this before the next reboot.**
+> `sas-pool` was found **not imported** while running [`GPU-VM.md`](GPU-VM.md)
+> A2, and had been since the host booted for the GPU install on 2026-09-15
+> 14:20 PDT. The owner imported it (**140 GiB intact, no data lost**) and
+> enabled `zfs-import-scan`.
 >
-> - All three members read **ONLINE and importable**. This is an import
->   problem, not a disk failure; no data is implicated.
-> - `/sas-pool` exists as an **empty directory**, so **`smbd` has been serving an
->   empty `[data]` share** rather than failing visibly.
-> - `sanoid.timer` is firing every 15 minutes with a `[sas-pool/data]` section
->   ([`SANOID.md`](SANOID.md) line 48) for a dataset that does not exist, so
->   **there have been no snapshots of this pool** for as long as it has been gone.
-> - `smbd` has been up since the host booted for the GPU install
->   (2026-09-15 14:20 PDT), so the pool has been missing **at least since that
->   reboot**. Whether it ever survived one is unknown — §3's `zpool create` was
->   never followed by a reboot test, and this document says nothing about the
->   cachefile or `zfs-import-cache.service`.
+> **Why it happened, and why nothing complained:**
 >
-> ```bash
-> zpool import 5068010059978323696      # by id, not by name
-> zfs list -r sas-pool; ls /sas-pool/data
-> systemctl status zfs-import-cache.service; journalctl -b -u zfs-import-cache
-> zpool get cachefile sas-pool
-> ```
+> - **This pool has no owner for its import.** It is host-native and *not* in
+>   `/etc/pve/storage.cfg`, so nothing brings it up at boot. `archive-pool` is a
+>   PVE storage, so `pvestatd` activates it — which is why that one was imported
+>   and snapshotting all evening while this one sat idle. The difference is not
+>   ZFS, it is who owns the import.
+> - On that boot `/etc/zfs/zpool.cache` was missing or empty, so
+>   `zfs-import-cache` skipped itself on `ConditionFileNotEmpty`, and
+>   `zfs-import-scan` was **disabled**. Nothing was left to try.
+> - `smbd` started regardless and served `/sas-pool` — an **empty directory** —
+>   as the `[data]` share, and `sanoid` kept firing every 15 minutes against a
+>   dataset that did not exist. **Both dependants reported healthy.**
 >
-> **Add a reboot-survival check to this document once it is back** — a pool that
-> two services depend on silently should not be taken on trust a second time.
+> **The durable fix is `systemctl enable zfs-import-scan`, not the cachefile.**
+> The PVE ZFS plugin imports with `-o cachefile=none`, so `zpool get cachefile`
+> reads `none`/`local` and setting it back to `/etc/zfs/zpool.cache` can be
+> reverted on the next activation. `zfs-import-scan` protects both pools.
+>
+> ⚠️ **`zpool status -x` does not catch this.** An unimported pool is not
+> unhealthy, it is absent, and `-x` happily reports "all pools are healthy".
+> After any reboot of `.101`, check **`zpool list`** and confirm all three pools
+> are present by name before trusting `/sas-pool/data` or the `[data]` share.
 
 ---
 

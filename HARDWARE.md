@@ -424,7 +424,7 @@ autodetection on a 512e drive.
 
 | Where | Amount | Cost to claim it |
 |---|---|---|
-| `sas-pool` free space | **6.85 TiB** | ❗ **the pool is NOT IMPORTED** (2026-09-16) — `zpool status sas-pool` → `no such pool`; disks are ONLINE and importable, Samba is serving an empty share and sanoid is snapshotting nothing. Recover it before counting this capacity: [`SAS-STORAGE.md`](SAS-STORAGE.md), [`GPU-VM.md`](GPU-VM.md) A2. |
+| `sas-pool` free space | **6.85 TiB** less ~140 GiB in use | none — native ZFS RAIDZ1, exported via Samba ([`SAS-STORAGE.md`](SAS-STORAGE.md)). ⚠️ It failed to import on the 2026-09-15 boot and was recovered 2026-09-16; `zfs-import-scan` is now enabled. **Confirm with `zpool list` after any reboot** — `zpool status -x` will not show an absent pool. |
 | `sde` + `sdf`, mirrored | ~~**1.75 TiB usable**~~ | **superseded 2026-09-16** — `sde` is wiped and becoming `llm-pool` ([`GPU-VM.md`](GPU-VM.md)); `sdf` alone stays the cold spare |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
 | `local-lvm` | 82.12 GiB | guest root disks only |

@@ -161,6 +161,23 @@ zfs list -t snapshot -r archive-pool     # after the next quarter hour
 `sanoid.timer` fires every 15 minutes and decides internally what is due; there
 is no separate prune timer to enable.
 
+> ⚠️ **A running timer is not evidence that anything is being snapshotted.**
+> From 2026-09-15 to 2026-09-16 `sas-pool` was unimported while this timer fired
+> every 15 minutes against `[sas-pool/data]`, a dataset that did not exist, and
+> `systemctl status sanoid.timer` read `active (waiting)` the whole time
+> ([`SAS-STORAGE.md`](SAS-STORAGE.md)). Verify the **snapshots**, per pool:
+>
+> ```bash
+> zpool list                                    # every pool present by name first
+> zfs list -t snapshot -r sas-pool | tail
+> zfs list -t snapshot -r archive-pool | tail
+> ```
+>
+> ⚠️ **sanoid names snapshots in UTC; `zpool history` logs local time (PDT).** A
+> 17:00 history line creates `autosnap_2026-09-16_00:00_hourly`. Do not read
+> snapshot names against journal timestamps to reconstruct an outage window — the
+> 7-hour skew makes it look like pools were exported when they were not.
+
 ## 4. Verify a rollback actually works — before relying on it
 
 GITOPS.md is emphatic here and it is the step people skip. **Do not test with

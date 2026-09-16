@@ -118,57 +118,38 @@ that identical label**, so the same trap is waiting the day the spare gets used.
 Consequence: never run `zpool import archive-pool` or `zpool import -f -a` on
 this host — if an import is ever needed, name the pool by **guid**.
 
-❗ **Unrelated to this runbook, and now confirmed: `sas-pool` is not imported.**
-`zpool import` offered it, and the follow-up on 2026-09-16 settled it:
+✅ **Both questions this output raised are now closed (2026-09-16).**
 
-```
-zpool list            -> archive-pool only
-zpool status sas-pool -> cannot open 'sas-pool': no such pool
-ls /sas-pool          -> (empty; the mountpoint directory exists)
-smbd.service          -> active (running) since 2026-09-15 14:20:27 PDT
-sanoid.timer          -> active (waiting), firing every 15 min
-```
+**`sas-pool` was not imported**, and had been missing since the host booted for
+the GPU install on 2026-09-15 14:20 PDT. `smbd` was serving `/sas-pool` as an
+empty directory and `sanoid` was snapshotting a dataset that did not exist —
+**both dependants reported healthy**. The owner imported the pool (**140 GiB
+intact, nothing lost**) and enabled `zfs-import-scan`. Cause and the durable fix
+are in [`SAS-STORAGE.md`](SAS-STORAGE.md); the short version is that `sas-pool`
+is not a PVE storage, so — unlike `archive-pool`, which `pvestatd` activates —
+nothing owned its import, and both import units were unavailable that boot.
 
-So the pool documented in [`SAS-STORAGE.md`](SAS-STORAGE.md) as a live RAIDZ1 —
-`sas-pool/data`, Samba `[data]`, snapshotted by sanoid ([`SANOID.md`](SANOID.md)
-line 48) — **is absent from the host**, while both services that depend on it are
-up and reporting healthy. Samba is serving an empty directory and sanoid has a
-`[sas-pool/data]` section pointing at a dataset that does not exist. All three
-members read ONLINE and importable, so this is an import problem, not a disk
-problem — no data is implicated.
+🔴 **This is a Phase B hazard, not just history.** Phase B reboots this host the
+same way that boot did. B3 has been corrected accordingly: `zpool status -x`,
+which it used to rely on, **cannot detect this** — an unimported pool is absent
+rather than unhealthy, and `-x` reports "all pools are healthy" either way.
 
-`smbd` started at the same minute the host booted for the GPU install
-(2026-09-15 14:20), so the pool has been missing **at least since that reboot**.
-`SAS-STORAGE.md`'s `zpool create` (line 72) was never followed by a check that
-the pool comes back after a reboot, and nothing in that document mentions the
-cachefile or `zfs-import-cache.service`. Recover and then find out why:
+**`archive-pool`'s 280M was not data loss**, as suspected above, and the numbers
+now say so precisely: `ALLOC 285M` against `USED 66.3G`. The gap is
+`archive-pool/vm-104-disk-0` — **a zvol attached to running VM 104** — holding
+66.1G of `refreservation` over 30.7M of `REFER`. Real contents are `minio-data`
+147M and `postgres-data` 13M. `zpool list ALLOC` and `zfs list USED` are not the
+same measurement; compare like with like before calling it loss.
 
-```bash
-zpool import 5068010059978323696      # by id: the pool, not the name
-zfs list -r sas-pool; ls /sas-pool/data
-systemctl status zfs-import-cache.service; journalctl -b -u zfs-import-cache
-zpool get cachefile sas-pool
-```
+> Two consequences worth carrying into Phase B. First, that zvol is attached to a
+> **live VM**, so `archive-pool` cannot be exported or rebuilt without stopping
+> VM 104 — `homelab-shutdown.sh` already handles this, but nothing ad-hoc should.
+> Second, `sanoid` names snapshots in **UTC** while `zpool history` logs local
+> **PDT**: a 17:00 history line produces `autosnap_2026-09-16_00:00_hourly`.
+> Do not read snapshot names against journal timestamps to infer an outage
+> window — that 7-hour skew invents export events that never happened.
 
-None of this blocks Phase A — `llm-pool` takes `sde` and touches neither pool.
-
-⚠️ **A second, softer question from the same output, not yet answered:**
-`zpool list` reports `archive-pool` at **ALLOC 280M, FREE 1.73T, CAP 0%**, while
-[`STORAGE.md`](STORAGE.md) has a 64 GiB PGDATA zvol (`archive-pool/vm-104-disk-0`,
-`refreservation` 66.0G) plus `minio-data`, `postgres-data` and `ts-ssh-records`
-living there. **This is probably fine**: `refreservation` reserves space without
-allocating it, so it reduces `zfs list` AVAIL but never appears in `zpool list`
-ALLOC — which is also why `HARDWARE.md`'s "1.61 TiB free" (1.68 − 0.066) and this
-"1.73T free" can both be true. What `zpool list` cannot tell you is whether the
-datasets still exist. One command settles it, and it is worth running before the
-Phase B reboot rather than after:
-
-```bash
-zfs list -o name,used,avail,refer,mountpoint -r archive-pool
-zfs list -t volume -r archive-pool        # expect archive-pool/vm-104-disk-0
-```
-
-### A3. Create `llm-pool` and register it with Proxmox
+### A3.### A3. Create `llm-pool` and register it with Proxmox
 
 ```bash
 zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
@@ -354,10 +335,19 @@ generation's, though still unverified on this particular machine.
 ```bash
 lspci -nnk -s 53:00.0 | grep 'in use'    # -> vfio-pci
 lspci -nnk -s 54:00.0 | grep 'in use'    # -> vfio-pci
-zpool status -x                          # all pools healthy
+zpool list                               # THREE pools by name: archive-pool, sas-pool, llm-pool
+zpool status -x                          # then health. '-x' alone cannot see a MISSING pool.
 lspci -vv -s 53:00.0 | grep -E 'Region 2|Resizable BAR' -A0
 lspci -vvv -s 53:00.0 | sed -n '/Resizable BAR/,/^\t[A-Z]/p'
 ```
+
+> ⚠️ **Count the pools in `zpool list`; do not trust `zpool status -x`.** The
+> 2026-09-15 GPU-install reboot left `sas-pool` unimported for a day, and `-x`
+> reported "all pools are healthy" throughout, because an absent pool is not an
+> unhealthy one ([`SAS-STORAGE.md`](SAS-STORAGE.md)). `zfs-import-scan` is now
+> enabled, which is what should make this reboot behave — **this is the boot that
+> tests that fix.** If `sas-pool` is missing again:
+> `zpool import 5068010059978323696`, then find out why before continuing.
 
 If **Region 2 is already `[size=32G]`**, ReBAR is solved: skip Phase D. If
 it's still `[size=256M]`, continue to Phase C anyway. The VM works with a small BAR and only loads data onto the card more slowly.
@@ -749,7 +739,9 @@ offered. **Do not hunt for a Resizable BAR setting — this BIOS has none** (own
 ### 7. Verify, and learn whether Phase D is still needed
 lspci -nnk -s 53:00.0 | grep 'in use'      # -> vfio-pci
 lspci -nnk -s 54:00.0 | grep 'in use'      # -> vfio-pci
-zpool status -x                            # all pools healthy, incl. llm-pool
+zpool list                                 # all THREE by name; -x cannot see an absent pool
+zpool status -x                            # then health, incl. llm-pool
+ls /sas-pool/data                          # not empty -> sas-pool really came back (B3)
 lspci -vv -s 53:00.0 | grep 'Region 2'     # 32G -> skip Phase D. 256M -> Phase D.
 ```
 
@@ -765,7 +757,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
 - [ ] B1 vfio config + initramfs
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
-- [ ] B3 both functions on `vfio-pci`, pools healthy, Region 2 size recorded
+- [ ] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 size recorded
 - [ ] C2 VM created
 - [ ] C3 guest on `xe`, `/models` mounted
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
