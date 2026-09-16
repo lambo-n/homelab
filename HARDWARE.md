@@ -106,7 +106,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Model | **Intel Arc Pro B70** (ASRock) — `lspci` shows only the GPU family, "Battlemage G21" | owner, 2026-09-15 |
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
-| VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105; 256 MiB CPU-visible (`0x10000000`, small BAR). Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
+| VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105. CPU-visible: **all 31.89 GiB with full ReBAR** (`CPU accessible size 0x7f9000000`, 2026-09-16, [`GPU-VM.md`](GPU-VM.md) D). The firmware default is 256 MiB (`0x10000000`, small BAR); `gpu-rebar.service` resizes it at host boot. Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
 | Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
 | Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
 | BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
@@ -145,10 +145,11 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   ❌ **No fix available in firmware: this Dell EMC BIOS has no Resizable BAR
   option** (owner, 2026-09-15 — setup searched, IOMMU settings varied, GRUB
   kernel parameters tried; none helped) — **on BIOS 1.8.2**, the version running
-  as of 2026-09-16. A Dell BIOS update is the only thing that could reopen this. One attempt remains, with the card
-  unbound from `xe` and held by `vfio-pci`, since a bound driver makes the
-  kernel refuse a resize outright — see [`GPU-VM.md`](GPU-VM.md) Phase D. Treat
-  small BAR as permanent until that says otherwise.
+  as of 2026-09-16. No firmware fix turned out to be needed: the BIOS
+  allocates enough address space and simply never resizes, and Linux does the resize
+  itself (`gpu-rebar.service`, with the card held by `vfio-pci`; a bound `xe` makes
+  the kernel refuse). What blocked the OS resize was the BIOS-enabled SR-IOV
+  reservation, not a refusal — see [`GPU-VM.md`](GPU-VM.md) Phase D.
 - 🔴 **Passthrough with ATS enabled hard-locks the host.** First `qm start 105`
   on 2026-09-16: after `vfio-pci` reset the card, VT-d Device-TLB invalidations
   to `53:00.0` timed out (`DMAR: … Invalidation Time-out Error`, `QI PRIOR:

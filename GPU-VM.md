@@ -1697,6 +1697,37 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
 
   Load time for the 32 GiB BAR on a production-size model: still to measure, after F3b.
 
+  📝 **F3b model set, decided 2026-09-16 (owner).** The router can swap models, so
+  more can be added later. Hashes and repo revisions were read from the Hugging Face
+  API, and each download is pinned to that revision:
+
+  | Model | File | Size | Repo @ revision | SHA-256 |
+  |---|---|---:|---|---|
+  | Llama 3.1 8B Instruct | `Meta-Llama-3.1-8B-Instruct-Q8_0.gguf` | 7.95 GiB | `bartowski/…-GGUF` @ `bf5b95e9` | `9da71c45…` |
+  | Qwen3.8-27B | `Qwen3.8-27B-UD-Q6_K_XL.gguf` | 23.56 GiB | `unsloth/Qwen3.8-27B-GGUF` @ `4ca72078` | `701d8fa9…` |
+  | Qwen3.6-35B-A3B | `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` | 20.82 GiB | `unsloth/Qwen3.6-35B-A3B-GGUF` @ `a483e9e6` | `707a55a8…` |
+
+  Total 52.3 GiB. ✅ **Downloaded 2026-09-16** to `/models/gguf`; byte sizes match
+  the API and all three `sha256sum -c` checks passed. `/models`: 58 GiB used.
+
+  Router presets planned for F5:
+  - **`fast`**: Llama 3.1 8B, always loaded; quick API calls from LAN apps.
+  - **`qwen27`**: Qwen3.8-27B beside `fast`, for everyday coding. Context is tight,
+    roughly 0–25K (estimated); F4 measures it, with plain Q6_K (20.5 GiB) as the fallback.
+  - **`qwen27-agent`**: the same file alone on the card, for long agent runs and
+    architecture work. ~110K context at f16 KV, ~200K at q8_0 (estimated). Only 16 of
+    the 64 layers use full attention, so the KV cache is ~64 KiB/token.
+  - **`chat`**: Qwen3.6-35B-A3B beside `fast` (28.8 GiB).
+
+  Considered and deferred (owner's earlier list):
+  - Llama 3.1 70B Q4_K_M: 39.6 GiB, so ~20 GiB would run on the CPU; estimated 2–5 tok/s.
+  - DeepSeek-R1-Distill-Qwen-32B: its reported GPQA 62.1 vs 89.2 for Qwen3.8-27B.
+  - Devstral 2 123B Q4_K_M: 69.75 GiB, ~46–52 GiB on the CPU at 32–64K context,
+    estimated 1–2 tok/s; needs VM 105 raised to ~96 GiB RAM.
+
+  Any of these can be added later as a measured experiment. Qwen3.8-Flash-Next is not
+  yet supported by llama.cpp `v0.4.1`.
+
 - **F5** `llama-server` as a systemd service on the winning backend, bound to
   `0.0.0.0:8080`, with `--api-key` from a root-only env file.
 - **F6** Consumers: the workstation tunnel, and the key delivered to cluster apps
@@ -1891,7 +1922,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] F0 preflight (2026-09-16): 27 GiB free on `/`, 62 GiB RAM, `dev` added to `render`/`video`, no GPU user-space installed
 - [x] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified (2026-09-16): `clinfo`, `vulkaninfo` and `sycl-ls` all see the B70
 - [x] F2 llama.cpp `v0.4.1` built, SYCL + Vulkan, both see the B70 (2026-09-16)
-- [ ] F3 models in `/models` — F3a 7B test model done (2026-09-16); F3b production models pending the owner's choice
+- [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
 - [ ] F4 benchmarks + cold load time recorded — 7B done, **SYCL chosen** (2026-09-16); production-model load time pending
 - [ ] F5 `llama-server` systemd service
 - [ ] F6 workstation tunnel + cluster API key
