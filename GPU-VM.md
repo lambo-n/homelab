@@ -1832,7 +1832,10 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
     cache. Later restarts take **8.2 s** (measured).
   - `curl` without `-f` treats `503 Loading model` as success; readiness checks
     must use `-f`.
-  - Not yet tested: both units starting on their own after a VM reboot.
+  - ✅ **VM reboot verified 2026-09-16:** after `sudo reboot`, both units came up
+    `active` with `systemctl --failed` empty, and `xe` again reported `CPU accessible
+    size 0x00000007f9000000`. So the 32 GiB BAR also survives the GPU reset a VM
+    restart causes.
 
 - **F6** Consumers. Scope changed 2026-09-16 (owner): **API from the LAN only**, and
   CLI use goes through `ssh llm`. The workstation tunnel is dropped, which also
