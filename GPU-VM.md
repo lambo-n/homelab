@@ -519,6 +519,34 @@ bridge windows the audio device also sits behind. The audio function itself does
 These IDs match only the Arc card. The host's own video is the Matrox G200 (`mgag200`), so
 the host keeps a console.
 
+✅ **Done 2026-09-16.** `update-initramfs` regenerated
+`/boot/initrd.img-6.17.2-1-pve`. `proxmox-boot-tool refresh` reported
+`No /etc/kernel/proxmox-boot-uuids found, skipping ESP sync` — the expected
+no-op: this host boots via plain GRUB from `sda2` (`/boot/efi`, `HARDWARE.md`),
+not a `proxmox-boot-tool`-managed ESP. So the initramfs just written is the one
+that will be loaded.
+
+> **Verify the config is *inside* the initramfs before spending the reboot on
+> it.** The `softdep` lines only help if `modprobe` reads them at the moment `xe`
+> would otherwise load, and on this host that moment is inside the initramfs —
+> so a `modprobe.d` file that failed to get bundled produces a boot where `xe`
+> claims the card anyway, and the whole cluster power cycle is wasted:
+>
+> ```bash
+> lsinitramfs /boot/initrd.img-6.17.2-1-pve | grep -E 'vfio|arc-b70'
+> ```
+>
+> Expect both `etc/modprobe.d/vfio-arc-b70.conf` and the `vfio-pci` module
+> under `kernel/drivers/vfio/`. If the `.conf` is missing, re-run
+> `update-initramfs -u -k all` and check again before rebooting.
+>
+> IOMMU itself needs no GRUB change here: `/sys/kernel/iommu_groups/` is
+> populated (A1 and A4 both read from it), which only happens with an active
+> IOMMU, so `intel_iommu=on` is already in effect on kernel `6.17.2-1-pve`.
+>
+> ⚠️ `printf … >> /etc/modules` appends. If B1 is ever re-run, check for
+> duplicate `vfio*` lines — harmless, but confusing later.
+
 ### B2. Shut down and change BIOS settings
 
 ```bash
@@ -941,8 +969,13 @@ softdep snd_hda_intel pre: vfio-pci
 EOF
 printf 'vfio\nvfio_iommu_type1\nvfio_pci\n' >> /etc/modules
 update-initramfs -u -k all
-proxmox-boot-tool refresh
+proxmox-boot-tool refresh   # "no proxmox-boot-uuids" is expected: plain GRUB host
+lsinitramfs /boot/initrd.img-6.17.2-1-pve | grep -E 'vfio|arc-b70'
 ```
+
+🛑 **That last line must show `etc/modprobe.d/vfio-arc-b70.conf`.** If the file
+is not inside the initramfs, `xe` will claim the card on the next boot regardless
+of what `/etc/modprobe.d` says, and the reboot below is wasted.
 
 🛑 **The next step takes the whole cluster down**, including the Postgres VM and
 the tailnet gateway. Run it from the Proxmox console or the LAN — not through
@@ -982,7 +1015,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] A5 grants mirrored onto `tofu@pve`, `!import` moved to `--privsep 1` (2026-09-16)
 - [x] A5 scoping verified: `VM.Allocate` on `/vms/105`, absent on `/vms/104`, `!import` still read-only
 - [x] **Phase A complete 2026-09-16.** Next is B1, then the B2 cluster-wide reboot.
-- [ ] B1 vfio config + initramfs
+- [x] B1 vfio config written, initramfs regenerated (2026-09-16) — confirm `vfio-arc-b70.conf` is bundled with `lsinitramfs` before the B2 reboot
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
 - [ ] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 size recorded
 - [ ] C2 VM created
