@@ -134,11 +134,11 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   hardware. ❌ **The host-side resize to 32 GiB then failed with `-ENOSPC`**
   (2026-09-16, card unbound): the 56G SR-IOV VF reservation fills the 64G GPU
   window, and the kernel neither grew the windows nor dropped the VFs. ✅ **Full 32 GiB ReBAR
-  works in two steps** (2026-09-16, verified in VM 105: CPU-accessible VRAM equals
-  usable VRAM, 31.89 GiB, with no `Small BAR device`). Resize to 4 GiB first, which
-  makes the kernel drop the unused 56G VF BAR reservation, then to 32 GiB, which
-  fits in the root port's 72G. A direct 32 GiB resize fails with `-ENOSPC`
-  because the reservation is reassigned at every boot. See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
+  works** (2026-09-16, verified in VM 105: CPU-accessible VRAM equals usable VRAM,
+  31.89 GiB, with no `Small BAR device`). The sequence is **32 GiB (fails with
+  `-ENOSPC`, and its rollback leaves the unused 56G VF BAR reservation unassigned)
+  → 4 GiB → 32 GiB**, which then fits in the root port's 72G. 4 GiB alone does
+  *not* release the reservation, since it fits beside it (boot test 2026-09-16). See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
   `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.
