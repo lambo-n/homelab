@@ -1435,12 +1435,25 @@ It orders itself `Before=pve-guests.service`, and nothing `Requires` it. A faile
 resize leaves the card at 256 MiB or 4 GiB, still bound and still usable by VM 105,
 and never blocks boot.
 
-**Install on the host.** Fetch the files with `scp`, not by pasting (tonight's
-pastes wrapped and mangled lines):
+**Install.** Copy the files **from the workstation** with `scp -3`, which relays
+through the local machine. Don't paste them (pastes wrap and mangle lines).
+
+The host and the dev VM **cannot copy between each other directly**. On
+2026-09-16, `scp dev@192.168.50.103:…` run on the host failed with
+`Permission denied (publickey)`: the dev VM's sshd was reached, but it accepts
+only the owner's GitHub keys, and root on the host holds none of them. The
+workstation reaches both through its `ProxyJump tailscale-gateway` aliases.
+
+On the workstation:
 
 ```bash
-scp dev@192.168.50.103:/home/dev/homelab/scripts/gpu-rebar.sh /usr/local/sbin/gpu-rebar.sh
-scp dev@192.168.50.103:/home/dev/homelab/scripts/gpu-rebar.service /etc/systemd/system/
+scp -3 dev:/home/dev/homelab/scripts/gpu-rebar.sh proxmox-host:/usr/local/sbin/gpu-rebar.sh
+scp -3 dev:/home/dev/homelab/scripts/gpu-rebar.service proxmox-host:/etc/systemd/system/
+```
+
+Then on the host:
+
+```bash
 chmod 755 /usr/local/sbin/gpu-rebar.sh
 systemctl daemon-reload && systemctl enable gpu-rebar.service
 ```
