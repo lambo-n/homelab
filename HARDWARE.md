@@ -53,6 +53,7 @@ This file is the one place that records the metal.
 | Model | **Dell PowerEdge T550** (15G), BIOS **1.8.2** | `dmidecode`, 2026-09-16 |
 | CPU | **Xeon Silver 4314** @ 2.40 GHz — 1 socket, 32 threads, **1 NUMA node** (`node0` = 0–31) | `lscpu`, 2026-09-16 |
 | Proxmox VE | `pve-manager/9.1.1`, kernel `6.17.2-1-pve` | `pveversion`, 2026-09-16 |
+| Kernel cmdline | `quiet intel_iommu=on iommu=pt pci=realloc,bridge_realloc pci=noiov`, plain GRUB (`/etc/default/grub`, no `grub.d` override). The `pci=` options are presumably left from the 2026-09-15 ReBAR attempts, which the docs had only as "GRUB kernel parameters tried"; **`bridge_realloc` and `noiov` are confirmed no-ops**: `PCI: Unknown option` for both in the 2026-09-16 02:12 boot log. `pci=noats` was added and accepted 2026-09-16 ([`GPU-VM.md`](GPU-VM.md) C2a). | `/proc/cmdline`, 2026-09-16 |
 | Platform | Ice Lake generation — `fe:00.x Intel Ice Lake Ubox Registers`, Dell subsystem IDs `1028:*` on every controller | `lspci -nnk`, 2026-09-09 |
 | RAM | **503 GiB total**, 35 GiB used, 467 GiB free | `free -g`, 2026-09-09 |
 | Swap | 8 GiB, on `pve-swap` (LVM, on the boot device) | `lsblk`, 2026-09-09 |
@@ -97,7 +98,7 @@ Key architectural findings confirmed 2026-09-09:
 
 Installed with a full power cycle of the homelab. Everything below is from the
 host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
-**Not attached to any guest yet** — no VM or k3s node sees it. Planned: whole
+**Attached to VM 105 (`llm`, `192.168.50.107`) since 2026-09-16**, whole card via the `arc-b70` mapping. No k3s node sees it. Planned: whole
 card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.md).
 
 | | | Source |
@@ -139,6 +140,15 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   unbound from `xe` and held by `vfio-pci`, since a bound driver makes the
   kernel refuse a resize outright — see [`GPU-VM.md`](GPU-VM.md) Phase D. Treat
   small BAR as permanent until that says otherwise.
+- 🔴 **Passthrough with ATS enabled hard-locks the host.** First `qm start 105`
+  on 2026-09-16: after `vfio-pci` reset the card, VT-d Device-TLB invalidations
+  to `53:00.0` timed out (`DMAR: … Invalidation Time-out Error`, `QI PRIOR:
+  Device-TLB Invalidation qw0 = 0x5300530000000003`), and 45 s later
+  `watchdog: CPU13: Watchdog detected hard LOCKUP`. The whole host was down until
+  a power cycle. **Fixed by `pci=noats`**, verified 2026-09-16 02:16 PDT: same
+  reset sequence, no Device-TLB timeouts, `ATSCtl: Enable-` with the VM running,
+  and the guest booted ([`GPU-VM.md`](GPU-VM.md) C2a). Removing that parameter
+  brings the lockup back.
 - ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
 ---

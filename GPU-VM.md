@@ -711,8 +711,15 @@ tofu downloads the image itself
 >
 > ```bash
 > grep -A4 '^dir: local$' /etc/pve/storage.cfg     # read the current `content` line
-> pvesm set local --content <that list>,import     # only if import is missing
+> # Only if `import` is missing: re-run `pvesm set local --content` with the
+> # existing list plus import, typed out in full, e.g. iso,vztmpl,backup,import
 > ```
+>
+> ✅ Checked 2026-09-16: `content iso,import,vztmpl,backup`. `import` was already
+> enabled, so nothing changed on this host. (An earlier version of this step had
+> a `<list>` placeholder inside the command. Bash read `<` as an input
+> redirect and failed harmlessly before running `pvesm`. Placeholders don't
+> belong inside pasteable commands.)
 
 Two variables have no defaults and must be supplied before the apply.
 
@@ -850,11 +857,153 @@ qm create 105 --name llm --ostype l26 \
 
 `--onboot 0` matches the other guests.
 
+### C2a. 🔴 First start hard-locked the host (ATS). Fix before starting 105 again
+
+**2026-09-16, 01:46 PDT.** The apply built everything, and then starting VM 105
+took the entire host down. Tasks in `/var/log/pve/tasks/index`:
+
+```
+download:noble-server-cloudimg-amd64.qcow2  OK      (37 s)
+qmcreate:105                                OK
+resize:105                                  OK
+qmstart:105                                 unexpected status   <- never finished; closed out at next boot
+```
+
+Kernel log for that boot (`journalctl -b -1 -k`):
+
+```
+01:46:27 vfio-pci 0000:53:00.0: resetting / reset done
+01:46:35 vfio-pci 0000:53:00.0: enabling device (0000 -> 0002)
+01:46:35 vfio-pci 0000:53:00.0: resetting / reset done
+01:46:35 DMAR: VT-d detected Invalidation Time-out Error: SID 0
+01:46:35 DMAR: QI PRIOR: Device-TLB Invalidation qw0 = 0x5300530000000003, ...   (repeats)
+01:47:20 watchdog: CPU13: Watchdog detected hard LOCKUP on cpu 13                  <- last line of the boot
+```
+
+The host was unreachable until a power cycle at 02:00. Every guest stopped
+uncleanly.
+
+**What it means.** `0x5300` in that descriptor is both the source and PF device
+ID: bus `53`, device `00`, function `0`, the Arc B70. Descriptor type `3` is a
+**Device-TLB invalidation**, which the IOMMU sends to a device that uses **PCIe
+ATS** (Address Translation Services) to keep its own translation cache. After
+`vfio-pci` reset the card, the card stopped answering those invalidations. The
+kernel waits for each one synchronously, so it spun on a CPU until the watchdog
+declared a hard lockup. It is not the BAR, not MMIO placement, and not the
+64 GiB memory pin. None of those appear in the log.
+
+**The fix is `pci=noats` on the host kernel command line.** It turns off ATS for
+all PCIe devices, so the IOMMU keeps every translation to itself and never sends
+a Device-TLB flush. The throughput cost is negligible here. ✅ **Verified on this
+card 2026-09-16, step 4 below.** Never remove it while this card is passed
+through.
+
+**What the crash left behind.** Everything exists on the host, and **none of it is
+in tofu state**. tofu's last state write was 08:44:42 UTC, before the apply. It
+left `.terraform.tfstate.lock.info` behind (ID `0645dbbf-…`). **That file is
+not a lock.** The local backend's lock is an OS-level lock held by the tofu
+process, released when the process died. The file only describes it, so it
+blocks nothing (`tofu force-unlock` answers `LocalState not locked`). Delete it
+and move on; do not count on it to stop an apply.
+
+| On the host | |
+|---|---|
+| VM 105 config | complete: `hostpci0: mapping=arc-b70,pcie=1,rombar=0,x-vga=0`, cloud-init, EFI |
+| `local-lvm` | `vm-105-cloudinit`, `vm-105-disk-0` (EFI), `vm-105-disk-1` (root, 32G) |
+| `llm-pool` | `vm-105-disk-0`, 1.37T reserved |
+| `local` | `import/noble-server-cloudimg-amd64.qcow2` |
+
+The pools were all healthy after the unclean stop, `sas-pool` imported on its
+own again, and `53:00.0` came back on `vfio-pci`.
+
+**Sequence, with the smallest possible blast radius:**
+
+1. **Keep 102–104 stopped** (the k3s cluster, Postgres included) until step 4
+   passes. Another lockup would kill Postgres uncleanly a second time.
+2. **Add `pci=noats`** to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`,
+   run `update-grub` (this host boots plain GRUB, B1), and reboot.
+3. **Confirm it took:** `cat /proc/cmdline` shows `pci=noats`.
+   ✅ **Done 2026-09-16 02:12 PDT.** `pci=noats` is present and absent from
+   `journalctl -b -k | grep 'Unknown option'`, so the kernel accepted it. That
+   check also showed `bridge_realloc` and `noiov` are unknown options that have
+   never had any effect. They are left in place so this test changes one thing
+   only. `ATSCtl: Enable-` idle, but that proves little: ATS is normally only
+   enabled when the device is attached to a translation domain, so re-check it
+   **while 105 runs**.
+4. **Controlled test from the host console:** `journalctl -kf` in one shell,
+   `qm start 105` in another. Pass means the VM runs, no `DMAR: … Device-TLB`
+   line appears, and `lspci -vvv -s 53:00.0 | grep ATSCtl` still reads
+   `Enable-` while it runs.
+   ✅ **Passed 2026-09-16 02:16 PDT.** Same reset sequence as the crash, with no
+   `DMAR` line after it this time:
+   ```
+   02:16:27 vfio-pci 0000:53:00.0: resetting / reset done
+   02:16:35 vfio-pci 0000:53:00.0: enabling device (0000 -> 0002)   <- where the ITEs began last time
+   02:16:35 vfio-pci 0000:53:00.0: resetting / reset done  (x2)
+   ```
+   `qm status 105` → `running`, and `ATSCtl: Enable-` **with the VM running**.
+   The host outlived the 45 s window. From the dev VM at 02:17:30, `.107`
+   answered ping from MAC `bc:24:11:cc:26:62` (VM 105's `net0`), and sshd was
+   up on 22, so the guest booted and cloud-init applied the static address.
+   **`pci=noats` fixes the lockup.**
+5. **Then rebuild through tofu, so state and host agree again.** Run
+   `qm destroy 105 --destroy-unreferenced-disks 1` (🔴 **never `--purge`**, see
+   below) and
+   `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then remove the
+   stale `.terraform.tfstate.lock.info` and plan/apply as in C2.
+   ✅ **Host side done 2026-09-16:** VM 105, its three LVM volumes and the
+   `llm-pool` zvol destroyed, image freed. `llm-pool` is back to `612K`, and state
+   still lists only the original seven resources.
+
+   🔴 **`--purge` deleted the token's permissions.** It was used here, and the
+   rebuild then downloaded the image (now in state) and failed the VM create
+   with `HTTP 403 - Permission check failed` — the same token had created 105
+   without trouble before the crash. `qm destroy --purge` removes the VMID from
+   *every* configuration that names it: backup and replication jobs, HA, **and
+   the ACL entries on `/vms/105`**, so both `TofuVM` grants from A5 (user and
+   token) were gone. Re-grant, and prove it before applying:
+
+   ```bash
+   pveum acl modify /vms/105 --users  tofu@pve       --roles PVEAuditor,TofuVM
+   pveum acl modify /vms/105 --tokens 'tofu@pve!llm' --roles TofuVM
+   pveum user permissions 'tofu@pve!llm' --path /vms/105   # VM.Allocate + VM.Config.* present
+   ```
+
+   General rule for this VMID: its write access is an ACL on a path named after
+   the guest, so anything that "cleans up everything about VM 105" also
+   revokes the only token allowed to recreate it.
+
+   ✅ **Rebuilt through tofu 2026-09-16 ~09:25 UTC.** After the re-grant,
+   `!llm --path /vms/105` again showed exactly `TofuVM`, and `!import` stayed
+   audit-only. The plan was `1 to add` (the image was already in state, with
+   `import_from = "local:import/noble-server-cloudimg-amd64.qcow2"`), and the
+   apply reported `Creation complete after 37s [id=105]` with the host's
+   `journalctl -kf` open throughout and no DMAR or lockup lines. State now holds
+   `proxmox_virtual_environment_vm.llm`, and the new MAC `bc:24:11:e5:1f:57`
+   answers on `.107` with sshd listening. **C2a is closed.**
+   The VM is empty, so a clean rebuild costs about a minute and avoids an
+   import with its generated diffs.
+
 ### C3. First boot and verify inside the guest
 
 There is no installer to sit through: cloud-init grows the root disk, sets the
 address from `llm_ipv4_address`, and seeds the `dev` account with your keys. SSH
-in at `192.168.50.107` and watch it finish before judging anything:
+in at `192.168.50.107` and watch it finish before judging anything.
+
+From outside the LAN, reach it the way every other guest is reached: a
+`ProxyJump` through the Tailscale gateway container. `.107` is on the same flat
+`/24`, so the gateway needs no change, and the key that already opens `dev` is
+one of the two cloud-init installed. In `~/.ssh/config` on the workstation:
+
+```
+Host llm
+    HostName 192.168.50.107
+    User dev
+    IdentityFile ~/.ssh/id_ed25519
+    ProxyJump tailscale-gateway
+```
+
+Then `ssh llm`:
 
 ```bash
 cloud-init status --wait                   # done, not error
@@ -874,6 +1023,35 @@ sudo dmesg | grep -iE 'xe .*(BAR|GuC|HuC)'
 sudo lspci -vv -d 8086:e223 | grep Region  # 256M = small BAR, 32G = ReBAR working
 ```
 
+✅ **Verified 2026-09-16 ~09:35 UTC**, after the HWE install and a guest reboot
+(the host stayed up through the GPU reset; confirm no DMAR errors with
+`journalctl -k --since '02:25' | grep -ciE 'Invalidation Time-out|Device-TLB|lockup'`, expecting 0):
+
+```
+uname -r                        7.0.0-31-generic     <- HWE has since moved past 6.17; still >= 6.17
+lspci -nnk | grep -A3 e223      01:00.0 [8086:e223] ASRock [1849:6025], Kernel driver in use: xe
+ls -l /dev/dri                  card0, card1, renderD128
+dmesg                           xe 0000:01:00.0: [drm] Small BAR device
+                                GuC 70.44.1 in use -- "70.54.0 is recommended"
+                                HuC 8.2.10 (same as the host had)
+lspci -vv Region                Region 0 [size=16M], Region 2 at 0x380000000000 [size=256M]
+systemctl is-active qemu-guest-agent    inactive
+```
+
+- **The card works in the guest.** `xe` binds, and a render node exists. `card0` is
+  presumably the VM's emulated display, and `card1` + `renderD128` the Arc.
+- **GuC is older than the 7.0 kernel wants** (`70.44.1` loaded, `70.54.0`
+  recommended). It works; the guest's `linux-firmware` lags the HWE kernel. Try
+  `sudo apt install --only-upgrade linux-firmware` first. Not blocking.
+- **`qemu-guest-agent` inactive is expected, not a failure.** The package is
+  installed, but Ubuntu only starts it when the virtio-serial channel
+  `org.qemu.guest_agent.0` exists, and VM 105 was created with
+  `agent { enabled = false }`. Flipping that in tofu adds the channel, and the
+  agent starts after the reboot the provider performs (`reboot_after_update`).
+- Region 2 256M confirms the small BAR survives into the guest unchanged, as
+  Phase D expects. OVMF placed the 64-bit window at 56 TiB, inside the 46-bit
+  physical address width `cpu: host` passes through.
+
 Models disk. Address it by id, and use **`nofail`** (the SAS disks' old fstab lines were missing it, and would have dropped the host to an emergency shell; `HARDWARE.md`):
 
 ```bash
@@ -883,6 +1061,24 @@ sudo mkdir -p /models
 echo 'LABEL=models /models ext4 defaults,noatime,nofail 0 2' | sudo tee -a /etc/fstab
 sudo mount -a && df -h /models
 ```
+
+✅ **Done 2026-09-16.** `mkfs` built 367,001,600 × 4K blocks (exactly 1400 GiB),
+and `df` shows `/dev/sdb 1.4T` on `/models`. Run `sudo systemctl daemon-reload`
+after editing fstab, or `mount -a` warns that systemd still uses the old version.
+
+> **Default `mkfs.ext4` wastes about 90 GiB on this disk.** It sizes for small
+> files: one inode per 16 KiB gave 91.75 M inodes × 256 B ≈ **22 GiB of inode
+> tables**, plus the **5% root reserve ≈ 70 GiB**, on a disk that holds a few
+> dozen multi-GB weight files. For a models-only disk, format with
+>
+> ```bash
+> sudo mkfs.ext4 -F -L models -T largefile4 -m 0 "$M"
+> ```
+>
+> (one inode per 4 MiB, ~358 k inodes; no reserve). The reserve can be dropped
+> later with `tune2fs -m 0`, but inode density is fixed at format time, so choose
+> it while the disk is empty. The fstab line uses `LABEL=models`, so it survives
+> a reformat unchanged.
 
 Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
 so nothing needs configuring inside the guest. `.107` is taken as decided (owner,
@@ -1154,8 +1350,8 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] B2 clean shutdown, BIOS MMIO settings recorded (2026-09-16: above-4GB already Enabled; Base 12 TB → 56 TB)
 - [x] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 = 256M, ReBAR cap advertises up to 32GB (2026-09-16)
 - [x] **Phase B complete.** `sas-pool` survived the reboot — `zfs-import-scan` fix proven.
-- [ ] C2 VM created
-- [ ] C3 guest on `xe`, `/models` mounted
+- [x] C2 VM created by `tofu apply` and in state (2026-09-16, after the C2a ATS lockup was fixed with `pci=noats`)
+- [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
 - [ ] D model load time in the guest measured and written down
 - [ ] E tofu import clean, docs updated
