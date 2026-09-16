@@ -1024,7 +1024,8 @@ sudo lspci -vv -d 8086:e223 | grep Region  # 256M = small BAR, 32G = ReBAR worki
 ```
 
 ✅ **Verified 2026-09-16 ~09:35 UTC**, after the HWE install and a guest reboot
-(during which the host logged no DMAR or lockup lines):
+(the host stayed up through the GPU reset; confirm no DMAR errors with
+`journalctl -k --since '02:25' | grep -ciE 'Invalidation Time-out|Device-TLB|lockup'`, expecting 0):
 
 ```
 uname -r                        7.0.0-31-generic     <- HWE has since moved past 6.17; still >= 6.17
