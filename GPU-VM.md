@@ -402,9 +402,16 @@ error. Use `pveum role modify` if a set ever needs changing.
 > write on `/vms/105` and the import token still cannot use it.
 >
 > Note the token gets `TofuVM` alone at `/vms/105`, not `TofuVM` ∪ `PVEAuditor` —
-> nearest-path-wins again, on the token's own side. That is sufficient:
-> `Sys.Audit` and `Datastore.Audit` are checked at `/` and the `/storage/*` paths,
-> where the token still holds `PVEAuditor` and `TofuStorage`.
+> nearest-path-wins again, on the token's own side. ~~That is sufficient~~
+> 🔴 **Corrected 2026-09-16: it is not, once the guest agent is on.** With
+> `agent { enabled = true }` the provider reads the VM's addresses through the
+> agent, which PVE gates on `VM.GuestAgent.Audit` *at `/vms/105`*. `TofuVM`
+> doesn't include it, and the `PVEAuditor` that would have supplied it was
+> replaced by the nearer entry. The first agent-enabled apply succeeded, but with
+> `403 … (/vms/105, VM.GuestAgent.Audit|VM.GuestAgent.Unrestricted)`. The token's
+> grant at `/vms/105` is now **`PVEAuditor,TofuVM`**, mirroring the user's, so its
+> read access at that path matches everywhere else. `VM.GuestAgent.Audit` is
+> read-only; `Unrestricted` (exec, file write) is deliberately not granted.
 
 **The token**, with privilege separation on so its own ACLs bound it rather than
 inheriting the user's — **bounded by the user's rights as well, which is the trap
@@ -421,7 +428,7 @@ gets one:
 ```bash
 T='tofu@pve!llm'
 pveum acl modify /                          --tokens "$T" --roles PVEAuditor    # read-only, everywhere
-pveum acl modify /vms/105                   --tokens "$T" --roles TofuVM        # write, HERE ONLY
+pveum acl modify /vms/105                   --tokens "$T" --roles PVEAuditor,TofuVM  # write, HERE ONLY (+ read incl. agent)
 pveum acl modify /storage/local-lvm         --tokens "$T" --roles TofuStorage   # root + EFI disk
 pveum acl modify /storage/llm-pool          --tokens "$T" --roles TofuStorage   # models disk
 pveum acl modify /storage/local             --tokens "$T" --roles TofuStorage   # cloud image download
@@ -790,8 +797,9 @@ read -rsp 'token: ' PROXMOX_VE_API_TOKEN; echo; export PROXMOX_VE_API_TOKEN
 # API calls for its two unchanged DNS records, so it never needs credentials.
 # Verified 2026-09-16: a plan with no CLOUDFLARE_API_TOKEN at all fails only on
 # Proxmox credentials. tofu/README.md "-refresh=false is not optional" says the same.
-tofu plan  -refresh=false
-tofu apply -refresh=false
+tofu plan  -refresh=false -out=vm105.tfplan   # READ IT. Separate paste from the apply below.
+# only after the plan shows exactly what you expect:
+tofu apply vm105.tfplan && rm vm105.tfplan
 ```
 
 > ⚠️ **Use `-refresh=false`, even though this token can write.** Corrected
@@ -965,7 +973,7 @@ own again, and `53:00.0` came back on `vfio-pci`.
 
    ```bash
    pveum acl modify /vms/105 --users  tofu@pve       --roles PVEAuditor,TofuVM
-   pveum acl modify /vms/105 --tokens 'tofu@pve!llm' --roles TofuVM
+   pveum acl modify /vms/105 --tokens 'tofu@pve!llm' --roles PVEAuditor,TofuVM
    pveum user permissions 'tofu@pve!llm' --path /vms/105   # VM.Allocate + VM.Config.* present
    ```
 
@@ -1269,7 +1277,7 @@ pveum user token add tofu@pve llm --privsep 1
 ```bash
 T='tofu@pve!llm'
 pveum acl modify /                             --tokens "$T" --roles PVEAuditor
-pveum acl modify /vms/105                      --tokens "$T" --roles TofuVM
+pveum acl modify /vms/105                      --tokens "$T" --roles PVEAuditor,TofuVM
 pveum acl modify /storage/local-lvm            --tokens "$T" --roles TofuStorage
 pveum acl modify /storage/llm-pool             --tokens "$T" --roles TofuStorage
 pveum acl modify /storage/local                --tokens "$T" --roles TofuStorage
