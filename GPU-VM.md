@@ -355,10 +355,10 @@ pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser 
   granted. Every plan in this directory therefore runs `-refresh=false`, exactly
   as it does with the read-only token (C2). Read broad, write narrow.
 - The `/sdn/...` grant reflects PVE 8.2+ checking bridge use as an SDN
-  permission. ⚠️ Unverified on this host: if `vmbr0` is a plain Linux bridge and
-  this path 404s, confirm the real one with
-  `pvesh ls /access/acl` or by adding a NIC in the UI as this token and reading
-  the error.
+  permission. ✅ **Verified on this host 2026-09-16** — `localnetwork` is the
+  right zone for `vmbr0` on PVE 9.1.1, and the grant was accepted. All seven
+  ACLs applied, giving eight `tofu` rows in `pveum acl list`: the pre-existing
+  `tofu@pve` user row plus seven for the token.
 - **Not granted, deliberately:** `Sys.Modify` (datacenter config, incl. adding
   storage), `Mapping.Modify` (creating or editing mappings), `VM.Allocate`
   anywhere above `/vms/105`, `VM.Migrate`, `VM.Backup`, `VM.Snapshot`,
@@ -373,8 +373,21 @@ id* as the userid — `pveum user permissions` has **no `--token` flag**, and
 supplying one fails with `Unknown option: token` (tried 2026-09-16):
 
 ```bash
-pveum user permissions 'tofu@pve!llm' | grep -E '/vms/10[45]'
+pveum user permissions 'tofu@pve!llm' --path /vms/105   # write privileges here
+pveum user permissions 'tofu@pve!llm' --path /vms/104   # read-only, and NOTHING more
 ```
+
+> ⚠️ **Do not verify this with `| grep -E '/vms/10[45]'`.** The output is a table
+> that prints the path once per block and leaves the column blank on continuation
+> rows, so a grep on the path keeps only the **first** privilege of the block and
+> drops the rest. Tried 2026-09-16: it returned the single line
+> `│ /vms/105 │ VM.Audit (*) │`, which looks like the token got *only* audit —
+> while `pveum acl list` showed `TofuVM` correctly attached. `--path` asks the
+> question directly and cannot mislead this way.
+>
+> Expect `/vms/104` to still list the **read** privileges: `PVEAuditor` at `/`
+> propagates, which is the intended "read broad, write narrow". What must be
+> absent there is `VM.Allocate` and every `VM.Config.*`.
 
 **Or from the dev VM**, authenticating *as* the token, which is the stronger test
 because it exercises the credential rather than describing it:
@@ -826,8 +839,12 @@ pveum acl modify /storage/llm-pool             --tokens "$T" --roles TofuStorage
 pveum acl modify /storage/local                --tokens "$T" --roles TofuStorage
 pveum acl modify /mapping/pci/arc-b70          --tokens "$T" --roles TofuMapping
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser
-# NB: there is no --token flag. Pass the FULL token id as the userid.
-pveum user permissions 'tofu@pve!llm' | grep -E '/vms/10[45]'
+# NB: no --token flag -- the FULL token id is the userid. And do not grep by
+# path: the table blanks that column on continuation rows, so a grep keeps only
+# the first privilege of the block and hides the rest.
+pveum acl list | grep -i tofu                            # expect 8 rows: 1 user + 7 token
+pveum user permissions 'tofu@pve!llm' --path /vms/105    # write privileges here
+pveum user permissions 'tofu@pve!llm' --path /vms/104    # read-only, nothing more
 ```
 
 Expect write privileges under `/vms/105` and **nothing** under `/vms/104`. If
