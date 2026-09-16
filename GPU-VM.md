@@ -1867,6 +1867,57 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
   - `node_exporter` for GPU temperature/power in Grafana, plus `--metrics`
     scraping.
 
+### F6 — consumers (LAN only)
+
+✅ **F6a firewall, 2026-09-16.** The approved `192.168.50.0/24` subnet route (GITOPS.md
+Tailscale) gave any tailnet device with `--accept-routes` access to `:8080`/`:8081`.
+`ufw` on `llm` now enforces LAN-only:
+
+| Rule | Why |
+|---|---|
+| default deny incoming, allow outgoing | |
+| allow `22/tcp` from anywhere | ProxyJump SSH arrives from the gateway, `192.168.50.102` |
+| **deny** `8080,8081/tcp` from `192.168.50.102` | tailnet traffic through the route arrives with the gateway's address (seen: `Last login … from 192.168.50.102`) |
+| allow `8080,8081/tcp` from `192.168.50.0/24` | LAN, including the k3s nodes (pod egress is masqueraded to the node IP) |
+| allow `9100/tcp` from `.104`, `.105`, `.106` | node_exporter, for Prometheus only (F6b) |
+
+Verified, with the SSH rule added before `ufw enable`:
+- dev VM → `:8081/v1/models`: `401` (reachable);
+- workstation on the tailnet: PVE `:8006` returned `401`, which proves the route
+  works from there, and `:8081/health` returned `000` (blocked);
+- `ssh llm` still works.
+
+✅ **F6b monitoring, 2026-09-16** (PR #27, Flux Kustomization `llm-vm` in
+`kubernetes/apps/observability/llm-vm/`):
+- `prometheus-node-exporter` (noble package) on `llm`. Its hwmon collector exposes the
+  B70 as chip `0000:00:1c_0_0000:01:00_0`, with `node_hwmon_sensor_label` mapping
+  `pkg`→`temp2` and `vram`→`temp3` (20 temperature series in total).
+- ScrapeConfigs `llm-node` (`:9100`) and `llm-fast` (`:8081/metrics`, Bearer from
+  Secret `llm-api-key`). The router is not scraped: in router mode `/metrics` needs
+  `?model=`, so unloaded presets would show as permanently down targets.
+- PrometheusRule `llm-vm`: `LlmGpuHot` (pkg/vram > 90 °C for 5m) and `LlmVmDown`.
+  Both loaded `health: ok`. Alerts go to the stack's `null` receiver, like
+  everything else here.
+- **Checked against the live Prometheus** (API-server proxy, read-only):
+  - both targets `up`;
+  - the `LlmGpuHot` expression without `> 90` returns `pkg 52`, `vram 52` (idle);
+  - 15 `llamacpp:*` series; ~1,950 series in total, which is small against the
+    ~66K budget in the kube-prometheus-stack HelmRelease.
+- **Cluster API key:** `llm-api-key` was generated straight into SOPS and never
+  printed. llama-server keys have no scopes, so it is a full API key and the one
+  cluster apps will use. It is line 2 of `/etc/llama/api-keys`.
+  - Delivery, from a workstation in **bash** with an ssh-agent loaded:
+    `ssh dev "… sops decrypt --extract '["stringData"]["key"]' …" | ssh llm
+    'k=$(cat); [ ${#k} -eq 64 ] && printf "%s\n" "$k" | sudo tee -a …'`.
+  - ⚠️ **Hit on the way:** a first attempt from fish expanded `$F` to an empty
+    string, and an unguarded `cat >>` appended a 117-character non-key line.
+    llama-server loads **every non-empty, non-`#` line as a valid key**, so that
+    junk authenticated until it was deleted (`sed -i 2d` + restart). **Check the key
+    file with `awk '{print NR": "length($0)}'`** (every line 64), never with
+    `grep -c`, which also counts blank lines.
+  - An F6b rotation or revocation is: edit the SOPS Secret, replace that line,
+    restart both units.
+
 ## Phase E — bring it under tofu, and update the docs
 
 1. **The guest is already in tofu** if C2 went the intended way — authored, applied,
@@ -2059,5 +2110,5 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
 - [x] F4 benchmarks + cold load time recorded (2026-09-16): SYCL chosen; 27B cold 66.6 s / warm 20.3 s; `qwen27-agent` ~190K ctx alone (q8_0 KV); `qwen27` 2 × 40,960 beside Qwen3.5-4B
 - [x] F5 `llama-fast` + `llama-router` services, presets `qwen27`/`chat`/`qwen27-agent`, `llm-mode` (2026-09-16)
-- [ ] F6 LAN consumers: CLI client, agents, cluster API key (SOPS), tailnet exposure check, node_exporter
+- [ ] F6 LAN consumers — ✅ F6a firewall, ✅ F6b monitoring + cluster key (2026-09-16); ⬜ F6c CLI client, ⬜ F6d agents
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
