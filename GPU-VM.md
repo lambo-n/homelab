@@ -1725,6 +1725,24 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
     - **beside Llama 3.1 8B** (`-c 8192`, ≈9.3 GiB), q8_0 KV: **4,096 = the fit
       minimum. ❌ The `qwen27` preset as planned does not fit.** ~22.6 GiB is left
       beside the 8B, less than the 23.55 GiB of weights alone.
+    - **Change, decided 2026-09-16 (owner):** the `fast` role needs little reasoning
+      (a text-only voice gag assistant with quips and a quick web search). It moves to
+      **Qwen3.5-4B Q8_0** (`unsloth/Qwen3.5-4B-GGUF` @ `e87f1764`, 4.17 GiB, SHA-256
+      `10cc391b…`). The 4B is hybrid (8 of 32 layers full attention), so its KV cache
+      is tiny; expected ~4.7 GiB in use vs 9.3 GiB for the 8B, leaving an estimated
+      ~45–60K context for Q6_K_XL beside it. UD-Q5_K_XL (19.44 GiB) is the fallback
+      if the measured fit is under ~40K. **All downloaded models are kept** (owner),
+      including Llama 3.1 8B.
+    - ✅ **Measured with the 4B, 2026-09-16.**
+      - `Qwen3.5-4B-Q8_0.gguf` downloaded, checksum OK. `llama-bench`: pp512 **5162**,
+        tg128 **76.9**; at 16K, pp 2534, tg 64.8. Generation came in below my ">100"
+        estimate; the linear-attention layers are the likely cost on SYCL.
+      - Paired fit, with the 4B at `-c 8192` (4 slots) and Qwen3.8-27B Q6_K_XL at
+        `-np 2 -ctk q8_0 -ctv q8_0`: `n_slots = 2, n_ctx_slot = 40960,
+        kv_unified = 'false'`. That is **40,960 tokens per slot, 81,920 in total**,
+        above the ~45–60K estimate. Fit kept context well above its 4096 floor, so no
+        layers were moved off the GPU.
+      - **The `qwen27` preset fits with Q6_K_XL; Q5_K_XL is not needed.**
   - `xpu-smi` 2.0.1 (from the PPA) sees the card and reports power, frequency and
     memory, but shows `N/A` for temperatures, fan and utilization. Use `sensors`.
     `intel_gpu_top` 1.28 (noble) is i915-only. The card idles at **48 W** at 650 MHz,
@@ -1951,12 +1969,12 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via 32 GiB (fails, releases the SR-IOV reservation) → 4 GiB → 32 GiB
 - [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
 - [ ] D boot-time resize verified across a real host reboot (first try 2026-09-16 failed at 32 GiB; sequence fixed in PR #24; expect `direct 32 GiB refused … VF BAR 2 0 GiB` then `resize complete`)
-- [ ] D model load time in the guest measured and written down (now part of F4)
+- [x] D model load time in the guest measured and written down (F4a, 2026-09-16: disk- and CPU-bound, not BAR-bound)
 - [x] F0 preflight (2026-09-16): 27 GiB free on `/`, 62 GiB RAM, `dev` added to `render`/`video`, no GPU user-space installed
 - [x] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified (2026-09-16): `clinfo`, `vulkaninfo` and `sycl-ls` all see the B70
 - [x] F2 llama.cpp `v0.4.1` built, SYCL + Vulkan, both see the B70 (2026-09-16)
 - [x] F3 models in `/models` (2026-09-16): 7B test model, plus Llama 3.1 8B Q8_0, Qwen3.8-27B UD-Q6_K_XL, Qwen3.6-35B-A3B UD-Q4_K_XL, all checksums verified
-- [ ] F4 benchmarks + cold load time recorded — 7B done, **SYCL chosen** (2026-09-16); production-model load time pending
+- [x] F4 benchmarks + cold load time recorded (2026-09-16): SYCL chosen; 27B cold 66.6 s / warm 20.3 s; `qwen27-agent` ~190K ctx alone (q8_0 KV); `qwen27` 2 × 40,960 beside Qwen3.5-4B
 - [ ] F5 `llama-server` systemd service
 - [ ] F6 workstation tunnel + cluster API key
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
