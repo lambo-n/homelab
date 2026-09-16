@@ -327,8 +327,70 @@ error. Use `pveum role modify` if a set ever needs changing.
 > A `TofuDisk` row at `/` would have given that token disk-write on every guest.
 > Worth re-running after any future import.
 
+> 🔴 **A5 as originally written does not work, and the token it builds cannot
+> create VM 105.** Found 2026-09-16, after all seven ACLs were applied exactly as
+> written:
+>
+> ```
+> pveum user permissions 'tofu@pve!llm' --path /vms/105  ->  VM.Audit (*)          <- ONE privilege
+> pveum user permissions 'tofu@pve!llm' --path /vms/104  ->  the 7 PVEAuditor privs
+> ```
+>
+> The token has **less** power on the VM it owns than on the VM it must never
+> touch. Two PVE rules combine to produce it, and the runbook accounted for
+> neither:
+>
+> 1. **A privsep token's effective rights are the *intersection* of its own ACLs
+>    and its user's.** A token can never exceed the user it belongs to.
+>    `tofu@pve` holds only `PVEAuditor` at `/`.
+> 2. **ACL inheritance is nearest-path-wins, not cumulative.** An entry on
+>    `/vms/105` *replaces* the one inherited from `/` rather than adding to it.
+>
+> So at `/vms/105`: token = `TofuVM`, user = `PVEAuditor`, and
+> `TofuVM ∩ PVEAuditor` = exactly `{VM.Audit}` — which is precisely what came
+> back. At `/vms/104` both sides resolve to `PVEAuditor`, so all seven survive.
+>
+> **The fix is to mirror the grants onto the user**, keeping the token ACLs as
+> they are. The user becomes the union of what any of its tokens may do; each
+> token is then narrowed by its own ACLs. But `tofu@pve!import` is
+> **`--privsep 0`** (`tofu/README.md:286`), meaning it inherits the user wholesale
+> — so widening the user would silently hand the "read-only" token write access
+> too. Close that first:
+>
+> ```bash
+> # 1. Make !import bounded by its own ACL instead of by the user.
+> #    This does NOT regenerate the secret; the LastPass copy stays valid.
+> pveum user token modify tofu@pve import --privsep 1
+> pveum acl modify / --tokens 'tofu@pve!import' --roles PVEAuditor
+>
+> # 2. Now widen the USER, PVEAuditor kept alongside so !import stays a full auditor.
+> U='tofu@pve'
+> pveum acl modify /vms/105                      --users "$U" --roles PVEAuditor,TofuVM
+> pveum acl modify /storage/local-lvm            --users "$U" --roles PVEAuditor,TofuStorage
+> pveum acl modify /storage/llm-pool             --users "$U" --roles PVEAuditor,TofuStorage
+> pveum acl modify /storage/local                --users "$U" --roles PVEAuditor,TofuStorage
+> pveum acl modify /mapping/pci/arc-b70          --users "$U" --roles PVEAuditor,TofuMapping
+> pveum acl modify /sdn/zones/localnetwork/vmbr0 --users "$U" --roles PVEAuditor,PVESDNUser
+>
+> # 3. Prove all three claims at once.
+> pveum user permissions 'tofu@pve!llm'    --path /vms/105   # VM.Allocate + VM.Config.* present
+> pveum user permissions 'tofu@pve!llm'    --path /vms/104   # audit only, NO VM.Allocate
+> pveum user permissions 'tofu@pve!import' --path /vms/105   # audit only -- still read-only
+> ```
+>
+> Keeping `PVEAuditor` in each `--roles` list matters: without it the user's
+> nearest entry at `/storage/local-lvm` would be `TofuStorage` alone, and
+> `!import` would drop to `Datastore.Audit` there — narrowing the read-only token
+> in a way that could break the four-guest import workflow.
+>
+> **Alternative, if touching `!import` is unappealing:** put the `llm` token under
+> a separate user (`tofu-llm@pve`) carrying these grants, leaving `tofu@pve`
+> untouched. Cleaner isolation, at the cost of a new token id in LastPass and in
+> every document that names one.
+
 **The token**, with privilege separation on so its own ACLs bound it rather than
-inheriting the user's:
+inheriting the user's — **bounded by the user's rights as well, which is the trap
+above**:
 
 ```bash
 pveum user token add tofu@pve llm --privsep 1
@@ -898,7 +960,9 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] A2 `sde` proven orphan, wiped (2026-09-16)
 - [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable, `blocksize 64k` confirmed)
 - [x] A4 `arc-b70` mapping exists and `iommugroup=9` verified against the running kernel (2026-09-16)
-- [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
+- [x] A5 roles created, `tofu@pve!llm` created, secret in LastPass, seven token ACLs applied (2026-09-16)
+- [ ] A5 🔴 **effective permissions are wrong** — privsep intersection leaves the token with `VM.Audit` alone on `/vms/105`. Mirror the grants onto `tofu@pve`, and set `!import` to `--privsep 1` first. See A5.
+- [ ] A5 scoping re-verified: `VM.Allocate` on `/vms/105`, absent on `/vms/104`, `!import` still read-only
 - [ ] B1 vfio config + initramfs
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
 - [ ] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 size recorded
