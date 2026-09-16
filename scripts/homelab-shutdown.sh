@@ -2,8 +2,10 @@
 # Graceful full shutdown of the homelab, in dependency order.
 #
 # RUN ON THE PROXMOX HOST (192.168.50.101) AS ROOT.
-# Fetch it from the dev VM with:
-#   scp dev@192.168.50.103:/home/dev/homelab/scripts/homelab-shutdown.sh . && bash homelab-shutdown.sh
+# Copy it there FROM THE WORKSTATION -- the host cannot scp from the dev VM
+# (dev accepts only the owner's GitHub keys; root@pve holds none):
+#   scp -3 dev:/home/dev/homelab/scripts/homelab-shutdown.sh proxmox-host:/root/
+# then on the host:  bash homelab-shutdown.sh
 #
 # Why the order matters more than usual here: 192.168.50.101 is BOTH the
 # hypervisor AND the NFS server backing the cluster's only two stateful
@@ -69,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     --allow-self-disconnect)  ALLOW_SELF_DISCONNECT=1 ;;
     --no-tmux)                USE_TMUX=0 ;;
     --timeout)                TIMEOUT="${2:?--timeout needs a value}"; shift ;;
-    -h|--help)                sed -n '2,47p' "$0"; exit 0 ;;
+    -h|--help)                sed -n '2,49p' "$0"; exit 0 ;;
     *)                        echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
