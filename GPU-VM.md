@@ -1541,13 +1541,23 @@ That exercised the early-success path only. **The full boot path (32 GiB refused
 at each step. **Re-test: `systemctl restart gpu-rebar` with VM 105 stopped, then
 another host reboot.**
 
-**Real test: the next host reboot** (e.g. through `homelab-shutdown.sh`). Before
-starting VM 105, check:
+**Real test: the next host reboot** (e.g. through `homelab-shutdown.sh`). VM 105
+autostarts (`on_boot = true` since 2026-09-16), and `gpu-rebar` is ordered before
+guests start, so check after boot rather than before starting it. On the host:
 
 ```bash
 journalctl -u gpu-rebar -b --no-pager          # "resize complete", BAR 2 32768 MiB, both vfio-pci
-lspci -vv -s 53:00.0 | grep 'Region 2'          # [size=32G]
 ```
+
+In the guest (`lspci` on the host can't show the size once VM 105 holds the card):
+
+```bash
+sudo dmesg | grep -iE 'small bar|cpu accessible'   # 0x00000007f9000000, no "Small BAR"
+sudo llm-mode status                                # both llama units active
+```
+
+If the resize failed, VM 105 still runs with a smaller BAR (only loads are slower).
+Stop it, run `systemctl restart gpu-rebar` on the host, then start it again.
 
 ### Living with a small BAR
 

@@ -86,9 +86,13 @@ resource "proxmox_virtual_environment_vm" "llm" {
   scsi_hardware = "virtio-scsi-single"
   boot_order    = ["scsi0"]
 
-  # Matches the other guests: the homelab is powered down by hand and brought up
-  # in dependency order (scripts/homelab-shutdown.sh), not by autostart.
-  on_boot = false
+  # Unlike the other guests, this one autostarts (owner, 2026-09-16). They are
+  # brought up by hand because they depend on each other and on archive-pool's
+  # NFS exports. This VM depends on nothing but the host: gpu-rebar.service runs
+  # Before=pve-guests.service, so the BAR is resized before autostart can start it.
+  # Its consumers (LAN apps, agents) depend on it, which puts it first on the way
+  # up and after them on the way down (scripts/homelab-shutdown.sh).
+  on_boot = true
   started = true
 
   operating_system {
@@ -105,7 +109,8 @@ resource "proxmox_virtual_environment_vm" "llm" {
   cpu {
     # `host` passes the physical address width through (46-bit on this Ice Lake
     # Xeon), which is what OVMF sizes its 64-bit MMIO window from -- the BAR
-    # again. It also gives llama.cpp's CPU fallback AVX-512 and AMX.
+    # again. It also gives llama.cpp's CPU fallback AVX-512 (Ice Lake has no
+    # AMX; that arrived with Sapphire Rapids).
     type    = "host"
     cores   = 8
     sockets = 1
