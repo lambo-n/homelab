@@ -1354,12 +1354,15 @@ pcieport 0000:50:02.0: bridge window [mem 0x220000000000-0x2211ffffffff 64bit pr
 both functions rebound to vfio-pci
 ```
 
-**The hypothesis held: the 56G VF BAR reservation was the only obstacle.** The
-first direct 32 GiB attempt failed with it assigned; resizing to 4 GiB first made
-the kernel drop it; 32 GiB then fit with room to spare inside the root port's
-72G. **This fixes the shape of any boot-time persistence:** VF BAR 2 is assigned
-again after every host boot, so the unit must resize **12 then 15**, never 15
-directly.
+**The 56G VF BAR reservation was the only obstacle,** and 32 GiB fit with room to
+spare once it was gone. ⚠️ **Which step released it was misread at first.** It was
+**not** the 4 GiB resize. The first boot test (D4) ran 4 GiB → 32 GiB from a fresh
+boot: 4 GiB succeeded **with VF BAR 2 still assigned** (4 + 56 fits in 64), and
+32 GiB then failed. What released the reservation in this session was the **failed
+first 32 GiB attempt**, whose rollback left VF BAR 2 unassigned (`VF BAR 2 … failed
+to assign`), a state the 4 GiB and second 32 GiB steps inherited. The sequence
+that actually worked, and that the boot unit must replay, is **15 (ENOSPC) → 12 →
+15**.
 
 ✅ **Full ReBAR verified in the guest, 2026-09-16.** `qm start 105` with the host
 kernel log open showed only the usual `vfio-pci` resets. In VM 105:
@@ -1375,8 +1378,8 @@ lspci: Region 2: Memory at 380000000000 (64-bit, prefetchable) [size=32G]
 OVMF placed the 32G BAR with no `X-PciMmio64Mb`/`args`, so that fallback is not
 needed. **This overturns the phase's opening conclusion** ("If it fails here, ReBAR
 is closed on this hardware"). The blocker was never the BIOS or the missing ReBAR
-option; it was the card's 56G SR-IOV VF BAR reservation, which only a 4 GiB resize
-first gets the kernel to release. **Not yet persistent:** see "Make it survive a
+option; it was the card's 56G SR-IOV VF BAR reservation, which a failed 32 GiB attempt
+releases (see the correction above). **Not yet persistent:** see "Make it survive a
 host reboot" below.
 
 > Watch the kernel log with `dmesg -wT | grep -iE 'dmar|vfio|lockup'`. It is
@@ -1421,13 +1424,14 @@ Reading the result:
 ### D4. Make it survive a host reboot
 
 The resize is lost at every host boot, and the SR-IOV reservation comes back with
-it, so the boot unit repeats **both** steps: `scripts/gpu-rebar.sh`, run by
+it, so the boot unit replays the whole sequence: `scripts/gpu-rebar.sh`, run by
 `scripts/gpu-rebar.service`. It:
 
 - exits immediately if BAR 2 is already 32 GiB (safe to re-run);
 - refuses if VM 105 is running (its QEMU pid is alive) or `vfio-pci` is absent;
 - sets `driver_override=vfio-pci` **before** unbinding, since `xe` is loaded on the host;
-- resizes to 4 GiB, then to 32 GiB;
+- tries 32 GiB directly (succeeds only if VF BAR 2 is somehow already unassigned),
+  then 4 GiB, then 32 GiB, logging VF BAR 2's size before each step;
 - **always** rebinds both functions to `vfio-pci` on exit (`trap`), and logs the
   final BAR size and drivers to the journal.
 
@@ -1473,6 +1477,69 @@ copies (from the repo): `gpu-rebar.sh` `8d6f8110…`, `gpu-rebar.service`
 `882228fa…`. The first `scp -3` left the `.service` in `/usr/local/sbin`, so
 `enable` reported `Unit … does not exist` until it was moved to
 `/etc/systemd/system`.
+
+❌ **First reboot test, 2026-09-16 10:09 PDT: 32 GiB failed at boot; the card came
+up at 4 GiB.** Other boot checks passed: `pci=noats` on the cmdline, all three pools
+imported, smartd active.
+
+```
+gpu-rebar: BAR 2 is 256 MiB; resizing to 4 GiB, then 32 GiB
+/usr/local/sbin/gpu-rebar.sh: line 81: echo: write error: No space left on device
+gpu-rebar: 32 GiB step failed; BAR 2 stays at 4 GiB
+gpu-rebar: BAR 2 is 4096 MiB
+gpu-rebar: 0000:53:00.0 driver: vfio-pci        0000:54:00.0 driver: vfio-pci
+lspci (after):  Region 2 [size=4G]; SR-IOV Region 2 at 0x220000000000   <- VF BAR 2 still assigned
+```
+
+Its failure handling worked as designed (card at 4 GiB, both functions rebound,
+boot unaffected), but the sequence was wrong: see the correction in "32 GiB, on the
+second try" above.
+
+**The boot's own kernel log shows the mechanism**
+(`dmesg | grep -iE '53:00|52:01|51:00|bridge window'`, at ~12.7 s):
+
+```
+pcieport 0000:51:00.0: bridge window [mem size 0x1608000000 64bit pref]: can't assign; no space   <- 64G + 24G optional > 72G root port
+pcieport 0000:51:00.0: bridge window [mem 0x220000000000-0x220fffffffff 64bit pref]: assigned
+pcieport 0000:52:01.0: bridge window [mem 0x220000000000-0x220bffffffff 64bit pref]: assigned
+pci 0000:53:00.0: BAR 2 [mem 0x220000000000-0x2207ffffffff 64bit pref]: assigned                 <- 32G WAS placed
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: can't assign; no space
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: failed to assign
+```
+
+and the sysfs `resource` file afterwards (line N+1 = index N):
+
+```
+3:  0x0000220000000000 0x00002200ffffffff   BAR 2, back to 4G after the rollback
+8:  0x0000220801000000 0x0000220807ffffff   VF BAR 0 (112M), which confirms the indexing
+10: 0x0000000000000000 0x0000000000000000   VF BAR 2: UNASSIGNED
+```
+
+So during the 32 GiB step the kernel placed BAR 2 at 32G, could not also place the
+56G VF BAR 2, **counted that single failure as failure of the whole resize**,
+returned `-ENOSPC` and rolled BAR 2 back to 4G. **The rollback does not restore VF
+BAR 2**, which is why every later resize succeeds. `lspci`'s SR-IOV
+`Region 2: Memory at 0x220000000000` after boot was the card's stale register, not
+an assignment; the sysfs `resource` file is the authority. The rule, from all four
+attempts: **a resize fails whenever the kernel must place VF BAR 2 and can't; the
+first 32 GiB attempt always fails but unassigns it.** Hence 15 (ENOSPC) → 12 → 15,
+and why 4 GiB at boot (4 + 56 fits) left VF BAR 2 in place.
+
+✅ **Fixed script installed and run, 2026-09-16 10:18 PDT** (SHA-256 `988b541b…`).
+From the post-boot state it predicted exactly:
+
+```
+gpu-rebar: BAR 2 is 4096 MiB, VF BAR 2 0 GiB; trying 32 GiB directly
+gpu-rebar: resize complete (32 GiB on the first try)
+gpu-rebar: BAR 2 is 32768 MiB
+gpu-rebar: 0000:53:00.0 driver: vfio-pci        0000:54:00.0 driver: vfio-pci
+```
+
+That exercised the early-success path only. **The full boot path (32 GiB refused →
+`VF BAR 2 0 GiB` → 4 GiB → 32 GiB) is proven only by the next host reboot**; check
+`journalctl -u gpu-rebar -b` before starting VM 105. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
+at each step. **Re-test: `systemctl restart gpu-rebar` with VM 105 stopped, then
+another host reboot.**
 
 **Real test: the next host reboot** (e.g. through `homelab-shutdown.sh`). Before
 starting VM 105, check:
@@ -1750,9 +1817,9 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] C2 VM created by `tofu apply` and in state (2026-09-16, after the C2a ATS lockup was fixed with `pci=noats`)
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
-- [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via a 4 GiB resize first to release the SR-IOV reservation
+- [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via 32 GiB (fails, releases the SR-IOV reservation) → 4 GiB → 32 GiB
 - [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
-- [ ] D boot-time resize verified across a real host reboot (`journalctl -u gpu-rebar -b` → `resize complete`)
+- [ ] D boot-time resize verified across a real host reboot (first try 2026-09-16 failed at 32 GiB; sequence fixed in PR #24; expect `direct 32 GiB refused … VF BAR 2 0 GiB` then `resize complete`)
 - [ ] D model load time in the guest measured and written down (now part of F4)
 - [ ] F0 preflight
 - [ ] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified
