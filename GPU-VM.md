@@ -988,7 +988,22 @@ own again, and `53:00.0` came back on `vfio-pci`.
 
 There is no installer to sit through: cloud-init grows the root disk, sets the
 address from `llm_ipv4_address`, and seeds the `dev` account with your keys. SSH
-in at `192.168.50.107` and watch it finish before judging anything:
+in at `192.168.50.107` and watch it finish before judging anything.
+
+From outside the LAN, reach it the way every other guest is reached: a
+`ProxyJump` through the Tailscale gateway container. `.107` is on the same flat
+`/24`, so the gateway needs no change, and the key that already opens `dev` is
+one of the two cloud-init installed. In `~/.ssh/config` on the workstation:
+
+```
+Host llm
+    HostName 192.168.50.107
+    User dev
+    IdentityFile ~/.ssh/id_ed25519
+    ProxyJump tailscale-gateway
+```
+
+Then `ssh llm`:
 
 ```bash
 cloud-init status --wait                   # done, not error
