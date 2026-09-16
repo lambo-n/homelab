@@ -3,7 +3,9 @@
 # Installed to /usr/local/bin/llama-oneapi. See homelab GPU-VM.md F5.
 # setvars.sh reads "$@" as its own options when sourced, so clear the
 # positional parameters first or it would parse llama-server's flags.
-args=("$@")
+# It also uses a variable named `args` itself (seen 2026-09-16: exec ran
+# "SETVARS_CALL=1"), so keep the command under a name it will not touch.
+_llama_oneapi_cmd=("$@")
 set --
 source /opt/intel/oneapi/setvars.sh >/dev/null
-exec "${args[@]}"
+exec "${_llama_oneapi_cmd[@]}"
