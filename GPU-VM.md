@@ -38,11 +38,53 @@ pvesh get /cluster/nextid                       # expect 105; anything else mean
 qm list; pct list
 nproc; lscpu | grep -E 'Model name|Socket|NUMA node'
 cat /sys/bus/pci/devices/0000:53:00.0/numa_node # GPU's NUMA node; matters if 2 sockets
+readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # GPU group; A4 asserts 9, and group numbers move
 readlink /sys/bus/pci/devices/0000:54:00.0/iommu_group   # audio group, unrecorded in HARDWARE.md
 lspci -nnk -s 53:00.0; lspci -nnk -s 54:00.0    # current drivers (expect xe / snd_hda_intel)
 dmidecode -s system-product-name; dmidecode -s bios-version
 pveversion
 ```
+
+✅ **Run 2026-09-16 on the host console. What it printed:**
+
+| | |
+|---|---|
+| `nextid` | **105** — still free, so A5's literal `/vms/105` ACL paths stand |
+| Guests | VMs 101 `dev`, 102 `k3s-control`, 103 `k3s-worker1`, 104 `k3s-worker2`, all running; LXC 100 `tailscale-gateway`. **No 105.** |
+| CPU | Xeon Silver 4314 @ 2.40 GHz — **1 socket**, 32 threads, **1 NUMA node** (`node0` = CPUs 0–31) |
+| GPU NUMA node | `0` — i.e. the only one |
+| IOMMU group, audio `54:00.0` | **10**. The GPU `53:00.0` is **9** (`HARDWARE.md`, 2026-09-09): **different groups.** |
+| Drivers in use | `53:00.0` → `xe`; `54:00.0` → `snd_hda_intel` — exactly what B1's `softdep` lines name |
+| Machine | **Dell PowerEdge T550**, BIOS **1.8.2** |
+| Proxmox | `pve-manager/9.1.1`, kernel `6.17.2-1-pve` |
+
+What that settles:
+
+- **No CPU pinning, and the C2 conditional is closed.** One socket and one NUMA
+  node leave `--affinity` / `--numa 1` nothing to choose between; the GPU's
+  `numa_node=0` is the same node as every core. VM 105 takes 8 of 32 threads,
+  unpinned.
+- **The audio function is bound to `vfio-pci` for Phase D's sake, not the
+  IOMMU's.** Groups 9 and 10 are separate, so `53:00.0` is assignable on its own
+  and `54:00.0` is *not* dragged along by group membership. B1 binds it anyway so
+  that no host driver holds a device under the card's bridges while Phase D
+  rearranges those bridge windows — a choice, not a requirement. It is still not
+  attached to the VM.
+- **The B2 menu names are the right family to look for.** The T550 is Dell 15G,
+  so *Integrated Devices → Memory Mapped I/O above 4 GB* / *Memory Mapped I/O
+  Base* is 15G naming rather than a guess from a different generation. Still
+  read the screen and record what it actually says.
+- **"This BIOS has no ReBAR option" is now stamped at version 1.8.2.** A Dell
+  BIOS update is the one thing that could reopen ReBAR; nothing in Phase D can.
+  If the T550 ever ships a newer BIOS, that — and only that — is cause to retest.
+- **Memory still fits.** 297 GiB of 503 is committed to the five existing guests
+  (`HARDWARE.md`); VM 105 pins 64 more, leaving ~142 GiB free.
+
+⚠️ **Not read: the GPU's own IOMMU group.** Only the audio function's was, and
+A4's mapping asserts `iommugroup=9` from a reading taken 2026-09-09, before the
+host moved to kernel `6.17.2-1-pve`. Group numbers are assigned at boot and can
+shift. The line is now in the block above — run it before A4, and if it is not 9,
+correct the `pvesh create` rather than letting PVE reject the mapping.
 
 ### A2. Prove `sde` is an orphan, then wipe it
 
@@ -57,17 +99,133 @@ zdb -l "${D}-part1"          # expect the OLD raidz2 pool's label, not a live po
 wipefs -a "$D"               # irreversible. Paste the path, don't type it.
 ```
 
-### A3. Create `llm-pool` and register it with Proxmox
+✅ **Run 2026-09-16. All four proofs passed; `sde` is wiped.**
+
+| Check | What came back |
+|---|---|
+| `ls -l "$D"` | → `../../sde`, serial ends **584Y** ✓ |
+| `zpool status archive-pool` | ONLINE, `mirror-0` = **584Z · 5855 · Micron 58D4**. 584Y absent ✓ |
+| `zpool import` | offers **`sas-pool`** only — no pool built from 584Y ✓ (but see the `sas-pool` note below) |
+| `zdb -l "${D}-part1"` | the **old 5-disk raidz2**: `pool_guid 326662858968651967`, `txg 989116`, 584Y as `children[3]`, `sdf`/`…5850` as `children[4]` ✓ |
+| `wipefs -a "$D"` | GPT at `0x200`, backup GPT at `0x1bf1fc55e00`, PMBR at `0x1fe` erased; partition table re-read OK |
+
+⚠️ **The stale label carries the live pool's name.** `zdb -l` reports
+`name: 'archive-pool'` — the same string as the pool that is running right now.
+The name proves nothing; what proves these are different pools is their shape.
+The live one is a 3-way `mirror-0`; the label is `type: 'raidz'`, `nparity: 2`,
+five children, and a different `pool_guid`. **`sdf` (`…1505850`) still carries
+that identical label**, so the same trap is waiting the day the spare gets used.
+Consequence: never run `zpool import archive-pool` or `zpool import -f -a` on
+this host — if an import is ever needed, name the pool by **guid**.
+
+✅ **Both questions this output raised are now closed (2026-09-16).**
+
+**`sas-pool` was not imported**, and had been missing since the host booted for
+the GPU install on 2026-09-15 14:20 PDT. `smbd` was serving `/sas-pool` as an
+empty directory and `sanoid` was snapshotting a dataset that did not exist —
+**both dependants reported healthy**. The owner imported the pool (**140 GiB
+intact, nothing lost**) and enabled `zfs-import-scan`. Cause and the durable fix
+are in [`SAS-STORAGE.md`](SAS-STORAGE.md); the short version is that `sas-pool`
+is not a PVE storage, so — unlike `archive-pool`, which `pvestatd` activates —
+nothing owned its import, and both import units were unavailable that boot.
+
+🔴 **This is a Phase B hazard, not just history.** Phase B reboots this host the
+same way that boot did. B3 has been corrected accordingly: `zpool status -x`,
+which it used to rely on, **cannot detect this** — an unimported pool is absent
+rather than unhealthy, and `-x` reports "all pools are healthy" either way.
+
+**`archive-pool`'s 280M was not data loss**, as suspected above, and the numbers
+now say so precisely: `ALLOC 285M` against `USED 66.3G`. The gap is
+`archive-pool/vm-104-disk-0` — **a zvol attached to running VM 104** — holding
+66.1G of `refreservation` over 30.7M of `REFER`. Real contents are `minio-data`
+147M and `postgres-data` 13M. `zpool list ALLOC` and `zfs list USED` are not the
+same measurement; compare like with like before calling it loss.
+
+> Two consequences worth carrying into Phase B. First, that zvol is attached to a
+> **live VM**, so `archive-pool` cannot be exported or rebuilt without stopping
+> VM 104 — `homelab-shutdown.sh` already handles this, but nothing ad-hoc should.
+> Second, `sanoid` names snapshots in **UTC** while `zpool history` logs local
+> **PDT**: a 17:00 history line produces `autosnap_2026-09-16_00:00_hourly`.
+> Do not read snapshot names against journal timestamps to infer an outage
+> window — that 7-hour skew invents export events that never happened.
+
+### A3.### A3. Create `llm-pool` and register it with Proxmox
 
 ```bash
+# $D does NOT survive a new shell or a reboot. Set it again, and prove it.
+D=/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Y
+test -b "$D" || { echo "REFUSING: '$D' is not a block device"; false; }
+ls -l "$D"                   # -> ../../sde
+
 zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
 pvesm add zfspool llm-pool --pool llm-pool --content images --blocksize 64k
 pvesm status | grep llm-pool
 ```
 
+> ⚠️ **If `$D` is empty, `zpool create` does not stop — it guesses.** Observed
+> 2026-09-16: the variable was lost between A2 and A3 (a new shell), and ZFS
+> resolved the empty argument against its device search path, giving
+> `cannot use '/dev/mapper/': must be a block device or regular file`. That one
+> failed safe because a directory is not a disk. The `test -b` line above is
+> there because the next-worst expansion might not.
+>
+> `pvesm add` then failed with `could not activate storage 'llm-pool'`, which is
+> a consequence, not a second problem. **Check whether it left a half-written
+> entry before retrying** — a storage that PVE cannot activate breaks later
+> plans:
+>
+> ```bash
+> grep -A4 llm-pool /etc/pve/storage.cfg   # expect no output
+> pvesm remove llm-pool                    # only if the grep found something
+> ```
+>
+> Using the `by-id` path rather than `sde` is what makes this safe to re-run
+> after a reboot: `sdX` names move, `by-id` does not (`HARDWARE.md`).
+
 - `ashift=12` because the SK hynix disks are 512e drives with 4K physical sectors. It can't be changed later.
 - `blocksize 64k` sets the block size of each zvol Proxmox creates. Model files are large and read in long runs, so bigger blocks mean less metadata than the 16k default. It only applies to new zvols, so set it before creating the VM.
 - `lz4` rather than `zstd`: model weights barely compress, and lz4 gives up quickly on data that doesn't.
+
+✅ **Done 2026-09-16.** `zpool create` went through with no `-f` — as expected,
+since A2's re-run found no signatures left — and `/etc/pve/storage.cfg` had no
+stale `llm-pool` entry from the failed first attempt.
+
+```
+zpool status llm-pool -> ONLINE, single vdev ata-…150584Y (by-id, not sde)
+pvesm status          -> llm-pool  zfspool  active  1804599296  408  1804598888  0.00%
+```
+
+**1 804 599 296 KiB = 1 721 GiB (1.68 TiB) usable.** The models disk in
+`tofu/proxmox-llm-vm.tf` asks for **1400 GiB**, which leaves **321 GiB / 18.7%**
+free — the ~20% headroom ZFS wants, so the figure in C2's table stands against
+the real pool rather than the estimated one.
+
+`blocksize 64k` is confirmed to have landed — it applies only to zvols created
+*after* it is set, and VM 105's models disk is the zvol it exists for, so a
+missing value would have meant the 16k default and no way to change it without
+recreating the disk:
+
+```
+zfspool: llm-pool
+    pool llm-pool
+    blocksize 64k
+    content images
+    mountpoint /llm-pool
+```
+
+**Phase A storage is finished.** Next is A4, and it needs the GPU's IOMMU group
+read first.
+
+> **A clean `zpool create` is expected, and if it refuses with `contains a
+> filesystem of type 'zfs_member'`, `-f` is the right answer here.** Re-running
+> the A2 block on 2026-09-16 produced **no output from `wipefs -a`** and
+> `zdb -l "${D}-part1"` → `No such file or directory`: there is no signature and
+> no `part1` left for a probe to find. The old ZFS labels are still physically on
+> the disk inside the former partition, with nothing pointing at them, which is
+> the only way a complaint could still surface. The `zdb -l` output recorded in A2 is the
+> proof of what they belong to: the decommissioned 5-disk raidz2, not a live
+> pool. `zpool create` writes its own GPT with `part1` at the same 1 MiB offset,
+> so the new labels land on top of the old ones and the ambiguity ends there.
 
 ### A4. PCI resource mapping
 
@@ -81,6 +239,27 @@ pvesh create /cluster/mapping/pci --id arc-b70 \
   --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=9
 pvesh get /cluster/mapping/pci/arc-b70
 ```
+
+`iommugroup=9` is an assertion PVE checks **when the mapping is used**, not a
+label. The 9 comes from a 2026-09-09 reading on an older kernel, and group
+numbers are handed out at boot.
+
+✅ **Created 2026-09-16**, `digest ae08d033`, map stored as
+`node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=9`.
+
+✅ **And verified against the running kernel**, which creating it does not do:
+`readlink …/0000:53:00.0/iommu_group` → `…/kernel/iommu_groups/9` on
+`6.17.2-1-pve`, matching the assertion. `HARDWARE.md`'s 2026-09-09 reading holds
+across the kernel change.
+
+> ⚠️ Worth keeping for the next mapping, since this one happened to be right:
+> `pvesh get /cluster/mapping/pci/arc-b70` returns the stored string **verbatim**
+> and will echo a wrong group number as happily as a right one. PVE compares the
+> assertion against the hardware at **VM start**, so a stale number would not
+> surface until Phase C — as VM 105 refusing to start, looking like a provider or
+> tofu fault rather than a one-character mismatch here. The fix would be
+> `pvesh set /cluster/mapping/pci/arc-b70 --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=<N>`,
+> not an edit to this document.
 
 The UI equivalent is Datacenter → Resource Mappings → PCI Devices → Add.
 
@@ -98,19 +277,138 @@ read-only"). Decided with the owner 2026-09-15.
 > else has claimed the id, and an ACL on the wrong `/vms/N` grants write on a
 > guest that isn't this one.
 
-**Roles** — three, each holding the narrowest set that does its job:
+**Roles** — three, each holding the narrowest set that does its job.
+
+> ⚠️ **`VM.Monitor` is not a valid privilege on this host and is not in the list
+> below.** An earlier draft included it; PVE 9.1.1 rejected the role outright with
+> `400 Parameter verification failed. privs: invalid format - invalid privilege
+> 'VM.Monitor'` (2026-09-16). It was over-specified in the first place — the
+> `bpg/proxmox` provider never uses the QEMU monitor — so it was dropped rather
+> than replaced, which suits a role whose whole purpose is to be minimal. The
+> authoritative list for any future edit comes from the host, not from memory.
+> `--help` does **not** enumerate them (tried 2026-09-16; it prints nothing).
+> The built-in `Administrator` role holds every valid privilege, so read it there:
+>
+> ```bash
+> pveum role list | grep -w Administrator
+> ```
+>
+> Note the failure mode: `pveum role add` is **all-or-nothing**, so one bad
+> privilege means the role does not exist at all, while the commands after it in
+> the same paste still run. Check what actually landed with
+> `pveum role list | grep Tofu` before assuming a clean slate.
 
 ```bash
 # on 192.168.50.101, as root
-pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,VM.Monitor,\
+pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,\
 VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
 VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
 pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
 pveum role add TofuMapping --privs "Mapping.Audit,Mapping.Use"
 ```
 
+✅ **All three roles exist as of 2026-09-16**, `TofuVM` with the eleven
+privileges above and no `VM.Monitor`. `TofuStorage` and `TofuMapping` had already
+been created by the first, partially-failed paste, so re-running their `role add`
+returns `role 'X' already exists` — harmless, and confirmation rather than an
+error. Use `pveum role modify` if a set ever needs changing.
+
+> ✅ **`pveum role list` also shows `TofuDisk` (`VM.Config.Disk`), left from the
+> import in [`tofu/README.md`](tofu/README.md) §"The sequence" — and its ACL is
+> confirmed gone.** The role surviving is expected; only the **grant** was meant
+> to be temporary (`tofu/README.md:250`). Checked 2026-09-16:
+>
+> ```
+> pveum acl list | grep -i tofu
+> │ /  │ PVEAuditor │ user │ tofu@pve │ 1 │        <- the only row. No TofuDisk.
+> ```
+>
+> That one row is what makes "read-only `!import`" true rather than aspirational.
+> A `TofuDisk` row at `/` would have given that token disk-write on every guest.
+> Worth re-running after any future import.
+
+> 🔴 **A5 as originally written does not work, and the token it builds cannot
+> create VM 105.** Found 2026-09-16, after all seven ACLs were applied exactly as
+> written:
+>
+> ```
+> pveum user permissions 'tofu@pve!llm' --path /vms/105  ->  VM.Audit (*)          <- ONE privilege
+> pveum user permissions 'tofu@pve!llm' --path /vms/104  ->  the 7 PVEAuditor privs
+> ```
+>
+> The token has **less** power on the VM it owns than on the VM it must never
+> touch. Two PVE rules combine to produce it, and the runbook accounted for
+> neither:
+>
+> 1. **A privsep token's effective rights are the *intersection* of its own ACLs
+>    and its user's.** A token can never exceed the user it belongs to.
+>    `tofu@pve` holds only `PVEAuditor` at `/`.
+> 2. **ACL inheritance is nearest-path-wins, not cumulative.** An entry on
+>    `/vms/105` *replaces* the one inherited from `/` rather than adding to it.
+>
+> So at `/vms/105`: token = `TofuVM`, user = `PVEAuditor`, and
+> `TofuVM ∩ PVEAuditor` = exactly `{VM.Audit}` — which is precisely what came
+> back. At `/vms/104` both sides resolve to `PVEAuditor`, so all seven survive.
+>
+> **The fix is to mirror the grants onto the user**, keeping the token ACLs as
+> they are. The user becomes the union of what any of its tokens may do; each
+> token is then narrowed by its own ACLs. But `tofu@pve!import` is
+> **`--privsep 0`** (`tofu/README.md:286`), meaning it inherits the user wholesale
+> — so widening the user would silently hand the "read-only" token write access
+> too. Close that first:
+>
+> ```bash
+> # 1. Make !import bounded by its own ACL instead of by the user.
+> #    This does NOT regenerate the secret; the LastPass copy stays valid.
+> pveum user token modify tofu@pve import --privsep 1
+> pveum acl modify / --tokens 'tofu@pve!import' --roles PVEAuditor
+>
+> # 2. Now widen the USER, PVEAuditor kept alongside so !import stays a full auditor.
+> U='tofu@pve'
+> pveum acl modify /vms/105                      --users "$U" --roles PVEAuditor,TofuVM
+> pveum acl modify /storage/local-lvm            --users "$U" --roles PVEAuditor,TofuStorage
+> pveum acl modify /storage/llm-pool             --users "$U" --roles PVEAuditor,TofuStorage
+> pveum acl modify /storage/local                --users "$U" --roles PVEAuditor,TofuStorage
+> pveum acl modify /mapping/pci/arc-b70          --users "$U" --roles PVEAuditor,TofuMapping
+> pveum acl modify /sdn/zones/localnetwork/vmbr0 --users "$U" --roles PVEAuditor,PVESDNUser
+>
+> # 3. Prove all three claims at once.
+> pveum user permissions 'tofu@pve!llm'    --path /vms/105   # VM.Allocate + VM.Config.* present
+> pveum user permissions 'tofu@pve!llm'    --path /vms/104   # audit only, NO VM.Allocate
+> pveum user permissions 'tofu@pve!import' --path /vms/105   # audit only -- still read-only
+> ```
+>
+> Keeping `PVEAuditor` in each `--roles` list matters: without it the user's
+> nearest entry at `/storage/local-lvm` would be `TofuStorage` alone, and
+> `!import` would drop to `Datastore.Audit` there — narrowing the read-only token
+> in a way that could break the four-guest import workflow.
+>
+> **Alternative, if touching `!import` is unappealing:** put the `llm` token under
+> a separate user (`tofu-llm@pve`) carrying these grants, leaving `tofu@pve`
+> untouched. Cleaner isolation, at the cost of a new token id in LastPass and in
+> every document that names one. **Not taken** — the fix above was applied instead.
+>
+> ✅ **Applied and verified 2026-09-16.** `!import` moved to `--privsep 1` (the
+> secret was *not* regenerated), the user was widened, and all three claims now
+> hold:
+>
+> | Query | Result |
+> |---|---|
+> | `!llm --path /vms/105` | `VM.Allocate`, `VM.Audit`, `VM.PowerMgmt` + the eight `VM.Config.*` — **exactly `TofuVM`** |
+> | `!llm --path /vms/104` | the 7 auditor privileges, **no `VM.Allocate`, no `VM.Config.*`** |
+> | `!import --path /vms/105` | the 7 auditor privileges — **still read-only**, though the user now holds `TofuVM` there |
+>
+> That third row is the one that proves `--privsep 1` did its job: the user has
+> write on `/vms/105` and the import token still cannot use it.
+>
+> Note the token gets `TofuVM` alone at `/vms/105`, not `TofuVM` ∪ `PVEAuditor` —
+> nearest-path-wins again, on the token's own side. That is sufficient:
+> `Sys.Audit` and `Datastore.Audit` are checked at `/` and the `/storage/*` paths,
+> where the token still holds `PVEAuditor` and `TofuStorage`.
+
 **The token**, with privilege separation on so its own ACLs bound it rather than
-inheriting the user's:
+inheriting the user's — **bounded by the user's rights as well, which is the trap
+above**:
 
 ```bash
 pveum user token add tofu@pve llm --privsep 1
@@ -137,10 +435,10 @@ pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser 
   granted. Every plan in this directory therefore runs `-refresh=false`, exactly
   as it does with the read-only token (C2). Read broad, write narrow.
 - The `/sdn/...` grant reflects PVE 8.2+ checking bridge use as an SDN
-  permission. ⚠️ Unverified on this host: if `vmbr0` is a plain Linux bridge and
-  this path 404s, confirm the real one with
-  `pvesh ls /access/acl` or by adding a NIC in the UI as this token and reading
-  the error.
+  permission. ✅ **Verified on this host 2026-09-16** — `localnetwork` is the
+  right zone for `vmbr0` on PVE 9.1.1, and the grant was accepted. All seven
+  ACLs applied, giving eight `tofu` rows in `pveum acl list`: the pre-existing
+  `tofu@pve` user row plus seven for the token.
 - **Not granted, deliberately:** `Sys.Modify` (datacenter config, incl. adding
   storage), `Mapping.Modify` (creating or editing mappings), `VM.Allocate`
   anywhere above `/vms/105`, `VM.Migrate`, `VM.Backup`, `VM.Snapshot`,
@@ -150,7 +448,29 @@ pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser 
   what makes `prevent_destroy` on the tofu resource load-bearing rather than
   decorative.
 
-**Verify from the dev VM** — this proves the scoping rather than assuming it:
+**Verify the scoping rather than assuming it.** On the host, pass the *full token
+id* as the userid — `pveum user permissions` has **no `--token` flag**, and
+supplying one fails with `Unknown option: token` (tried 2026-09-16):
+
+```bash
+pveum user permissions 'tofu@pve!llm' --path /vms/105   # write privileges here
+pveum user permissions 'tofu@pve!llm' --path /vms/104   # read-only, and NOTHING more
+```
+
+> ⚠️ **Do not verify this with `| grep -E '/vms/10[45]'`.** The output is a table
+> that prints the path once per block and leaves the column blank on continuation
+> rows, so a grep on the path keeps only the **first** privilege of the block and
+> drops the rest. Tried 2026-09-16: it returned the single line
+> `│ /vms/105 │ VM.Audit (*) │`, which looks like the token got *only* audit —
+> while `pveum acl list` showed `TofuVM` correctly attached. `--path` asks the
+> question directly and cannot mislead this way.
+>
+> Expect `/vms/104` to still list the **read** privileges: `PVEAuditor` at `/`
+> propagates, which is the intended "read broad, write narrow". What must be
+> absent there is `VM.Allocate` and every `VM.Config.*`.
+
+**Or from the dev VM**, authenticating *as* the token, which is the stronger test
+because it exercises the credential rather than describing it:
 
 ```bash
 read -rs TOK && export TOK      # paste: tofu@pve!llm=<uuid>
@@ -199,6 +519,34 @@ bridge windows the audio device also sits behind. The audio function itself does
 These IDs match only the Arc card. The host's own video is the Matrox G200 (`mgag200`), so
 the host keeps a console.
 
+✅ **Done 2026-09-16.** `update-initramfs` regenerated
+`/boot/initrd.img-6.17.2-1-pve`. `proxmox-boot-tool refresh` reported
+`No /etc/kernel/proxmox-boot-uuids found, skipping ESP sync` — the expected
+no-op: this host boots via plain GRUB from `sda2` (`/boot/efi`, `HARDWARE.md`),
+not a `proxmox-boot-tool`-managed ESP. So the initramfs just written is the one
+that will be loaded.
+
+> **Verify the config is *inside* the initramfs before spending the reboot on
+> it.** The `softdep` lines only help if `modprobe` reads them at the moment `xe`
+> would otherwise load, and on this host that moment is inside the initramfs —
+> so a `modprobe.d` file that failed to get bundled produces a boot where `xe`
+> claims the card anyway, and the whole cluster power cycle is wasted:
+>
+> ```bash
+> lsinitramfs /boot/initrd.img-6.17.2-1-pve | grep -E 'vfio|arc-b70'
+> ```
+>
+> Expect both `etc/modprobe.d/vfio-arc-b70.conf` and the `vfio-pci` module
+> under `kernel/drivers/vfio/`. If the `.conf` is missing, re-run
+> `update-initramfs -u -k all` and check again before rebooting.
+>
+> IOMMU itself needs no GRUB change here: `/sys/kernel/iommu_groups/` is
+> populated (A1 and A4 both read from it), which only happens with an active
+> IOMMU, so `intel_iommu=on` is already in effect on kernel `6.17.2-1-pve`.
+>
+> ⚠️ `printf … >> /etc/modules` appends. If B1 is ever re-run, check for
+> duplicate `vfio*` lines — harmless, but confusing later.
+
 ### B2. Shut down and change BIOS settings
 
 ```bash
@@ -219,18 +567,28 @@ lands, which is a different knob from ReBAR itself):
 - **Memory Mapped I/O above 4 GB** → Enabled
 - **Memory Mapped I/O Base** → the highest option offered (e.g. 56 TB / 12 TB rather than 512 GB)
 
-Record what's actually there, including "no such option" — the names above are
-from Dell 14G/15G setup and are unverified on this machine.
+Record what's actually there, including "no such option". A1 confirms this is a
+**PowerEdge T550 on BIOS 1.8.2** — Dell 15G, so the names above are the right
+generation's, though still unverified on this particular machine.
 
 ### B3. After boot, verify
 
 ```bash
 lspci -nnk -s 53:00.0 | grep 'in use'    # -> vfio-pci
 lspci -nnk -s 54:00.0 | grep 'in use'    # -> vfio-pci
-zpool status -x                          # all pools healthy
+zpool list                               # THREE pools by name: archive-pool, sas-pool, llm-pool
+zpool status -x                          # then health. '-x' alone cannot see a MISSING pool.
 lspci -vv -s 53:00.0 | grep -E 'Region 2|Resizable BAR' -A0
 lspci -vvv -s 53:00.0 | sed -n '/Resizable BAR/,/^\t[A-Z]/p'
 ```
+
+> ⚠️ **Count the pools in `zpool list`; do not trust `zpool status -x`.** The
+> 2026-09-15 GPU-install reboot left `sas-pool` unimported for a day, and `-x`
+> reported "all pools are healthy" throughout, because an absent pool is not an
+> unhealthy one ([`SAS-STORAGE.md`](SAS-STORAGE.md)). `zfs-import-scan` is now
+> enabled, which is what should make this reboot behave — **this is the boot that
+> tests that fix.** If `sas-pool` is missing again:
+> `zpool import 5068010059978323696`, then find out why before continuing.
 
 If **Region 2 is already `[size=32G]`**, ReBAR is solved: skip Phase D. If
 it's still `[size=256M]`, continue to Phase C anyway. The VM works with a small BAR and only loads data onto the card more slowly.
@@ -357,7 +715,7 @@ qm create 105 --name llm --ostype l26 \
 | `q35` + `ovmf` | PCIe passthrough, and a 64-bit MMIO window big enough for a 32 GiB BAR. SeaBIOS/i440fx, which the other guests use, is the wrong platform for this. |
 | `cpu host` | Passes through the host's physical address width (46-bit on Ice Lake), which is what OVMF uses to size that window. It also gives llama.cpp's CPU fallback AVX-512 and AMX. |
 | `memory 64 GiB`, `balloon 0` | A VM with a passthrough device pins **all** of its RAM, so ballooning can't work. 64 GiB is twice the VRAM, enough to page models through. 206 GiB is uncommitted. |
-| `cores 8` | A starting point. If A1 shows two sockets, pin to the GPU's NUMA node (`--affinity` with that node's cores, `--numa 1`). |
+| `cores 8` | A starting point, out of 32 threads. **No pinning:** A1 found one socket and one NUMA node, so there is no node to pin to. |
 | `scsi1 1400 GiB`, `backup=0` | Leaves ~20% of the 1.75 TiB pool free for ZFS. vzdump backups of re-downloadable models would waste space. |
 | `pre-enrolled-keys=0` | Secure Boot off. It removes one failure mode with no security cost for this use. |
 | no `x-vga`, `rombar` default | Compute only. The console stays on Proxmox's virtual display. |
@@ -399,9 +757,19 @@ sudo mount -a && df -h /models
 ```
 
 Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
-so nothing needs configuring inside the guest. `.107` was only ever reserved for
-the TrueNAS VM that was never built — but **ping it from the dev VM before the
-first apply**, in case something outside this repo took it. The gateway
+so nothing needs configuring inside the guest. `.107` is taken as decided (owner,
+2026-09-16) — it was only ever reserved for the TrueNAS VM that was never built,
+and **the homelab guests are the only static addresses on this network; everything
+else is DHCP**. If something does answer on it, the fix is a router reset, not a
+redesign.
+
+> The residual risk is not another static host but the **DHCP pool overlapping
+> `.102`–`.107`**. A lease handed out inside the static range collides silently
+> and intermittently — the guest keeps its address and the DHCP client loses
+> connectivity at random. Worth checking the pool's start address once, at the
+> router, and reserving the low range if it overlaps.
+
+The gateway
 (`192.168.50.1`) is confirmed: `ip route show default` on `.103` reports
 `default via 192.168.50.1 dev ens18`, on the same flat `/24` every guest uses.
 
@@ -492,16 +860,164 @@ small BAR does and doesn't cost, for LLM inference specifically:
 4. `SANOID.md`: add one line saying `llm-pool` is deliberately not snapshotted.
 5. `HOST-MONITORING.md`: add `sde` (by-id) to `smartd` if disks are listed one by one.
 
+## Appendix — Phases A and B as one console session
+
+Everything above, flattened into the order you would actually type it, on the
+Proxmox console at `192.168.50.101` as root. The phases above explain *why*;
+this is the *what*. Roughly 20 minutes of typing plus one reboot.
+
+**Four points stop and need a human decision.** They are marked 🛑.
+
+```bash
+### 0. Where am I, and is 105 still free
+pvesh get /cluster/nextid                  # expect 105
+qm list; pct list
+nproc; lscpu | grep -E 'Model name|^Socket|^NUMA node\(s\)'
+cat /sys/bus/pci/devices/0000:53:00.0/numa_node
+readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # must be 9, or fix step 3
+readlink /sys/bus/pci/devices/0000:54:00.0/iommu_group
+lspci -nnk -s 53:00.0; lspci -nnk -s 54:00.0
+dmidecode -s system-product-name; dmidecode -s bios-version; pveversion
+```
+
+🛑 **Record that output somewhere before continuing** — socket count and the
+GPU's NUMA node decide whether VM 105 wants CPU pinning, and none of it can be
+re-derived from inside the cluster later.
+
+> ✅ **Done 2026-09-16 — see A1 for what it printed.** One socket, one NUMA
+> node, so no pinning; `nextid` is still 105; both functions are on their
+> expected host drivers. Re-run it anyway if the host has rebooted since, for the
+> IOMMU group numbers that step 3 depends on.
+
+```bash
+### 1. Prove sde is an orphan
+D=/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Y
+ls -l "$D"                                 # serial must end 584Y
+zpool status archive-pool                  # 584Y must NOT appear
+zpool import                               # must NOT offer a pool from this disk
+zdb -l "${D}-part1"                        # old raidz2 label, not a live pool
+```
+
+🛑 **Read all four outputs before the next line.** The next command is
+irreversible, and `archive-pool`'s members are three disks with nearly identical
+serials. The `zdb` label also reports the name `archive-pool` — it is the *old*
+raidz2's, and matching names are not evidence; compare the vdev shape (A2).
+
+> ✅ **Done 2026-09-16.** All four proofs passed, `wipefs` completed. See A2 for
+> what each one printed, including the `sas-pool` question `zpool import` raised.
+
+```bash
+### 2. Claim it  (re-set $D if this is a new shell -- an empty $D makes
+###    zpool create guess at /dev/mapper/ instead of stopping)
+test -b "$D" || { echo "REFUSING: '$D' is not a block device"; false; }
+wipefs -a "$D"
+zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
+pvesm add zfspool llm-pool --pool llm-pool --content images --blocksize 64k
+zpool status llm-pool; pvesm status | grep llm-pool
+grep -A4 'zfspool: llm-pool' /etc/pve/storage.cfg   # blocksize 64k must be here
+
+### 3. PCI mapping (lets a scoped token attach the GPU; raw paths need root@pam)
+pvesh create /cluster/mapping/pci --id arc-b70 \
+  --description "Intel Arc Pro B70 32GB (ASRock) - whole card, LLM VM" \
+  --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=9
+pvesh get /cluster/mapping/pci/arc-b70
+readlink /sys/bus/pci/devices/0000:53:00.0/iommu_group   # MUST be 9, or fix the map above
+# Reading the mapping back proves only that it was stored, not that it is right:
+# PVE compares iommugroup against the hardware when the VM starts, not now.
+
+### 4. Roles, token, ACLs
+pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,\
+VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
+VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
+pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
+pveum role add TofuMapping --privs "Mapping.Audit,Mapping.Use"
+
+pveum user token add tofu@pve llm --privsep 1
+```
+
+🛑 **The secret prints once.** Into LastPass now, beside the age key, as
+`tofu@pve!llm=<uuid>`. Losing it means deleting the token and making another.
+
+```bash
+T='tofu@pve!llm'
+pveum acl modify /                             --tokens "$T" --roles PVEAuditor
+pveum acl modify /vms/105                      --tokens "$T" --roles TofuVM
+pveum acl modify /storage/local-lvm            --tokens "$T" --roles TofuStorage
+pveum acl modify /storage/llm-pool             --tokens "$T" --roles TofuStorage
+pveum acl modify /storage/local                --tokens "$T" --roles TofuStorage
+pveum acl modify /mapping/pci/arc-b70          --tokens "$T" --roles TofuMapping
+pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser
+# NB: no --token flag -- the FULL token id is the userid. And do not grep by
+# path: the table blanks that column on continuation rows, so a grep keeps only
+# the first privilege of the block and hides the rest.
+pveum acl list | grep -i tofu                            # expect 8 rows: 1 user + 7 token
+pveum user permissions 'tofu@pve!llm' --path /vms/105    # write privileges here
+pveum user permissions 'tofu@pve!llm' --path /vms/104    # read-only, nothing more
+```
+
+Expect write privileges under `/vms/105` and **nothing** under `/vms/104`. If
+the `/sdn/...` path errors, see A5 — the bridge path varies by PVE version.
+
+```bash
+### 5. Hand the card to vfio-pci at boot (takes effect on the reboot below)
+cat > /etc/modprobe.d/vfio-arc-b70.conf <<'EOF'
+# Intel Arc Pro B70 (53:00.0) + its HDMI audio (54:00.0) -> vfio-pci, see homelab/GPU-VM.md
+options vfio-pci ids=8086:e223,8086:e2f7
+softdep xe pre: vfio-pci
+softdep i915 pre: vfio-pci
+softdep snd_hda_intel pre: vfio-pci
+EOF
+printf 'vfio\nvfio_iommu_type1\nvfio_pci\n' >> /etc/modules
+update-initramfs -u -k all
+proxmox-boot-tool refresh   # "no proxmox-boot-uuids" is expected: plain GRUB host
+lsinitramfs /boot/initrd.img-6.17.2-1-pve | grep -E 'vfio|arc-b70'
+```
+
+🛑 **That last line must show `etc/modprobe.d/vfio-arc-b70.conf`.** If the file
+is not inside the initramfs, `xe` will claim the card on the next boot regardless
+of what `/etc/modprobe.d` says, and the reboot below is wasted.
+
+🛑 **The next step takes the whole cluster down**, including the Postgres VM and
+the tailnet gateway. Run it from the Proxmox console or the LAN — not through
+Tailscale, which the script stops last and which would kill an interactive run.
+
+```bash
+### 6. Down, BIOS, up
+bash homelab-shutdown.sh --dry-run
+bash homelab-shutdown.sh --yes --poweroff-host
+```
+
+At POST, F2 → **System BIOS → Integrated Devices**: confirm *Memory Mapped I/O
+above 4 GB* is Enabled and *Memory Mapped I/O Base* is the highest option
+offered. **Do not hunt for a Resizable BAR setting — this BIOS has none** (owner,
+2026-09-15). Write down what the menu actually says. Then boot.
+
+```bash
+### 7. Verify, and learn whether Phase D is still needed
+lspci -nnk -s 53:00.0 | grep 'in use'      # -> vfio-pci
+lspci -nnk -s 54:00.0 | grep 'in use'      # -> vfio-pci
+zpool list                                 # all THREE by name; -x cannot see an absent pool
+zpool status -x                            # then health, incl. llm-pool
+ls /sas-pool/data                          # not empty -> sas-pool really came back (B3)
+lspci -vv -s 53:00.0 | grep 'Region 2'     # 32G -> skip Phase D. 256M -> Phase D.
+```
+
+Then start the guests as usual. **Next:** merge PR #20, export the three
+variables from C1, and `tofu apply -refresh=false` from the dev VM.
+
 ## Checklist
 
-- [ ] A1 preflight read and recorded
-- [ ] A2 `sde` proven orphan, wiped
-- [ ] A3 `llm-pool` created, in `pvesm status`
-- [ ] A4 `arc-b70` mapping exists
-- [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
-- [ ] B1 vfio config + initramfs
+- [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
+- [x] A2 `sde` proven orphan, wiped (2026-09-16)
+- [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable, `blocksize 64k` confirmed)
+- [x] A4 `arc-b70` mapping exists and `iommugroup=9` verified against the running kernel (2026-09-16)
+- [x] A5 roles created, `tofu@pve!llm` created, secret in LastPass, seven token ACLs applied (2026-09-16)
+- [x] A5 grants mirrored onto `tofu@pve`, `!import` moved to `--privsep 1` (2026-09-16)
+- [x] A5 scoping verified: `VM.Allocate` on `/vms/105`, absent on `/vms/104`, `!import` still read-only
+- [x] **Phase A complete 2026-09-16.** Next is B1, then the B2 cluster-wide reboot.
+- [x] B1 vfio config written, initramfs regenerated (2026-09-16) — confirm `vfio-arc-b70.conf` is bundled with `lsinitramfs` before the B2 reboot
 - [ ] B2 clean shutdown, BIOS MMIO/ReBAR settings recorded
-- [ ] B3 both functions on `vfio-pci`, pools healthy, Region 2 size recorded
+- [ ] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 size recorded
 - [ ] C2 VM created
 - [ ] C3 guest on `xe`, `/models` mounted
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
