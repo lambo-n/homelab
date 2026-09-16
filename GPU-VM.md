@@ -152,10 +152,35 @@ same measurement; compare like with like before calling it loss.
 ### A3.### A3. Create `llm-pool` and register it with Proxmox
 
 ```bash
+# $D does NOT survive a new shell or a reboot. Set it again, and prove it.
+D=/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Y
+test -b "$D" || { echo "REFUSING: '$D' is not a block device"; false; }
+ls -l "$D"                   # -> ../../sde
+
 zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
 pvesm add zfspool llm-pool --pool llm-pool --content images --blocksize 64k
 pvesm status | grep llm-pool
 ```
+
+> ⚠️ **If `$D` is empty, `zpool create` does not stop — it guesses.** Observed
+> 2026-09-16: the variable was lost between A2 and A3 (a new shell), and ZFS
+> resolved the empty argument against its device search path, giving
+> `cannot use '/dev/mapper/': must be a block device or regular file`. That one
+> failed safe because a directory is not a disk. The `test -b` line above is
+> there because the next-worst expansion might not.
+>
+> `pvesm add` then failed with `could not activate storage 'llm-pool'`, which is
+> a consequence, not a second problem. **Check whether it left a half-written
+> entry before retrying** — a storage that PVE cannot activate breaks later
+> plans:
+>
+> ```bash
+> grep -A4 llm-pool /etc/pve/storage.cfg   # expect no output
+> pvesm remove llm-pool                    # only if the grep found something
+> ```
+>
+> Using the `by-id` path rather than `sde` is what makes this safe to re-run
+> after a reboot: `sdX` names move, `by-id` does not (`HARDWARE.md`).
 
 - `ashift=12` because the SK hynix disks are 512e drives with 4K physical sectors. It can't be changed later.
 - `blocksize 64k` sets the block size of each zvol Proxmox creates. Model files are large and read in long runs, so bigger blocks mean less metadata than the 16k default. It only applies to new zvols, so set it before creating the VM.
@@ -666,7 +691,9 @@ raidz2's, and matching names are not evidence; compare the vdev shape (A2).
 > what each one printed, including the `sas-pool` question `zpool import` raised.
 
 ```bash
-### 2. Claim it
+### 2. Claim it  (re-set $D if this is a new shell -- an empty $D makes
+###    zpool create guess at /dev/mapper/ instead of stopping)
+test -b "$D" || { echo "REFUSING: '$D' is not a block device"; false; }
 wipefs -a "$D"
 zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
 pvesm add zfspool llm-pool --pool llm-pool --content images --blocksize 64k
