@@ -21,9 +21,10 @@ case "${1:-}" in
     unload qwen27-agent
     sleep 5
     systemctl start llama-fast
+    echo "waiting for llama-fast to load (usually ~10 s)..."
     # /health answers 503 while the model loads; -f makes that a failure.
     for _ in $(seq 180); do
-      if curl -fsS -o /dev/null http://127.0.0.1:8081/health; then
+      if curl -fs -o /dev/null http://127.0.0.1:8081/health; then
         echo "qwen27-agent unloaded; llama-fast ready"
         exit 0
       fi
