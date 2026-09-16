@@ -118,21 +118,55 @@ that identical label**, so the same trap is waiting the day the spare gets used.
 Consequence: never run `zpool import archive-pool` or `zpool import -f -a` on
 this host — if an import is ever needed, name the pool by **guid**.
 
-❗ **Unrelated to this runbook, and unresolved: `zpool import` offered
-`sas-pool`.** A pool is only listed there when it is **not currently imported** —
-yet `README.md:147` and `HARDWARE.md:418` have `sas-pool` as an active host-native
-RAIDZ1, snapshotted by sanoid and exported over Samba. All three members
-(`…2950`, `…2700`, `…be0`) read ONLINE and importable. Either the pool is
-genuinely exported right now — in which case the Samba share and its sanoid
-snapshots have been silently dead — or the docs are describing something that
-was undone. **Do not import it to find out**; read the state first:
+❗ **Unrelated to this runbook, and now confirmed: `sas-pool` is not imported.**
+`zpool import` offered it, and the follow-up on 2026-09-16 settled it:
 
-```bash
-zpool list; zpool status sas-pool; ls /sas-pool; systemctl status smbd sanoid.timer
+```
+zpool list            -> archive-pool only
+zpool status sas-pool -> cannot open 'sas-pool': no such pool
+ls /sas-pool          -> (empty; the mountpoint directory exists)
+smbd.service          -> active (running) since 2026-09-15 14:20:27 PDT
+sanoid.timer          -> active (waiting), firing every 15 min
 ```
 
-This has no bearing on Phase A — `llm-pool` takes `sde`, which touches neither
-pool — so it does not block the GPU work. It does need chasing separately.
+So the pool documented in [`SAS-STORAGE.md`](SAS-STORAGE.md) as a live RAIDZ1 —
+`sas-pool/data`, Samba `[data]`, snapshotted by sanoid ([`SANOID.md`](SANOID.md)
+line 48) — **is absent from the host**, while both services that depend on it are
+up and reporting healthy. Samba is serving an empty directory and sanoid has a
+`[sas-pool/data]` section pointing at a dataset that does not exist. All three
+members read ONLINE and importable, so this is an import problem, not a disk
+problem — no data is implicated.
+
+`smbd` started at the same minute the host booted for the GPU install
+(2026-09-15 14:20), so the pool has been missing **at least since that reboot**.
+`SAS-STORAGE.md`'s `zpool create` (line 72) was never followed by a check that
+the pool comes back after a reboot, and nothing in that document mentions the
+cachefile or `zfs-import-cache.service`. Recover and then find out why:
+
+```bash
+zpool import 5068010059978323696      # by id: the pool, not the name
+zfs list -r sas-pool; ls /sas-pool/data
+systemctl status zfs-import-cache.service; journalctl -b -u zfs-import-cache
+zpool get cachefile sas-pool
+```
+
+None of this blocks Phase A — `llm-pool` takes `sde` and touches neither pool.
+
+⚠️ **A second, softer question from the same output, not yet answered:**
+`zpool list` reports `archive-pool` at **ALLOC 280M, FREE 1.73T, CAP 0%**, while
+[`STORAGE.md`](STORAGE.md) has a 64 GiB PGDATA zvol (`archive-pool/vm-104-disk-0`,
+`refreservation` 66.0G) plus `minio-data`, `postgres-data` and `ts-ssh-records`
+living there. **This is probably fine**: `refreservation` reserves space without
+allocating it, so it reduces `zfs list` AVAIL but never appears in `zpool list`
+ALLOC — which is also why `HARDWARE.md`'s "1.61 TiB free" (1.68 − 0.066) and this
+"1.73T free" can both be true. What `zpool list` cannot tell you is whether the
+datasets still exist. One command settles it, and it is worth running before the
+Phase B reboot rather than after:
+
+```bash
+zfs list -o name,used,avail,refer,mountpoint -r archive-pool
+zfs list -t volume -r archive-pool        # expect archive-pool/vm-104-disk-0
+```
 
 ### A3. Create `llm-pool` and register it with Proxmox
 
@@ -146,10 +180,13 @@ pvesm status | grep llm-pool
 - `blocksize 64k` sets the block size of each zvol Proxmox creates. Model files are large and read in long runs, so bigger blocks mean less metadata than the 16k default. It only applies to new zvols, so set it before creating the VM.
 - `lz4` rather than `zstd`: model weights barely compress, and lz4 gives up quickly on data that doesn't.
 
-> **If `zpool create` refuses with `contains a filesystem of type 'zfs_member'`,
-> `-f` is the right answer here.** A2's `wipefs` removed the *partition table*,
-> not the ZFS labels — those lived inside `part1`, and the bytes are still on the
-> disk with nothing pointing at them. The `zdb -l` output recorded in A2 is the
+> **A clean `zpool create` is expected, and if it refuses with `contains a
+> filesystem of type 'zfs_member'`, `-f` is the right answer here.** Re-running
+> the A2 block on 2026-09-16 produced **no output from `wipefs -a`** and
+> `zdb -l "${D}-part1"` → `No such file or directory`: there is no signature and
+> no `part1` left for a probe to find. The old ZFS labels are still physically on
+> the disk inside the former partition, with nothing pointing at them, which is
+> the only way a complaint could still surface. The `zdb -l` output recorded in A2 is the
 > proof of what they belong to: the decommissioned 5-disk raidz2, not a live
 > pool. `zpool create` writes its own GPT with `part1` at the same 1 MiB offset,
 > so the new labels land on top of the old ones and the ambiguity ends there.
