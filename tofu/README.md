@@ -80,7 +80,11 @@ see "The CORS rule" below.
 read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
 ```
 
-`read -rs` keeps it out of shell history. The provider reads
+`read -rs` keeps it out of shell history — **but only if that line is typed and
+run by itself.** Pasted as part of a multi-line block, `read` consumes the *next
+pasted line* as its value, and the secret you paste afterwards executes as a
+command instead (hit 2026-09-16). Run the `read` line alone, paste at the prompt,
+then check the variable's prefix before using it. The provider reads
 `CLOUDFLARE_API_TOKEN` natively, so nothing needs to go in `terraform.tfvars`.
 
 #### Verify it before using it
@@ -411,8 +415,8 @@ exported per shell. They are deliberately not in Infisical and not in SOPS.**
 | Credential | Lives in | Used as | Notes |
 |---|---|---|---|
 | `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1` since 2026-09-16** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 (`SAS-RECLAIM.md` §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
-| `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | Created 2026-09-16, `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping and the bridge. See [`../GPU-VM.md`](../GPU-VM.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
-| Cloudflare API token | **LastPass** | `CLOUDFLARE_API_TOKEN` | Required scopes are above. The provider configures even when no Cloudflare resource is in the plan, so it must be set for *any* apply. |
+| `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | Created 2026-09-16, `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping, the bridge, and `Sys.AccessNetwork` on `/nodes/pve` so the node can download the cloud image (the narrow alternative to `Sys.Modify`). See [`../GPU-VM.md`](../GPU-VM.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
+| Cloudflare API token | **Nowhere, by design** — re-created when needed (see "The Cloudflare token" above); put it in LastPass if you make one | `CLOUDFLARE_API_TOKEN` | Required scopes are above. **Only needed when a plan refreshes or changes the Cloudflare records.** A `-refresh=false` plan that leaves them untouched makes no Cloudflare API calls and runs without it (verified 2026-09-16; the import section below relies on the same fact). |
 | `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
 | Cluster-only secrets | **git**, as `*.sops.yaml` | Flux → k8s Secrets | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token. |
 | Cross-boundary secrets | **Infisical** (`prod` / `feature`) | operator → k8s Secret, Worker env | `POSTGREST_JWT_SECRET` + the four scoped MinIO Worker keys — the ones that must stay byte-identical on both sides. |
@@ -489,7 +493,7 @@ refresh also touches the four VMs, which 403 on `VM.Config.Disk` under
 
 ```bash
 export PROXMOX_VE_API_TOKEN='tofu@pve!import=<uuid>'   # from LastPass
-export CLOUDFLARE_API_TOKEN='<token>'                  # provider configures even when unused
+# CLOUDFLARE_API_TOKEN not needed: -refresh=false makes no Cloudflare API calls
 cd ~/homelab/tofu
 tofu apply -refresh-only -target=proxmox_virtual_environment_container.tailscale_gateway
 ```

@@ -106,7 +106,9 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
 | VRAM | **32 GiB** (`0x800000000`), 256 MiB CPU-visible | `dmesg` |
-| Host driver | `xe`, **SR-IOV PF mode** | `dmesg` |
+| Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
+| Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
+| BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
 | Firmware | GuC 70.49.4 · HuC 8.2.10 · DMC 2.6 — all loaded | `dmesg` |
 | Host kernel | `6.17.2-1-pve` | `uname -r` |
 | Device nodes | `/dev/dri/card0`, `card1`, `renderD128` (`render` group) | `ls -l /dev/dri` |
@@ -123,7 +125,11 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   it. `GPU-VM.md` B1 binds it to `vfio-pci` all the same, so that no host driver
   holds a device under the card's bridges during the Phase D BAR attempt; it is
   not attached to the VM.
-- ⚠️ **Resizable BAR is off.** `Failed to resize BAR2 to 32768M (-ENOENT)` →
+- ⚠️ **Resizable BAR is off — but the card supports it.** Confirmed 2026-09-16
+  with `vfio-pci` holding the card: the `Physical Resizable BAR` capability lists
+  every size from 256MB to **32GB**, so the limit is the missing resize, not the
+  hardware. See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
+  `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.
   ❌ **No fix available in firmware: this Dell EMC BIOS has no Resizable BAR

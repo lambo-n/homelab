@@ -33,6 +33,13 @@ on `192.168.50.101` (`pve`).
 > unhealthy, it is absent, and `-x` happily reports "all pools are healthy".
 > After any reboot of `.101`, check **`zpool list`** and confirm all three pools
 > are present by name before trusting `/sas-pool/data` or the `[data]` share.
+>
+> ✅ **Fix proven across a real reboot, 2026-09-16 00:48 PDT.** The
+> [`GPU-VM.md`](GPU-VM.md) B2 power cycle was the same kind of boot that dropped
+> the pool the first time, and `sas-pool` imported on its own alongside
+> `archive-pool` and `llm-pool`. `zpool list` then read `ALLOC 210G` — raw space
+> including RAIDZ1 parity, ~1.5 × the ~140 GiB `USED` seen at recovery, not new
+> data.
 
 ---
 
