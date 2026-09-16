@@ -502,6 +502,123 @@ small BAR does and doesn't cost, for LLM inference specifically:
 4. `SANOID.md`: add one line saying `llm-pool` is deliberately not snapshotted.
 5. `HOST-MONITORING.md`: add `sde` (by-id) to `smartd` if disks are listed one by one.
 
+## Appendix — Phases A and B as one console session
+
+Everything above, flattened into the order you would actually type it, on the
+Proxmox console at `192.168.50.101` as root. The phases above explain *why*;
+this is the *what*. Roughly 20 minutes of typing plus one reboot.
+
+**Four points stop and need a human decision.** They are marked 🛑.
+
+```bash
+### 0. Where am I, and is 105 still free
+pvesh get /cluster/nextid                  # expect 105
+qm list; pct list
+nproc; lscpu | grep -E 'Model name|^Socket|^NUMA node\(s\)'
+cat /sys/bus/pci/devices/0000:53:00.0/numa_node
+readlink /sys/bus/pci/devices/0000:54:00.0/iommu_group
+lspci -nnk -s 53:00.0; lspci -nnk -s 54:00.0
+dmidecode -s system-product-name; dmidecode -s bios-version; pveversion
+```
+
+🛑 **Record that output somewhere before continuing** — socket count and the
+GPU's NUMA node decide whether VM 105 wants CPU pinning, and none of it can be
+re-derived from inside the cluster later.
+
+```bash
+### 1. Prove sde is an orphan
+D=/dev/disk/by-id/ata-HFS1T9G3H2X069N_ADB5N4365I150584Y
+ls -l "$D"                                 # serial must end 584Y
+zpool status archive-pool                  # 584Y must NOT appear
+zpool import                               # must NOT offer a pool from this disk
+zdb -l "${D}-part1"                        # old raidz2 label, not a live pool
+```
+
+🛑 **Read all four outputs before the next line.** The next command is
+irreversible, and `archive-pool`'s members are three disks with nearly identical
+serials.
+
+```bash
+### 2. Claim it
+wipefs -a "$D"
+zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
+pvesm add zfspool llm-pool --pool llm-pool --content images --blocksize 64k
+zpool status llm-pool; pvesm status | grep llm-pool
+
+### 3. PCI mapping (lets a scoped token attach the GPU; raw paths need root@pam)
+pvesh create /cluster/mapping/pci --id arc-b70 \
+  --description "Intel Arc Pro B70 32GB (ASRock) - whole card, LLM VM" \
+  --map node=pve,path=0000:53:00.0,id=8086:e223,subsystem-id=1849:6025,iommugroup=9
+pvesh get /cluster/mapping/pci/arc-b70
+
+### 4. Roles, token, ACLs
+pveum role add TofuVM --privs "VM.Audit,VM.Allocate,VM.PowerMgmt,VM.Monitor,\
+VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,\
+VM.Config.Options,VM.Config.HWType,VM.Config.CDROM,VM.Config.Cloudinit"
+pveum role add TofuStorage --privs "Datastore.Audit,Datastore.AllocateSpace,Datastore.AllocateTemplate"
+pveum role add TofuMapping --privs "Mapping.Audit,Mapping.Use"
+
+pveum user token add tofu@pve llm --privsep 1
+```
+
+🛑 **The secret prints once.** Into LastPass now, beside the age key, as
+`tofu@pve!llm=<uuid>`. Losing it means deleting the token and making another.
+
+```bash
+T='tofu@pve!llm'
+pveum acl modify /                             --tokens "$T" --roles PVEAuditor
+pveum acl modify /vms/105                      --tokens "$T" --roles TofuVM
+pveum acl modify /storage/local-lvm            --tokens "$T" --roles TofuStorage
+pveum acl modify /storage/llm-pool             --tokens "$T" --roles TofuStorage
+pveum acl modify /storage/local                --tokens "$T" --roles TofuStorage
+pveum acl modify /mapping/pci/arc-b70          --tokens "$T" --roles TofuMapping
+pveum acl modify /sdn/zones/localnetwork/vmbr0 --tokens "$T" --roles PVESDNUser
+pveum user permissions tofu@pve --token llm | grep -E '/vms/10[45]'
+```
+
+Expect write privileges under `/vms/105` and **nothing** under `/vms/104`. If
+the `/sdn/...` path errors, see A5 — the bridge path varies by PVE version.
+
+```bash
+### 5. Hand the card to vfio-pci at boot (takes effect on the reboot below)
+cat > /etc/modprobe.d/vfio-arc-b70.conf <<'EOF'
+# Intel Arc Pro B70 (53:00.0) + its HDMI audio (54:00.0) -> vfio-pci, see homelab/GPU-VM.md
+options vfio-pci ids=8086:e223,8086:e2f7
+softdep xe pre: vfio-pci
+softdep i915 pre: vfio-pci
+softdep snd_hda_intel pre: vfio-pci
+EOF
+printf 'vfio\nvfio_iommu_type1\nvfio_pci\n' >> /etc/modules
+update-initramfs -u -k all
+proxmox-boot-tool refresh
+```
+
+🛑 **The next step takes the whole cluster down**, including the Postgres VM and
+the tailnet gateway. Run it from the Proxmox console or the LAN — not through
+Tailscale, which the script stops last and which would kill an interactive run.
+
+```bash
+### 6. Down, BIOS, up
+bash homelab-shutdown.sh --dry-run
+bash homelab-shutdown.sh --yes --poweroff-host
+```
+
+At POST, F2 → **System BIOS → Integrated Devices**: confirm *Memory Mapped I/O
+above 4 GB* is Enabled and *Memory Mapped I/O Base* is the highest option
+offered. **Do not hunt for a Resizable BAR setting — this BIOS has none** (owner,
+2026-09-15). Write down what the menu actually says. Then boot.
+
+```bash
+### 7. Verify, and learn whether Phase D is still needed
+lspci -nnk -s 53:00.0 | grep 'in use'      # -> vfio-pci
+lspci -nnk -s 54:00.0 | grep 'in use'      # -> vfio-pci
+zpool status -x                            # all pools healthy, incl. llm-pool
+lspci -vv -s 53:00.0 | grep 'Region 2'     # 32G -> skip Phase D. 256M -> Phase D.
+```
+
+Then start the guests as usual. **Next:** merge PR #20, export the three
+variables from C1, and `tofu apply -refresh=false` from the dev VM.
+
 ## Checklist
 
 - [ ] A1 preflight read and recorded
