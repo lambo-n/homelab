@@ -1062,6 +1062,24 @@ echo 'LABEL=models /models ext4 defaults,noatime,nofail 0 2' | sudo tee -a /etc/
 sudo mount -a && df -h /models
 ```
 
+✅ **Done 2026-09-16.** `mkfs` built 367,001,600 × 4K blocks (exactly 1400 GiB),
+and `df` shows `/dev/sdb 1.4T` on `/models`. Run `sudo systemctl daemon-reload`
+after editing fstab, or `mount -a` warns that systemd still uses the old version.
+
+> **Default `mkfs.ext4` wastes about 90 GiB on this disk.** It sizes for small
+> files: one inode per 16 KiB gave 91.75 M inodes × 256 B ≈ **22 GiB of inode
+> tables**, plus the **5% root reserve ≈ 70 GiB**, on a disk that holds a few
+> dozen multi-GB weight files. For a models-only disk, format with
+>
+> ```bash
+> sudo mkfs.ext4 -F -L models -T largefile4 -m 0 "$M"
+> ```
+>
+> (one inode per 4 MiB, ~358 k inodes; no reserve). The reserve can be dropped
+> later with `tune2fs -m 0`, but inode density is fixed at format time, so choose
+> it while the disk is empty. The fstab line uses `LABEL=models`, so it survives
+> a reformat unchanged.
+
 Address **`192.168.50.107`** is set by cloud-init from `var.llm_ipv4_address`,
 so nothing needs configuring inside the guest. `.107` is taken as decided (owner,
 2026-09-16) — it was only ever reserved for the TrueNAS VM that was never built,
@@ -1333,7 +1351,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 = 256M, ReBAR cap advertises up to 32GB (2026-09-16)
 - [x] **Phase B complete.** `sas-pool` survived the reboot — `zfs-import-scan` fix proven.
 - [x] C2 VM created by `tofu apply` and in state (2026-09-16, after the C2a ATS lockup was fixed with `pci=noats`)
-- [ ] C3 guest on `xe`, `/models` mounted
+- [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
 - [ ] D model load time in the guest measured and written down
 - [ ] E tofu import clean, docs updated
