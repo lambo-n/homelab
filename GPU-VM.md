@@ -1493,7 +1493,37 @@ lspci (after):  Region 2 [size=4G]; SR-IOV Region 2 at 0x220000000000   <- VF BA
 
 Its failure handling worked as designed (card at 4 GiB, both functions rebound,
 boot unaffected), but the sequence was wrong: see the correction in "32 GiB, on the
-second try" above. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
+second try" above.
+
+**The boot's own kernel log shows the mechanism**
+(`dmesg | grep -iE '53:00|52:01|51:00|bridge window'`, at ~12.7 s):
+
+```
+pcieport 0000:51:00.0: bridge window [mem size 0x1608000000 64bit pref]: can't assign; no space   <- 64G + 24G optional > 72G root port
+pcieport 0000:51:00.0: bridge window [mem 0x220000000000-0x220fffffffff 64bit pref]: assigned
+pcieport 0000:52:01.0: bridge window [mem 0x220000000000-0x220bffffffff 64bit pref]: assigned
+pci 0000:53:00.0: BAR 2 [mem 0x220000000000-0x2207ffffffff 64bit pref]: assigned                 <- 32G WAS placed
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: can't assign; no space
+pci 0000:53:00.0: VF BAR 2 [mem size 0xe00000000 64bit pref]: failed to assign
+```
+
+and the sysfs `resource` file afterwards (line N+1 = index N):
+
+```
+3:  0x0000220000000000 0x00002200ffffffff   BAR 2, back to 4G after the rollback
+8:  0x0000220801000000 0x0000220807ffffff   VF BAR 0 (112M), which confirms the indexing
+10: 0x0000000000000000 0x0000000000000000   VF BAR 2: UNASSIGNED
+```
+
+So during the 32 GiB step the kernel placed BAR 2 at 32G, could not also place the
+56G VF BAR 2, **counted that single failure as failure of the whole resize**,
+returned `-ENOSPC` and rolled BAR 2 back to 4G. **The rollback does not restore VF
+BAR 2**, which is why every later resize succeeds. `lspci`'s SR-IOV
+`Region 2: Memory at 0x220000000000` after boot was the card's stale register, not
+an assignment; the sysfs `resource` file is the authority. The rule, from all four
+attempts: **a resize fails whenever the kernel must place VF BAR 2 and can't; the
+first 32 GiB attempt always fails but unassigns it.** Hence 15 (ENOSPC) → 12 → 15,
+and why 4 GiB at boot (4 + 56 fits) left VF BAR 2 in place. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
 at each step. **Re-test: `systemctl restart gpu-rebar` with VM 105 stopped, then
 another host reboot.**
 
