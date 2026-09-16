@@ -1,0 +1,54 @@
+#!/bin/bash
+# Collect llama-server metrics for every model on VM 105 into node_exporter's
+# textfile collector, labelled by model. Run by llama-metrics.timer every 15 s.
+# Installed to /usr/local/sbin/llama-metrics. GPU-VM.md F6b.
+#
+# Why not scrape the router directly: in router mode /metrics needs ?model=, and a
+# preset that isn't loaded answers 400, so each unloaded preset would be a
+# permanently down Prometheus target (and a permanently firing TargetDown). Here an
+# unloaded preset is simply llamacpp:model_loaded{model="…"} 0.
+#
+# Only presets the router reports as loaded are queried, and with autoload=false
+# as a second guard: a metrics read must never load a model and evict the one in
+# use. Router GETs also don't refresh a model's last-used time (only POSTs do), so
+# this can't change which model the router evicts next.
+set -uo pipefail
+
+DIR=/var/lib/prometheus/node-exporter
+OUT="$DIR/llama.prom"
+KEY=$(head -n1 /etc/llama/api-keys)
+# Header via a file descriptor so the key never appears in a process listing.
+hdr() { printf 'Authorization: Bearer %s' "$KEY"; }
+
+tmp=$(mktemp "$DIR/.llama.prom.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+emit() { # <model> <url>
+  local body
+  if body=$(curl -fsS -m 5 -H @<(hdr) "$2" 2>/dev/null); then
+    echo "llamacpp:model_loaded{model=\"$1\"} 1"
+    # llama-server's metrics carry no labels: "name value". Drop HELP/TYPE lines
+    # (repeating them per model is invalid in one file); rate() doesn't need them.
+    printf '%s\n' "$body" \
+      | awk -v m="$1" '!/^#/ && NF == 2 { print $1 "{model=\"" m "\"} " $2 }'
+  else
+    echo "llamacpp:model_loaded{model=\"$1\"} 0"
+  fi
+}
+
+{
+  emit fast "http://127.0.0.1:8081/metrics"
+  if models=$(curl -fsS -m 5 -H @<(hdr) "http://127.0.0.1:8080/models" 2>/dev/null); then
+    while read -r id status; do
+      if [ "$status" = loaded ]; then
+        emit "$id" "http://127.0.0.1:8080/metrics?model=$id&autoload=false"
+      else
+        echo "llamacpp:model_loaded{model=\"$id\"} 0"
+      fi
+    done < <(printf '%s' "$models" | jq -r '.data[] | "\(.id) \(.status.value)"')
+  fi
+} > "$tmp"
+
+chmod 644 "$tmp"
+mv "$tmp" "$OUT"
+trap - EXIT

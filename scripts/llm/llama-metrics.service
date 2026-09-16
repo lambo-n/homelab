@@ -1,0 +1,9 @@
+# Install: GPU-VM.md F6b. Triggered by llama-metrics.timer.
+[Unit]
+Description=Write llama-server metrics for all models to the node_exporter textfile collector
+After=llama-fast.service llama-router.service
+
+[Service]
+Type=oneshot
+# root: reads /etc/llama/api-keys and writes node_exporter's textfile directory.
+ExecStart=/usr/local/sbin/llama-metrics
