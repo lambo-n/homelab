@@ -22,22 +22,37 @@
 # database VM is exactly the unclean shutdown this ordering exists to avoid.
 # Use --force-after only when you have looked at the guest and decided.
 #
-# >> READ THIS IF YOU ARE CONNECTED OVER TAILSCALE <<
+# >> IF YOU ARE CONNECTED OVER SSH OR TAILSCALE <<
 # 192.168.50.102 is the Tailscale entry container and is therefore the LAST
 # guest stopped. If you are reaching this host through it, your session dies at
-# that step and takes an interactive script with it. Either run from the
-# Proxmox console / local LAN, or make the run survive the disconnect:
-#   tmux new -s shutdown 'bash homelab-shutdown.sh --yes --poweroff-host'
-# The script refuses to stop Tailscale from a Tailscale-originated session
-# unless you pass --allow-self-disconnect.
+# that step -- and a shutdown that dies halfway is the bad outcome this whole
+# ordering exists to avoid.
+#
+# So the script now re-runs ITSELF inside tmux, on the host, and attaches you to
+# it. Nothing to remember and nothing to type: if the connection drops, the run
+# keeps going without you. Reattach when you can reach the host again:
+#
+#   tmux attach -t homelab-shutdown
+#
+# Running inside tmux also downgrades the Tailscale self-disconnect refusal to a
+# warning, because the reason for that refusal -- the script dying with your
+# session -- no longer applies. --allow-self-disconnect is then unnecessary.
+#
+# Pass --no-tmux to stay in the current session (useful from the Proxmox console,
+# where there is nothing to disconnect).
 #
 # Usage:
 #   bash homelab-shutdown.sh [--dry-run] [--poweroff-host] [--yes]
 #                            [--timeout N] [--force-after]
-#                            [--allow-self-disconnect]
+#                            [--allow-self-disconnect] [--no-tmux]
 
 set -euo pipefail
 
+# Kept verbatim so the tmux re-exec below can replay this invocation exactly.
+ORIG_ARGS=("$@")
+
+TMUX_SESSION=homelab-shutdown
+USE_TMUX=1
 TIMEOUT=180          # per-guest seconds to wait for a clean stop
 POWEROFF_HOST=0      # off by default: the host is also the NFS server
 DRY_RUN=0
@@ -52,8 +67,9 @@ while [[ $# -gt 0 ]]; do
     --yes|-y)                 ASSUME_YES=1 ;;
     --force-after)            FORCE_AFTER=1 ;;
     --allow-self-disconnect)  ALLOW_SELF_DISCONNECT=1 ;;
+    --no-tmux)                USE_TMUX=0 ;;
     --timeout)                TIMEOUT="${2:?--timeout needs a value}"; shift ;;
-    -h|--help)                sed -n '2,44p' "$0"; exit 0 ;;
+    -h|--help)                sed -n '2,47p' "$0"; exit 0 ;;
     *)                        echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -67,6 +83,36 @@ note() { echo "     $*"; }
 command -v qm  >/dev/null || die "qm not found — this is not the Proxmox host"
 command -v pct >/dev/null || die "pct not found — this is not the Proxmox host"
 [[ $(hostname) == pve ]] || echo "WARNING: hostname is '$(hostname)', expected 'pve'"
+
+# ------------------------------------------------------------ tmux re-exec
+# Done AFTER the preflight above, so "must run as root" or "not the Proxmox
+# host" appears in the terminal you typed into rather than in a pane that
+# vanishes. Skipped when already inside tmux, when --no-tmux is given, and when
+# there is no terminal to attach to (cron, a pipe, a non-interactive SSH -c).
+if [[ $USE_TMUX -eq 1 && -z "${TMUX:-}" && -t 0 && -t 1 ]]; then
+  if command -v tmux >/dev/null; then
+    self="$(readlink -f "$0")"
+    # printf %q on every element: paths and values reach the new shell intact.
+    argv=("$(printf '%q' "$self")" --no-tmux)
+    for a in ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}; do argv+=("$(printf '%q' "$a")"); done
+    echo "==> Re-running inside tmux session '$TMUX_SESSION'."
+    echo "    A dropped connection can no longer kill the shutdown."
+    echo "    Reattach with:  tmux attach -t $TMUX_SESSION"
+    echo
+    # -A: attach if the session already exists, so a reconnect that re-runs the
+    # command joins the run in progress instead of starting a second one.
+    # The trailing read keeps the pane alive after exit, so the result is still
+    # there to read when you reattach.
+    exec tmux new-session -A -s "$TMUX_SESSION" \
+      "bash ${argv[*]}; ec=\$?; echo; echo \"[homelab-shutdown exited \$ec] press Enter to close\"; read -r"
+  else
+    echo "WARNING: tmux is not installed — running in this session instead."
+    echo "     If this connection drops mid-run, the shutdown stops partway,"
+    echo "     which is the failure the ordering in this script exists to avoid."
+    echo "     Fix with:  apt install -y tmux     (or pass --no-tmux to silence)"
+    echo
+  fi
+fi
 
 # The shutdown order. Earlier entries stop first.
 #   ip | guest name | type | what it runs
@@ -208,14 +254,20 @@ if [[ $SELF_VIA_TAILSCALE -eq 1 ]]; then
   echo
   echo "!!! This session arrives over Tailscale (client ${client_ip})."
   echo "!!! Stopping guest ${RES_ID[$TAILSCALE_KEY]:-?} cuts this connection and kills this script."
-  if [[ $ALLOW_SELF_DISCONNECT -ne 1 ]]; then
+  if [[ -n "${TMUX:-}" ]]; then
+    sess="$(tmux display-message -p '#S' 2>/dev/null || echo "$TMUX_SESSION")"
+    note "Running inside tmux ('$sess'), so the drop costs you the view, not the run."
+    note "The shutdown continues on the host. Reattach once you can reach it:"
+    note "    tmux attach -t $sess"
+  elif [[ $ALLOW_SELF_DISCONNECT -ne 1 ]]; then
     echo
-    die "refusing to cut your own link. Run from the Proxmox console, or re-run
-       detached so it survives the drop, e.g.
-         tmux new -s shutdown 'bash $0 --yes${POWEROFF_HOST:+ --poweroff-host} --allow-self-disconnect'
-       or pass --allow-self-disconnect if you accept losing the session."
+    die "refusing to cut your own link. Run from the Proxmox console, or let the
+       script wrap itself in tmux (the default — you appear to have passed
+       --no-tmux), or pass --allow-self-disconnect if you accept losing the
+       session and the run along with it."
+  else
+    note "--allow-self-disconnect given: continuing. Expect the session to drop."
   fi
-  note "--allow-self-disconnect given: continuing. Expect the session to drop."
 fi
 
 if [[ $DRY_RUN -eq 1 ]]; then
