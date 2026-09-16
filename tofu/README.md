@@ -80,7 +80,11 @@ see "The CORS rule" below.
 read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
 ```
 
-`read -rs` keeps it out of shell history. The provider reads
+`read -rs` keeps it out of shell history — **but only if that line is typed and
+run by itself.** Pasted as part of a multi-line block, `read` consumes the *next
+pasted line* as its value, and the secret you paste afterwards executes as a
+command instead (hit 2026-09-16). Run the `read` line alone, paste at the prompt,
+then check the variable's prefix before using it. The provider reads
 `CLOUDFLARE_API_TOKEN` natively, so nothing needs to go in `terraform.tfvars`.
 
 #### Verify it before using it

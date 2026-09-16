@@ -730,7 +730,11 @@ carries `prevent_destroy` from the first commit, and
 covers: the VM, `hostpci { mapping = "arc-b70" }`, both disks, and cloud-init.
 
 ```bash
-export PROXMOX_VE_API_TOKEN='tofu@pve!llm=<uuid>'   # LastPass
+# Type this line ON ITS OWN, press Enter, THEN paste the token at the prompt.
+# Pasted as part of a block, `read` swallows the next pasted line as the token
+# and the real token then runs as a shell command (hit 2026-09-16).
+read -rsp 'token: ' PROXMOX_VE_API_TOKEN; echo; export PROXMOX_VE_API_TOKEN
+[[ $PROXMOX_VE_API_TOKEN == 'tofu@pve!llm='* ]] && echo OK || echo WRONG
 # No Cloudflare token needed. With -refresh=false the Cloudflare provider makes no
 # API calls for its two unchanged DNS records, so it never needs credentials.
 # Verified 2026-09-16: a plan with no CLOUDFLARE_API_TOKEN at all fails only on
