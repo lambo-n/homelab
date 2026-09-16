@@ -1298,10 +1298,35 @@ free aperture above it. That capped everything below at 64G. 32G BAR 2 plus 56G
 VF BAR 2 doesn't fit in 64G, and the VF BAR's failure made the whole resize
 return `-ENOSPC` and roll back (D-3 then showed VF Region 2 back at
 `220000000000`). The kernel won't trade the optional VF BARs for the resize
-either. **The root port's 72G window is the hard limit**, which also confirms the
-4 GiB arithmetic below: ~60.4G fits in the 64G the kernel itself chose.
+~~either~~. ⚠️ **Partly corrected by the 4 GiB attempt below:** the kernel
+*did* drop the VF BAR there. The root port's 72G window still held, but "the
+kernel won't trade the VF BARs" was wrong.
 
-**One smaller size remains untried, and it's the owner's call.** The GPU port's
+✅ **4 GiB, 2026-09-16: the host-side resize succeeded.** Same D-1/D-2/D-3 with
+`echo 12` (D-1 used `qm shutdown` now that the agent works):
+
+```
+echo 12 > resource2_resize    RESIZE-WRITE-OK
+lspci Region 2                Memory at 220000000000 [size=4G]
+SR-IOV Region 2               Memory at 0000000000000000        <- VF BAR 2 left UNASSIGNED
+pcieport 0000:52:01.0: bridge window [mem 0x220000000000-0x22017fffffff 64bit pref]: assigned   (6G)
+pci 0000:53:00.0: BAR 2 [mem 0x220000000000-0x2200ffffffff 64bit pref]: assigned
+pci 0000:53:00.0: BAR 0 [mem 0x220100000000-0x220100ffffff 64bit pref]: assigned
+pci 0000:53:00.0: VF BAR 0 [mem 0x220101000000-0x220107ffffff 64bit pref]: assigned
+pcieport 0000:50:02.0: bridge window [mem 0x220000000000-0x2211ffffffff 64bit pref]   (root port still 72G)
+both functions rebound to vfio-pci
+```
+
+**The kernel dropped VF BAR 2 (the 56G SR-IOV reservation) and shrank the switch
+and port windows to 6G**, so the 4 GiB BAR did not fit *beside* the reservation,
+as predicted above; the reservation went away. That costs nothing, because
+whole-card passthrough never enables VFs. It also reopens 32 GiB: that attempt
+failed while VF BAR 2 was still assigned, and with it unassigned, 32 GiB needs only
+~32.1G, inside the existing windows. Untested hypothesis: why the kernel dropped
+the VF BAR for 4 GiB but not for 32 GiB isn't known. Guest verification of 4 GiB
+first, then decide.
+
+**One smaller size remained untried at the time, and it was the owner's call.** The GPU port's
 existing 64G window holds ~56.4G today (56G VF BAR 2 + 256M BAR 2 + 16M BAR 0 +
 112M VF BAR 0). A **4 GiB** BAR 2 (`echo 12`) needs ~60.4G, which fits without
 growing any window. 8 GiB (~64.1G) does not. 4 GiB is not full ReBAR (`xe` still
