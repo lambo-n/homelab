@@ -947,12 +947,31 @@ own again, and `53:00.0` came back on `vfio-pci`.
    up on 22, so the guest booted and cloud-init applied the static address.
    **`pci=noats` fixes the lockup.**
 5. **Then rebuild through tofu, so state and host agree again.** Run
-   `qm destroy 105 --purge 1 --destroy-unreferenced-disks 1` and
+   `qm destroy 105 --destroy-unreferenced-disks 1` (🔴 **never `--purge`**, see
+   below) and
    `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then remove the
    stale `.terraform.tfstate.lock.info` and plan/apply as in C2.
    ✅ **Host side done 2026-09-16:** VM 105, its three LVM volumes and the
    `llm-pool` zvol destroyed, image freed. `llm-pool` is back to `612K`, and state
    still lists only the original seven resources.
+
+   🔴 **`--purge` deleted the token's permissions.** It was used here, and the
+   rebuild then downloaded the image (now in state) and failed the VM create
+   with `HTTP 403 - Permission check failed` — the same token had created 105
+   without trouble before the crash. `qm destroy --purge` removes the VMID from
+   *every* configuration that names it: backup and replication jobs, HA, **and
+   the ACL entries on `/vms/105`**, so both `TofuVM` grants from A5 (user and
+   token) were gone. Re-grant, and prove it before applying:
+
+   ```bash
+   pveum acl modify /vms/105 --users  tofu@pve       --roles PVEAuditor,TofuVM
+   pveum acl modify /vms/105 --tokens 'tofu@pve!llm' --roles TofuVM
+   pveum user permissions 'tofu@pve!llm' --path /vms/105   # VM.Allocate + VM.Config.* present
+   ```
+
+   General rule for this VMID: its write access is an ACL on a path named after
+   the guest, so anything that "cleans up everything about VM 105" also
+   revokes the only token allowed to recreate it.
    The VM is empty, so a clean rebuild costs about a minute and avoids an
    import with its generated diffs.
 
