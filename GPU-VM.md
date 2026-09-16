@@ -711,8 +711,15 @@ tofu downloads the image itself
 >
 > ```bash
 > grep -A4 '^dir: local$' /etc/pve/storage.cfg     # read the current `content` line
-> pvesm set local --content <that list>,import     # only if import is missing
+> # Only if `import` is missing: re-run `pvesm set local --content` with the
+> # existing list plus import, typed out in full, e.g. iso,vztmpl,backup,import
 > ```
+>
+> ✅ Checked 2026-09-16: `content iso,import,vztmpl,backup`. `import` was already
+> enabled, so nothing changed on this host. (An earlier version of this step had
+> a `<list>` placeholder inside the command. Bash read `<` as an input
+> redirect and failed harmlessly before running `pvesm`. Placeholders don't
+> belong inside pasteable commands.)
 
 Two variables have no defaults and must be supplied before the apply.
 
