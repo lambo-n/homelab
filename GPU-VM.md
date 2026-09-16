@@ -670,7 +670,14 @@ tofu downloads the image itself
 (`proxmox_virtual_environment_download_file.ubuntu_noble_cloud` →
 `local`). That is why `TofuStorage` carries `Datastore.AllocateTemplate`.
 
-Two variables have no defaults and must be supplied before the apply:
+Two variables have no defaults and must be supplied before the apply.
+
+> ⚠️ **Run these on the dev VM (`192.168.50.103`), not the Proxmox host.** Tofu,
+> its state and `jq` all live on the dev VM, so an export in a host shell reaches
+> nothing. There's a worse trap too: `~/.ssh/authorized_keys` on the host is
+> **root@pve's** key list, not the dev VM's, so if `jq` had been installed there,
+> VM 105 would have been seeded with the wrong trust set. Tried on the host
+> 2026-09-16; it failed only because `jq` is missing there.
 
 ```bash
 # Read 2026-09-16 from https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
@@ -690,6 +697,13 @@ curl -s https://cloud-images.ubuntu.com/noble/current/SHA256SUMS | grep 'noble-s
 
 It is a variable rather than a default in `variables.tf` for exactly this
 reason: a default would rot silently, and the point of pinning is to notice.
+
+✅ **Re-read 2026-09-16, after Phase B:** still `612b2c0c…7354`, so no respin
+since it was recorded. Dev VM `authorized_keys` still holds exactly two
+`ssh-ed25519` keys, both `gh:lambo-n`. **`.107` is free:** no ping reply, and
+`ip neigh` shows `192.168.50.107 dev ens18 INCOMPLETE`. That means nothing answered
+ARP either, which is the stronger check, because a host can drop ping but not ARP
+on its own LAN.
 
 **On the keys:** `~/.ssh/authorized_keys` on the dev VM holds two ed25519 keys
 imported from GitHub (`ssh-import-id gh:lambo-n`), so the command above gives
