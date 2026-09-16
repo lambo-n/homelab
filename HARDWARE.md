@@ -38,7 +38,7 @@ This file is the one place that records the metal.
 | Created | 2026-09-09 |
 | Filled in | 2026-09-09, host console |
 | Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU, Intel Arc Pro B70 (2026-09-15) |
-| Free bays / unused devices | **2 × 1.92 TB SATA SSD, unallocated** (`sde`, `sdf`) |
+| Free bays / unused devices | **1 × 1.92 TB SATA SSD, unallocated** (`sdf`); `sde` became `llm-pool` 2026-09-16 |
 | Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
 | ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
 
@@ -74,7 +74,7 @@ something else with it.
 | `05:00.0` | Marvell 88SE9230, subsystem **Dell BOSS-S2 Adapter** `[1028:2010]` | `ahci` | `sda` — the boot device |
 | `00:11.5` | Intel C620 sSATA [AHCI] `[8086:a1d2]` | `ahci` | **None** — motherboard ports empty |
 | `00:17.0` | Intel C620 SATA [AHCI] `[8086:a182]` | `ahci` | **None** — motherboard ports empty |
-| `c3:00.0` | Broadcom/LSI MegaRAID 12GSAS SAS38xx, subsystem **Dell PERC H355 Front** `[1028:2173]` | `megaraid_sas` | **All 8 front bays:** `archive-pool` (`sdb`, `sdc`, `sdg`), cold spares (`sde`, `sdf`), and `sas-pool` (`sdh`, `sdi`, `sdj`) |
+| `c3:00.0` | Broadcom/LSI MegaRAID 12GSAS SAS38xx, subsystem **Dell PERC H355 Front** `[1028:2173]` | `megaraid_sas` | **All 8 front bays:** `archive-pool` (`sdb`, `sdc`, `sdg`), `llm-pool` (`sde`), cold spare (`sdf`), and `sas-pool` (`sdh`, `sdi`, `sdj`) |
 
 Key architectural findings confirmed 2026-09-09:
 
@@ -149,7 +149,7 @@ differently (`STORAGE.md:189-190`).
 | `sdb` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Z` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Z` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
 | `sdc` | `ata-MTFDDAK1T9TDT_222939CA58D4` | `MTFDDAK1T9TDT` | `222939CA58D4` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
 | `sdg` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505855` | `HFS1T9G3H2X069N` | `ADB5N4365I1505855` | 1.75 TiB | SATA (PERC) | `archive-pool` `mirror-0` |
-| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **wiped 2026-09-16** (partition table gone), `llm-pool` pending ([`GPU-VM.md`](GPU-VM.md) A3) |
+| `sde` | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` | `HFS1T9G3H2X069N` | `ADB5N4365I150584Y` | 1.75 TiB | SATA (PERC) | **`llm-pool`** — single-disk ZFS, no redundancy, created 2026-09-16 ([`GPU-VM.md`](GPU-VM.md)) |
 | `sdf` | `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` | `HFS1T9G3H2X069N` | `ADB5N4365I1505850` | 1.75 TiB | SATA (PERC) | **FREE** — cold spare for `archive-pool` |
 | `sdh` | `scsi-35002538a48872950` / `wwn-0x5002538a48872950` | `MZILS3T8HMLH0D3` | `S3D9NX0K803377` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
 | `sdi` | `scsi-35002538a48872700` / `wwn-0x5002538a48872700` | `MZILS3T8HMLH0D3` | `S3D9NX0K803346` | 3.49 TiB | SAS (PERC) | `sas-pool` `raidz1-0` member |
@@ -425,7 +425,8 @@ autodetection on a 512e drive.
 | Where | Amount | Cost to claim it |
 |---|---|---|
 | `sas-pool` free space | **6.85 TiB** less ~140 GiB in use | none — native ZFS RAIDZ1, exported via Samba ([`SAS-STORAGE.md`](SAS-STORAGE.md)). ⚠️ It failed to import on the 2026-09-15 boot and was recovered 2026-09-16; `zfs-import-scan` is now enabled. **Confirm with `zpool list` after any reboot** — `zpool status -x` will not show an absent pool. |
-| `sde` + `sdf`, mirrored | ~~**1.75 TiB usable**~~ | **superseded 2026-09-16** — `sde` is wiped and becoming `llm-pool` ([`GPU-VM.md`](GPU-VM.md)); `sdf` alone stays the cold spare |
+| `llm-pool` on `sde` | **1.68 TiB usable**, 1400 GiB earmarked for VM 105's models | claimed 2026-09-16 — single disk, **no redundancy and deliberately not snapshotted** ([`SANOID.md`](SANOID.md)); losing it costs a re-download ([`GPU-VM.md`](GPU-VM.md)) |
+| `sdf`, unallocated | 1.75 TiB | none — cold spare for `archive-pool`, still carries the old raidz2 label |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
 | `local-lvm` | 82.12 GiB | guest root disks only |
 

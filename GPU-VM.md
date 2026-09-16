@@ -186,6 +186,29 @@ pvesm status | grep llm-pool
 - `blocksize 64k` sets the block size of each zvol Proxmox creates. Model files are large and read in long runs, so bigger blocks mean less metadata than the 16k default. It only applies to new zvols, so set it before creating the VM.
 - `lz4` rather than `zstd`: model weights barely compress, and lz4 gives up quickly on data that doesn't.
 
+✅ **Done 2026-09-16.** `zpool create` went through with no `-f` — as expected,
+since A2's re-run found no signatures left — and `/etc/pve/storage.cfg` had no
+stale `llm-pool` entry from the failed first attempt.
+
+```
+zpool status llm-pool -> ONLINE, single vdev ata-…150584Y (by-id, not sde)
+pvesm status          -> llm-pool  zfspool  active  1804599296  408  1804598888  0.00%
+```
+
+**1 804 599 296 KiB = 1 721 GiB (1.68 TiB) usable.** The models disk in
+`tofu/proxmox-llm-vm.tf` asks for **1400 GiB**, which leaves **321 GiB / 18.7%**
+free — the ~20% headroom ZFS wants, so the figure in C2's table stands against
+the real pool rather than the estimated one.
+
+> ⚠️ **Confirm `blocksize 64k` actually landed, now rather than later.** It
+> applies only to zvols created *after* it is set, and the VM's models disk is
+> the zvol it exists for. If it is missing, the disk is created at the 16k
+> default and cannot be changed without destroying and recreating it:
+>
+> ```bash
+> grep -A4 'zfspool: llm-pool' /etc/pve/storage.cfg   # expect blocksize 64k, content images
+> ```
+
 > **A clean `zpool create` is expected, and if it refuses with `contains a
 > filesystem of type 'zfs_member'`, `-f` is the right answer here.** Re-running
 > the A2 block on 2026-09-16 produced **no output from `wipefs -a`** and
@@ -698,6 +721,7 @@ wipefs -a "$D"
 zpool create -o ashift=12 -O compression=lz4 -O atime=off llm-pool "$D"
 pvesm add zfspool llm-pool --pool llm-pool --content images --blocksize 64k
 zpool status llm-pool; pvesm status | grep llm-pool
+grep -A4 'zfspool: llm-pool' /etc/pve/storage.cfg   # blocksize 64k must be here
 
 ### 3. PCI mapping (lets a scoped token attach the GPU; raw paths need root@pam)
 pvesh create /cluster/mapping/pci --id arc-b70 \
@@ -779,7 +803,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
 - [x] A2 `sde` proven orphan, wiped (2026-09-16)
-- [ ] A3 `llm-pool` created, in `pvesm status`
+- [x] A3 `llm-pool` created, in `pvesm status` (2026-09-16, 1.68 TiB usable) — `blocksize 64k` still to confirm in `storage.cfg`
 - [ ] A4 `arc-b70` mapping exists
 - [ ] A5 roles + `tofu@pve!llm` created, scoping verified (`VM.Allocate` on `/vms/105`, not `/vms/104`), secret in LastPass
 - [ ] B1 vfio config + initramfs
