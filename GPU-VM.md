@@ -1621,12 +1621,41 @@ What it decides:
   compute runtime may predate Battlemage support, in which case F1 installs a
   current one from Intel's repository.
 
+✅ **Ran 2026-09-16.** `/` 27 GiB free of 30; `/models` 1.4 TiB, empty. Ubuntu
+24.04.5, kernel `7.0.0-31-generic`, 8 vCPUs, 62 GiB RAM, no swap. `/dev/dri` has
+`card0` (the emulated display), `card1` and `renderD128` (the B70). `dev` was in
+neither `render` nor `video`: fixed with `sudo usermod -aG render,video dev` plus a
+re-login, verified with `groups`. None of `intel-opencl-icd`, `libze-intel-gpu1`,
+`libze1` or `mesa-vulkan-drivers` is installed.
+
+Correction to the plan above: llama.cpp's SYCL build needs **oneDNN and oneDPL as
+well**, not just the compiler and MKL (`docs/backend/SYCL.md`). Its recommended
+bundle is **Intel Deep Learning Essentials**, which contains all four. Space is
+no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
+
 ### F1–F6 (filled in as they run)
 
-- **F1** GPU user-space: Level Zero + compute runtime, Vulkan (Mesa ANV), oneAPI
-  compiler + MKL. Verify with `sycl-ls` and `vulkaninfo --summary`.
+- **F1** GPU user-space: Level Zero + compute runtime (Intel's `kobuk-team/intel-graphics`
+  PPA), Vulkan (Mesa ANV from `noble-updates`), oneAPI Deep Learning Essentials 2025.3. Verify with `sycl-ls` and `vulkaninfo --summary`.
+  ✅ **Ran 2026-09-16.** Package versions were checked against Launchpad and Intel's
+  apt index before installing.
+  - **F1a** `ppa:kobuk-team/intel-graphics` → `libze-intel-gpu1 libze1 libze-dev
+    intel-opencl-icd intel-ocloc intel-gsc intel-metrics-discovery clinfo`
+    (compute runtime 26.31.39395.13, Level Zero 1.32.0). `clinfo -l`:
+    `Intel(R) Arc(TM) Pro B70 Graphics`.
+  - **F1b** `mesa-vulkan-drivers vulkan-tools libvulkan-dev glslc spirv-headers`
+    from `noble-updates` (Mesa 25.2.8, no PPA needed). `vulkaninfo --summary`:
+    `Intel(R) Graphics (BMG G31)` on the Mesa driver, plus `llvmpipe`.
+  - **F1c** Intel oneAPI apt repo → `intel-deep-learning-essentials-2025.3`
+    (llama.cpp's CI version; ~6.7 GiB vs 11 GiB for the Base Toolkit). After
+    `source /opt/intel/oneapi/setvars.sh`, `sycl-ls` shows
+    `[level_zero:gpu][level_zero:0] … Arc(TM) Pro B70 Graphics 20.2.0 [1.17.39395+13]`.
+    `/` 18 GiB free afterwards.
+  - The first F1c paste failed harmlessly: the `wget … .PUB \` line wrapped, and
+    `set -e` stopped before anything was written. Long URLs go in variables.
 - **F2** Build `llama.cpp` twice (`-DGGML_SYCL=ON` with `icx`/`icpx`, and
-  `-DGGML_VULKAN=ON`), pinned to one release tag.
+  `-DGGML_VULKAN=ON`), pinned to one release tag: **`v0.4.1`** (2026-09-14; the
+  project now cuts semver releases alongside the per-commit `bNNNNN` prereleases).
 - **F3** Model weights into `/models`: a small one to validate the builds, then
   the real one (up to ~28 GiB of weights plus KV cache within 31.89 GiB).
 - **F4** `llama-bench` on both backends, plus a timed cold model load.
@@ -1821,8 +1850,8 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
 - [ ] D boot-time resize verified across a real host reboot (first try 2026-09-16 failed at 32 GiB; sequence fixed in PR #24; expect `direct 32 GiB refused … VF BAR 2 0 GiB` then `resize complete`)
 - [ ] D model load time in the guest measured and written down (now part of F4)
-- [ ] F0 preflight
-- [ ] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified
+- [x] F0 preflight (2026-09-16): 27 GiB free on `/`, 62 GiB RAM, `dev` added to `render`/`video`, no GPU user-space installed
+- [x] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified (2026-09-16): `clinfo`, `vulkaninfo` and `sycl-ls` all see the B70
 - [ ] F2 llama.cpp built, SYCL + Vulkan
 - [ ] F3 models in `/models`
 - [ ] F4 benchmarks + cold load time recorded
