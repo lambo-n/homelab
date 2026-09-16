@@ -919,9 +919,17 @@ own again, and `53:00.0` came back on `vfio-pci`.
 2. **Add `pci=noats`** to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`,
    run `update-grub` (this host boots plain GRUB, B1), and reboot.
 3. **Confirm it took:** `cat /proc/cmdline` shows `pci=noats`.
+   ✅ **Done 2026-09-16 02:12 PDT.** `pci=noats` is present and absent from
+   `journalctl -b -k | grep 'Unknown option'`, so the kernel accepted it. That
+   check also showed `bridge_realloc` and `noiov` are unknown options that have
+   never had any effect. They are left in place so this test changes one thing
+   only. `ATSCtl: Enable-` idle, but that proves little: ATS is normally only
+   enabled when the device is attached to a translation domain, so re-check it
+   **while 105 runs**.
 4. **Controlled test from the host console:** `journalctl -kf` in one shell,
-   `qm start 105` in another. Pass means the VM runs and no `DMAR: … Device-TLB`
-   line appears.
+   `qm start 105` in another. Pass means the VM runs, no `DMAR: … Device-TLB`
+   line appears, and `lspci -vvv -s 53:00.0 | grep ATSCtl` still reads
+   `Enable-` while it runs.
 5. **Then rebuild through tofu, so state and host agree again.** Run
    `qm destroy 105 --purge 1 --destroy-unreferenced-disks 1` and
    `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then
