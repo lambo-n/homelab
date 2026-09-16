@@ -252,10 +252,22 @@ tofu downloads the image itself
 Two variables have no defaults and must be supplied before the apply:
 
 ```bash
-# SHA256 from https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
-export TF_VAR_ubuntu_noble_image_sha256='<sha256 of noble-server-cloudimg-amd64.img>'
+# Read 2026-09-16 from https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+export TF_VAR_ubuntu_noble_image_sha256='612b2c0cc1bc413a6cb8c38fd611794caf0f2b436c50013d8b3794db12ad7354'
 export TF_VAR_llm_ssh_public_keys='["ssh-ed25519 AAAA... you@wherever"]'
 ```
+
+⚠️ **Re-read that checksum before applying if any time has passed.** Ubuntu
+respins `noble-server-cloudimg-amd64.img` in place, and a stale value fails the
+download with a checksum mismatch — which is the failure you want, but only if
+you recognise it:
+
+```bash
+curl -s https://cloud-images.ubuntu.com/noble/current/SHA256SUMS | grep 'noble-server-cloudimg-amd64.img$'
+```
+
+It is a variable rather than a default in `variables.tf` for exactly this
+reason: a default would rot silently, and the point of pinning is to notice.
 
 The checksum is required rather than optional: Ubuntu rewrites `current/` in
 place on every respin, so without it the apply imports whatever is published
