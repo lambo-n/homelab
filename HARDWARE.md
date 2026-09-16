@@ -98,7 +98,7 @@ Key architectural findings confirmed 2026-09-09:
 
 Installed with a full power cycle of the homelab. Everything below is from the
 host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
-**Not attached to any guest yet** — no VM or k3s node sees it. Planned: whole
+**Attached to VM 105 (`llm`, `192.168.50.107`) since 2026-09-16**, whole card via the `arc-b70` mapping. No k3s node sees it. Planned: whole
 card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.md).
 
 | | | Source |

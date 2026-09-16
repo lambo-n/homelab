@@ -972,6 +972,15 @@ own again, and `53:00.0` came back on `vfio-pci`.
    General rule for this VMID: its write access is an ACL on a path named after
    the guest, so anything that "cleans up everything about VM 105" also
    revokes the only token allowed to recreate it.
+
+   ✅ **Rebuilt through tofu 2026-09-16 ~09:25 UTC.** After the re-grant,
+   `!llm --path /vms/105` again showed exactly `TofuVM`, and `!import` stayed
+   audit-only. The plan was `1 to add` (the image was already in state, with
+   `import_from = "local:import/noble-server-cloudimg-amd64.qcow2"`), and the
+   apply reported `Creation complete after 37s [id=105]` with the host's
+   `journalctl -kf` open throughout and no DMAR or lockup lines. State now holds
+   `proxmox_virtual_environment_vm.llm`, and the new MAC `bc:24:11:e5:1f:57`
+   answers on `.107` with sshd listening. **C2a is closed.**
    The VM is empty, so a clean rebuild costs about a minute and avoids an
    import with its generated diffs.
 
@@ -1279,7 +1288,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] B2 clean shutdown, BIOS MMIO settings recorded (2026-09-16: above-4GB already Enabled; Base 12 TB → 56 TB)
 - [x] B3 both functions on `vfio-pci`, **all three pools present in `zpool list`** and healthy, Region 2 = 256M, ReBAR cap advertises up to 32GB (2026-09-16)
 - [x] **Phase B complete.** `sas-pool` survived the reboot — `zfs-import-scan` fix proven.
-- [ ] C2 VM created
+- [x] C2 VM created by `tofu apply` and in state (2026-09-16, after the C2a ATS lockup was fixed with `pci=noats`)
 - [ ] C3 guest on `xe`, `/models` mounted
 - [ ] D one unbound resize attempt made, result recorded — then closed either way
 - [ ] D model load time in the guest measured and written down
