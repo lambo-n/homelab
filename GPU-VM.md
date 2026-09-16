@@ -894,8 +894,9 @@ declared a hard lockup. It is not the BAR, not MMIO placement, and not the
 
 **The fix is `pci=noats` on the host kernel command line.** It turns off ATS for
 all PCIe devices, so the IOMMU keeps every translation to itself and never sends
-a Device-TLB flush. The throughput cost is negligible here. ⚠️ **Unverified on
-this card until the controlled test below passes.**
+a Device-TLB flush. The throughput cost is negligible here. ✅ **Verified on this
+card 2026-09-16, step 4 below.** Never remove it while this card is passed
+through.
 
 **What the crash left behind.** Everything exists on the host, and **none of it is
 in tofu state**. tofu's last state write was 08:44:42 UTC, before the apply. It
@@ -930,6 +931,18 @@ own again, and `53:00.0` came back on `vfio-pci`.
    `qm start 105` in another. Pass means the VM runs, no `DMAR: … Device-TLB`
    line appears, and `lspci -vvv -s 53:00.0 | grep ATSCtl` still reads
    `Enable-` while it runs.
+   ✅ **Passed 2026-09-16 02:16 PDT.** Same reset sequence as the crash, with no
+   `DMAR` line after it this time:
+   ```
+   02:16:27 vfio-pci 0000:53:00.0: resetting / reset done
+   02:16:35 vfio-pci 0000:53:00.0: enabling device (0000 -> 0002)   <- where the ITEs began last time
+   02:16:35 vfio-pci 0000:53:00.0: resetting / reset done  (x2)
+   ```
+   `qm status 105` → `running`, and `ATSCtl: Enable-` **with the VM running**.
+   The host outlived the 45 s window. From the dev VM at 02:17:30, `.107`
+   answered ping from MAC `bc:24:11:cc:26:62` (VM 105's `net0`), and sshd was
+   up on 22, so the guest booted and cloud-init applied the static address.
+   **`pci=noats` fixes the lockup.**
 5. **Then rebuild through tofu, so state and host agree again.** Run
    `qm destroy 105 --purge 1 --destroy-unreferenced-disks 1` and
    `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then

@@ -145,7 +145,10 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   to `53:00.0` timed out (`DMAR: … Invalidation Time-out Error`, `QI PRIOR:
   Device-TLB Invalidation qw0 = 0x5300530000000003`), and 45 s later
   `watchdog: CPU13: Watchdog detected hard LOCKUP`. The whole host was down until
-  a power cycle. Fix under test: `pci=noats` ([`GPU-VM.md`](GPU-VM.md) C2a).
+  a power cycle. **Fixed by `pci=noats`**, verified 2026-09-16 02:16 PDT: same
+  reset sequence, no Device-TLB timeouts, `ATSCtl: Enable-` with the VM running,
+  and the guest booted ([`GPU-VM.md`](GPU-VM.md) C2a). Removing that parameter
+  brings the lockup back.
 - ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
 ---
