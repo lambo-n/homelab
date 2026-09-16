@@ -139,6 +139,12 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   unbound from `xe` and held by `vfio-pci`, since a bound driver makes the
   kernel refuse a resize outright — see [`GPU-VM.md`](GPU-VM.md) Phase D. Treat
   small BAR as permanent until that says otherwise.
+- 🔴 **Passthrough with ATS enabled hard-locks the host.** First `qm start 105`
+  on 2026-09-16: after `vfio-pci` reset the card, VT-d Device-TLB invalidations
+  to `53:00.0` timed out (`DMAR: … Invalidation Time-out Error`, `QI PRIOR:
+  Device-TLB Invalidation qw0 = 0x5300530000000003`), and 45 s later
+  `watchdog: CPU13: Watchdog detected hard LOCKUP`. The whole host was down until
+  a power cycle. Fix under test: `pci=noats` ([`GPU-VM.md`](GPU-VM.md) C2a).
 - ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
 ---

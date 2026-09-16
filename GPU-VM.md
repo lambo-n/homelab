@@ -857,6 +857,78 @@ qm create 105 --name llm --ostype l26 \
 
 `--onboot 0` matches the other guests.
 
+### C2a. 🔴 First start hard-locked the host (ATS). Fix before starting 105 again
+
+**2026-09-16, 01:46 PDT.** The apply built everything, and then starting VM 105
+took the entire host down. Tasks in `/var/log/pve/tasks/index`:
+
+```
+download:noble-server-cloudimg-amd64.qcow2  OK      (37 s)
+qmcreate:105                                OK
+resize:105                                  OK
+qmstart:105                                 unexpected status   <- never finished; closed out at next boot
+```
+
+Kernel log for that boot (`journalctl -b -1 -k`):
+
+```
+01:46:27 vfio-pci 0000:53:00.0: resetting / reset done
+01:46:35 vfio-pci 0000:53:00.0: enabling device (0000 -> 0002)
+01:46:35 vfio-pci 0000:53:00.0: resetting / reset done
+01:46:35 DMAR: VT-d detected Invalidation Time-out Error: SID 0
+01:46:35 DMAR: QI PRIOR: Device-TLB Invalidation qw0 = 0x5300530000000003, ...   (repeats)
+01:47:20 watchdog: CPU13: Watchdog detected hard LOCKUP on cpu 13                  <- last line of the boot
+```
+
+The host was unreachable until a power cycle at 02:00. Every guest stopped
+uncleanly.
+
+**What it means.** `0x5300` in that descriptor is both the source and PF device
+ID: bus `53`, device `00`, function `0`, the Arc B70. Descriptor type `3` is a
+**Device-TLB invalidation**, which the IOMMU sends to a device that uses **PCIe
+ATS** (Address Translation Services) to keep its own translation cache. After
+`vfio-pci` reset the card, the card stopped answering those invalidations. The
+kernel waits for each one synchronously, so it spun on a CPU until the watchdog
+declared a hard lockup. It is not the BAR, not MMIO placement, and not the
+64 GiB memory pin. None of those appear in the log.
+
+**The fix is `pci=noats` on the host kernel command line.** It turns off ATS for
+all PCIe devices, so the IOMMU keeps every translation to itself and never sends
+a Device-TLB flush. The throughput cost is negligible here. ⚠️ **Unverified on
+this card until the controlled test below passes.**
+
+**What the crash left behind.** Everything exists on the host, and **none of it is
+in tofu state**. tofu's last state write was 08:44:42 UTC, before the apply. It
+left its lock file behind (ID `0645dbbf-9d8f-54c8-5fe6-f21087b2eae1`), which is
+kept on purpose until the fix is proven, so nothing can re-run the apply early:
+
+| On the host | |
+|---|---|
+| VM 105 config | complete: `hostpci0: mapping=arc-b70,pcie=1,rombar=0,x-vga=0`, cloud-init, EFI |
+| `local-lvm` | `vm-105-cloudinit`, `vm-105-disk-0` (EFI), `vm-105-disk-1` (root, 32G) |
+| `llm-pool` | `vm-105-disk-0`, 1.37T reserved |
+| `local` | `import/noble-server-cloudimg-amd64.qcow2` |
+
+The pools were all healthy after the unclean stop, `sas-pool` imported on its
+own again, and `53:00.0` came back on `vfio-pci`.
+
+**Sequence, with the smallest possible blast radius:**
+
+1. **Keep 102–104 stopped** (the k3s cluster, Postgres included) until step 4
+   passes. Another lockup would kill Postgres uncleanly a second time.
+2. **Add `pci=noats`** to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`,
+   run `update-grub` (this host boots plain GRUB, B1), and reboot.
+3. **Confirm it took:** `cat /proc/cmdline` shows `pci=noats`.
+4. **Controlled test from the host console:** `journalctl -kf` in one shell,
+   `qm start 105` in another. Pass means the VM runs and no `DMAR: … Device-TLB`
+   line appears.
+5. **Then rebuild through tofu, so state and host agree again.** Run
+   `qm destroy 105 --purge 1 --destroy-unreferenced-disks 1` and
+   `pvesm free local:import/noble-server-cloudimg-amd64.qcow2`, then
+   `tofu force-unlock 0645dbbf-9d8f-54c8-5fe6-f21087b2eae1` and plan/apply as in C2.
+   The VM is empty, so a clean rebuild costs about a minute and avoids an
+   import with its generated diffs.
+
 ### C3. First boot and verify inside the guest
 
 There is no installer to sit through: cloud-init grows the root disk, sets the
