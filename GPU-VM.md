@@ -1695,7 +1695,40 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
   worth doing: even a large prompt-processing gain would not close a 2× gap, and
   generation is limited by memory bandwidth. `build-vulkan` stays as a fallback.
 
-  Load time for the 32 GiB BAR on a production-size model: still to measure, after F3b.
+  ✅ **F4 on the production models, 2026-09-16** (SYCL, `-fa on -p 512 -n 128
+  -d 0,16384 -r 2`, each model alone, `ngl` auto = all layers):
+
+  | model | size | pp512 | tg128 | pp512 @16K | tg128 @16K |
+  |---|---:|---:|---:|---:|---:|
+  | Qwen3.8-27B UD-Q6_K_XL | 23.55 GiB | 1050 | **18.7** | 608 | 16.6 |
+  | Qwen3.6-35B-A3B UD-Q4_K_XL | 20.81 GiB | 1115 | **74.8** | 921 | 73.1 |
+  | Llama 3.1 8B Q8_0 | 7.95 GiB | 3921 | **56.9** | 1103 | 37.3 |
+
+  - The two Qwen models are hybrid (1 in 4 layers full attention) and barely slow down
+    at 16K. Llama 3.1 has full attention in every layer and loses 35% of its
+    generation speed. The MoE generates faster than the 8B, which is a point for
+    re-examining the `fast` role later.
+  - **Load of the 23.55 GiB Qwen3.8-27B (F4a):** 66.6 s with the guest page cache
+    dropped, 20.3 s warm. The cold extra (~46 s ≈ 0.5 GiB/s) is the SATA SSD under
+    `llm-pool`. The warm 20 s is SYCL start-up plus mmap/copy into VRAM, CPU-bound
+    (`sys` 9 s), not BAR-bound. **Full ReBAR leaves nothing to fix on the load path.**
+  - **Thermals during the runs:**
+    - `sensors` (`xe-pci-0100`): package peaked ~63 °C (its `high` mark is 60 °C,
+      `crit` 100 °C); VRAM 70–72 °C peak (`crit` 105 °C).
+    - Fan 1522 RPM; card power cap 275 W.
+    - `…/gt0/freq0/throttle/status` read `0` every time it was checked.
+  - **Context fit (F4c)** — `llama-server` with `-c` unset, so `--fit` (default on,
+    1024 MiB margin) shrinks context from 262K; 4 auto slots, unified KV, so
+    `n_ctx_slot` is the whole pool:
+    - Qwen3.8-27B Q6_K_XL alone, f16 KV: **116,480**
+    - alone, q8_0 KV: **195,072** (≈6.3 GiB KV, ~34 KiB/token)
+    - **beside Llama 3.1 8B** (`-c 8192`, ≈9.3 GiB), q8_0 KV: **4,096 = the fit
+      minimum. ❌ The `qwen27` preset as planned does not fit.** ~22.6 GiB is left
+      beside the 8B, less than the 23.55 GiB of weights alone.
+  - `xpu-smi` 2.0.1 (from the PPA) sees the card and reports power, frequency and
+    memory, but shows `N/A` for temperatures, fan and utilization. Use `sensors`.
+    `intel_gpu_top` 1.28 (noble) is i915-only. The card idles at **48 W** at 650 MHz,
+    possibly PCIe ASPM being off under passthrough; not investigated yet.
 
   📝 **F3b model set, decided 2026-09-16 (owner).** The router can swap models, so
   more can be added later. Hashes and repo revisions were read from the Hugging Face
