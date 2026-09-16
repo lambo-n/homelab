@@ -1193,28 +1193,80 @@ What D0 decides:
 - **Anything other than the 51/52/53/54 functions under `$RP`:** stop the k3s
   guests with `homelab-shutdown.sh` (without `--poweroff-host`) before D.
 
+✅ **D0 results, 2026-09-16:**
+
+```
+root port 0000:50:02.0   prefetchable 220000000000-2211ffffffff [size=72G]
+switch    0000:51:00.0   prefetchable 220000000000-220fffffffff [size=64G]
+port      0000:52:01.0   prefetchable 220000000000-220fffffffff [size=64G]   (-> 53:00.0, the GPU)
+port      0000:52:02.0   prefetchable [disabled]; 1M non-prefetchable       (-> 54:00.0, audio)
+
+/proc/iomem  220000000000-22ffffffffff : PCI Bus 0000:50      <- root bus 64-bit aperture: 1 TiB
+               220000000000-2211ffffffff : PCI Bus 0000:51
+                 220000000000-220fffffffff : PCI Bus 0000:52
+                   220000000000-220fffffffff : PCI Bus 0000:53
+
+resource2_resize  000000000000ff00
+SR-IOV            Total VFs 7, Number of VFs 0; VF Region 2 at 220000000000 (7 x 8G = 56G)
+sysfs             resource2_resize only -- no knob to shrink the VF BARs
+lsmod             xe loaded, used by 0 (idle; vfio-pci owns the card)
+```
+
+- **Isolated:** only the GPU's own functions sit under root port `50:02.0`, so a
+  window reassignment cannot disturb any other device. The cluster can stay up.
+- **Room to grow:** the root bus aperture is 1 TiB and the root port uses 72G of
+  it. Keeping the 56G of VF BARs and adding a 32G BAR 2 needs ~88G, which fits if
+  the kernel grows the bridge windows up the chain (`pci=realloc` is live). If it
+  instead drops the optional VF BARs, 32G fits in the existing 64G.
+- **`xe` is loaded on the host**, so the rebind hazard is real. D sets
+  `driver_override` **before** unbinding, so no stray probe can hand the card to `xe`.
+
 ### D. The attempt — host console, VM 105 stopped
 
 A resize done this way **does not survive a host reboot**, so trying it is
 reversible. That also means a small-BAR baseline load time can still be measured
 later, after a reboot.
 
+Run it as **separate short pastes**. Long pasted lines get hard-wrapped by the
+terminal (which has split quotes and paths on this host), and a guard line in a
+pasted block cannot stop the lines after it. So the steps that change state run
+inside `( set -e ... )`, which halts at the first failure.
+
+**D-1. Stop the VM:**
+
 ```bash
-qm stop 105
-[ "$(qm status 105)" = "status: stopped" ] || { echo "REFUSING: 105 is not stopped"; false; }
+qm stop 105; qm status 105
+```
 
-for f in 0000:53:00.0 0000:54:00.0; do echo "$f" > /sys/bus/pci/devices/$f/driver/unbind; done
-cat /sys/bus/pci/devices/0000:53:00.0/resource2_resize           # 000000000000ff00
-echo 15 > /sys/bus/pci/devices/0000:53:00.0/resource2_resize     # bit 15 = 2^15 MB = 32 GiB
+**D-2. Unbind and resize.** It halts at the first failure. `No space left on
+device` from the last line is the `-ENOSPC` outcome:
+
+```bash
+(
+set -e
+G=/sys/bus/pci/devices/0000:53:00.0
+A=/sys/bus/pci/devices/0000:54:00.0
+qm status 105 | grep -q stopped
+echo vfio-pci > $G/driver_override
+echo vfio-pci > $A/driver_override
+echo 0000:53:00.0 > $G/driver/unbind
+echo 0000:54:00.0 > $A/driver/unbind
+cat $G/resource2_resize
+echo 15 > $G/resource2_resize
+echo RESIZE-WRITE-OK
+)
+```
+
+**D-3. Always run this, success or not.** It shows the result and rebinds to
+`vfio-pci`:
+
+```bash
 lspci -vv -s 53:00.0 | grep 'Region 2'
-dmesg | tail -20                                                  # the kernel's account of the reassignment
-
-# rebind explicitly to vfio-pci -- never drivers_probe, which could hand the card to xe
-for f in 0000:53:00.0 0000:54:00.0; do
-  echo vfio-pci > /sys/bus/pci/devices/$f/driver_override
-  echo "$f" > /sys/bus/pci/drivers/vfio-pci/bind
-done
-lspci -nnk -s 53:00.0 | grep 'in use'; lspci -nnk -s 54:00.0 | grep 'in use'   # both vfio-pci
+dmesg | tail -25
+echo 0000:53:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
+echo 0000:54:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
+lspci -nnk -s 53:00.0 | grep 'in use'
+lspci -nnk -s 54:00.0 | grep 'in use'
 ```
 
 Reading the result:

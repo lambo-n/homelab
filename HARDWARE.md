@@ -110,6 +110,8 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
 | Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
 | BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
+| PCIe windows | Root port `50:02.0` → switch `51:00.0` → ports `52:01.0` (GPU) / `52:02.0` (audio). Prefetchable: root port **72G**, switch and GPU port **64G**; root bus `0000:50` 64-bit aperture `220000000000-22ffffffffff` = **1 TiB**. Nothing else under the root port | `lspci -vv`, `/proc/iomem`, 2026-09-16 |
+| SR-IOV reservation | 7 VFs × 8G = **56G** of VF BAR 2 reserved in the GPU window (plus 112M VF BAR 0), `Number of VFs: 0`. No sysfs control to shrink it | `lspci -vvv`, sysfs, 2026-09-16 |
 | Firmware | GuC 70.49.4 · HuC 8.2.10 · DMC 2.6 — all loaded | `dmesg` |
 | Host kernel | `6.17.2-1-pve` | `uname -r` |
 | Device nodes | `/dev/dri/card0`, `card1`, `renderD128` (`render` group) | `ls -l /dev/dri` |
