@@ -1139,22 +1139,96 @@ before the agent exists makes the provider wait on a guest that cannot answer.
 A guest can only get the BAR size the host has given the card. QEMU doesn't let the guest resize it.
 So the resize happens **on the host, while nothing is bound to the card, before the VM starts.**
 
+### D0. Preflight — read-only, safe with everything running
+
+Four things learned since this phase was drafted change how it has to run:
+
+1. **SR-IOV already claims 56 GiB of the card's window.** The B3-era boot log has
+   `VF BAR 2 [mem 0x220000000000-0x220dffffffff 64bit pref]` (0xe00000000 = 56 GiB)
+   plus the PF's 256M BAR 2, 16M BAR 0 and 112M VF BAR 0. So the prefetchable
+   window above the card is at least ~56.4 GiB **before** any resize, and a 32 GiB
+   BAR 2 on top needs ~88 GiB. `pci=noiov` was presumably meant to stop the VF
+   reservation, but the kernel reports it as `Unknown option` (C2a). The outcome
+   therefore hinges on whether the window can grow, or whether the kernel drops
+   the optional VF resources to make room. D0 measures this instead of guessing.
+2. **Unbinding `vfio-pci` while VM 105 runs blocks**, because vfio waits for QEMU
+   to release the device. The procedure now refuses unless 105 is stopped.
+3. **Rebinding with `drivers_probe` is nondeterministic.** Whichever matching
+   driver probes first wins, and if `xe` is loaded on the host it could take the
+   card. D now uses `driver_override` to bind `vfio-pci` explicitly.
+4. **This host has hard-locked on PCI work before (C2a).** A resize reassigns
+   bridge windows, so D0 also proves nothing but the GPU sits under its root
+   port. If anything else does, stop the cluster before D.
+
 ```bash
-# VM stopped
-for f in 0000:53:00.0 0000:54:00.0; do echo $f > /sys/bus/pci/devices/$f/driver/unbind; done
-cat /sys/bus/pci/devices/0000:53:00.0/resource2_resize   # bitmask of supported sizes: expect 000000000000ff00
-                                                         # (bits 8-15 = 256MB..32GB, per B3's lspci)
-echo 15 > /sys/bus/pci/devices/0000:53:00.0/resource2_resize   # 2^15 MB = 32 GiB
+# topology: the chain above the card, and everything below its root port
+P=$(readlink -f /sys/bus/pci/devices/0000:53:00.0); echo "$P"
+RP=$(echo "$P" | awk -F/ '{print $5}'); echo "root port: $RP"
+find /sys/devices/*/"$RP" -maxdepth 4 -type d -name '0000:*' | awk -F/ '{print $NF}' \
+  | grep -E '^0000:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]$' | sort -u      # expect only 51,52,53,54 functions
+
+# windows: each bridge, and the root bus aperture they must fit inside
+for b in "$RP" 0000:51:00.0 0000:52:01.0 0000:52:02.0; do
+  echo "== $b"; lspci -vv -s "$b" | grep -E 'behind bridge'; done
+grep -iE 'PCI Bus 0000:5[0-4]' /proc/iomem
+
+# the card: what it offers and what SR-IOV has reserved
+cat /sys/bus/pci/devices/0000:53:00.0/resource2_resize           # expect 000000000000ff00
+cat /sys/bus/pci/devices/0000:53:00.0/sriov_totalvfs /sys/bus/pci/devices/0000:53:00.0/sriov_numvfs
+lspci -vvv -s 53:00.0 | sed -n '/SR-IOV/,/^\t[A-Z]/p' | grep -E 'VFs|Region'
+
+# preconditions for D
+lsmod | grep -wE 'xe|i915' || echo "no xe/i915 loaded on host"
+qm status 105
+```
+
+What D0 decides:
+
+- **Root bus aperture (the `PCI Bus 0000:5x` line wrapping the others) has
+  ≥ ~90 GiB of prefetchable 64-bit space:** the window can grow, and D is worth
+  running.
+- **The root port's prefetchable window is only ~56–64 GiB and the aperture has no
+  room above it:** D will almost certainly return `-ENOSPC`. It is still one cheap
+  attempt, since the kernel may drop the optional VF BARs, but expect failure.
+- **Anything other than the 51/52/53/54 functions under `$RP`:** stop the k3s
+  guests with `homelab-shutdown.sh` (without `--poweroff-host`) before D.
+
+### D. The attempt — host console, VM 105 stopped
+
+A resize done this way **does not survive a host reboot**, so trying it is
+reversible. That also means a small-BAR baseline load time can still be measured
+later, after a reboot.
+
+```bash
+qm stop 105
+[ "$(qm status 105)" = "status: stopped" ] || { echo "REFUSING: 105 is not stopped"; false; }
+
+for f in 0000:53:00.0 0000:54:00.0; do echo "$f" > /sys/bus/pci/devices/$f/driver/unbind; done
+cat /sys/bus/pci/devices/0000:53:00.0/resource2_resize           # 000000000000ff00
+echo 15 > /sys/bus/pci/devices/0000:53:00.0/resource2_resize     # bit 15 = 2^15 MB = 32 GiB
 lspci -vv -s 53:00.0 | grep 'Region 2'
-for f in 0000:53:00.0 0000:54:00.0; do echo $f > /sys/bus/pci/drivers_probe; done
+dmesg | tail -20                                                  # the kernel's account of the reassignment
+
+# rebind explicitly to vfio-pci -- never drivers_probe, which could hand the card to xe
+for f in 0000:53:00.0 0000:54:00.0; do
+  echo vfio-pci > /sys/bus/pci/devices/$f/driver_override
+  echo "$f" > /sys/bus/pci/drivers/vfio-pci/bind
+done
+lspci -nnk -s 53:00.0 | grep 'in use'; lspci -nnk -s 54:00.0 | grep 'in use'   # both vfio-pci
 ```
 
 Reading the result:
 
-- **It works** (`Region 2 [size=32G]`): start the VM and check the guest reports 32G too.
-  Only then make it persistent, with a Proxmox hookscript (`pre-start`) or a systemd
-  oneshot ordered before `pve-guests.service`. Never persist an untested resize —
-  a failed one at boot leaves the card with no usable BAR at all.
+- **It works** (`Region 2 [size=32G]`): `qm start 105` with the host's
+  `journalctl -kf | grep -iE 'DMAR|vfio|lockup'` open. Then in the guest,
+  `sudo lspci -vv -d 8086:e223 | grep Region` must show `[size=32G]`, and `dmesg`
+  should no longer say `Small BAR device`. A reset that lost the size would show
+  here: the kernel is meant to restore ReBAR state after vfio's resets, and the
+  guest reading is the proof. Only then make it persistent, and prefer a **systemd
+  oneshot on the host** ordered before `pve-guests.service` over a hookscript.
+  A hookscript is a VM option on a tofu-owned guest, so it would be drift for tofu
+  to fight. Never persist an untested resize — a failed one at boot leaves the
+  card with no usable BAR at all.
 - **`No space left on device` / `-ENOSPC`:** the window on the PCIe port above
   `51:00.0` (find it with `lspci -tv`) can't fit 32 GiB. That is firmware's
   allocation, and with no ReBAR option in setup there is nothing left to try
@@ -1163,7 +1237,12 @@ Reading the result:
   resize the kernel can use in this topology. Same conclusion.
 - **The guest sees 32G but `xe` fails to map it:** that one is fixable — OVMF's
   64-bit window is too small. Add `args: -fw_cfg
-  name=opt/ovmf/X-PciMmio64Mb,string=65536` to the VM config.
+  name=opt/ovmf/X-PciMmio64Mb,string=65536` to the VM config. ⚠️ PVE lets only
+  `root@pam` set `args`, so the `!llm` token can't manage it. It would be a
+  root-set option on a tofu-owned VM, needing `lifecycle { ignore_changes }` for
+  it in `proxmox-llm-vm.tf`. The guest's 256M BAR currently sits at
+  `0x380000000000` (56 TiB, from C3), so OVMF already sizes a large window from
+  the 46-bit `cpu: host` address width, and this may well not be needed.
 
 ### Living with a small BAR
 
