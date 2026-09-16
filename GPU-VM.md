@@ -731,7 +731,10 @@ covers: the VM, `hostpci { mapping = "arc-b70" }`, both disks, and cloud-init.
 
 ```bash
 export PROXMOX_VE_API_TOKEN='tofu@pve!llm=<uuid>'   # LastPass
-export CLOUDFLARE_API_TOKEN='<token>'               # both providers configure on every run
+# No Cloudflare token needed. With -refresh=false the Cloudflare provider makes no
+# API calls for its two unchanged DNS records, so it never needs credentials.
+# Verified 2026-09-16: a plan with no CLOUDFLARE_API_TOKEN at all fails only on
+# Proxmox credentials. tofu/README.md "-refresh=false is not optional" says the same.
 tofu plan  -refresh=false
 tofu apply -refresh=false
 ```
