@@ -1,0 +1,60 @@
+#!/bin/bash
+# Claude Code against the local llama-server router on VM 105 (GPU-VM.md F6d).
+#
+#   claude-local [claude args...]                 # qwen27, 81,920 ctx, beside fast
+#   CLAUDE_LOCAL_MODEL=qwen27-agent claude-local  # 195,072 ctx; `sudo llm-mode agent` on llm first
+#   CLAUDE_LOCAL_MODEL=chat claude-local          # Qwen3.6-35B-A3B, 262,144 ctx
+#
+# Every variable is set for this process only, and CLAUDE_CONFIG_DIR keeps its
+# settings, history and MCP config apart from the normal ~/.claude. Anthropic does
+# not support Claude Code with non-Claude models; this works through llama-server's
+# Anthropic-compatible /v1/messages, with no guarantees.
+set -euo pipefail
+
+KEY_FILE="${LLAMA_API_KEY_FILE:-$HOME/.config/llama/api-key}"
+MODEL="${CLAUDE_LOCAL_MODEL:-qwen27}"
+
+case "$MODEL" in
+  qwen27)       CTX=81920 ;;
+  qwen27-agent) CTX=195072 ;;
+  chat)         CTX=262144 ;;
+  *) echo "claude-local: unknown model '$MODEL' (qwen27, qwen27-agent, chat)" >&2; exit 2 ;;
+esac
+
+[[ -r "$KEY_FILE" ]] || { echo "claude-local: no key at $KEY_FILE" >&2; exit 1; }
+
+export ANTHROPIC_BASE_URL="http://192.168.50.107:8080"
+ANTHROPIC_AUTH_TOKEN="$(tr -d '\n' < "$KEY_FILE")"
+export ANTHROPIC_AUTH_TOKEN
+unset ANTHROPIC_API_KEY
+
+# One preset for every role. The router holds one model (--models-max 1), so a
+# background "haiku" request for a different preset would evict the working model.
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_FABLE_MODEL="$MODEL"
+export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+# Also covers subagent definitions that name their own model.
+export CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1
+
+# Claude Code cannot know a custom model's window; compaction is sized from this.
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$CTX"
+
+# llama-server's Anthropic endpoint is an approximation: keep pre-release fields
+# (context_management, beta tool schema fields) out of requests.
+export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export DISABLE_TELEMETRY=1
+
+# Slow by cloud standards: a cold 27B load is ~65 s, and prefilling a large context
+# at ~600 tok/s is minutes of silence. Watchdogs clamp at 30 minutes.
+export API_TIMEOUT_MS=1800000
+export CLAUDE_STREAM_IDLE_TIMEOUT_MS=1800000
+export CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS=1800000
+
+export CLAUDE_CONFIG_DIR="${CLAUDE_LOCAL_CONFIG_DIR:-$HOME/.claude-local}"
+
+exec claude "$@"
