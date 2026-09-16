@@ -1359,7 +1359,25 @@ first direct 32 GiB attempt failed with it assigned; resizing to 4 GiB first mad
 the kernel drop it; 32 GiB then fit with room to spare inside the root port's
 72G. **This fixes the shape of any boot-time persistence:** VF BAR 2 is assigned
 again after every host boot, so the unit must resize **12 then 15**, never 15
-directly. Guest verification pending.
+directly.
+
+✅ **Full ReBAR verified in the guest, 2026-09-16.** `qm start 105` with the host
+kernel log open showed only the usual `vfio-pci` resets. In VM 105:
+
+```
+xe: VRAM[0]: Actual physical size 0x800000000, usable size exclude stolen 0x7f9000000,
+    CPU accessible size 0x00000007f9000000        <- equals usable: all 31.89 GiB CPU-visible
+    (no "Small BAR device" line)
+lspci: Region 2: Memory at 380000000000 (64-bit, prefetchable) [size=32G]
+       Region 0: Memory at 380800000000 (64-bit, prefetchable) [size=16M]
+```
+
+OVMF placed the 32G BAR with no `X-PciMmio64Mb`/`args`, so that fallback is not
+needed. **This overturns the phase's opening conclusion** ("If it fails here, ReBAR
+is closed on this hardware"). The blocker was never the BIOS or the missing ReBAR
+option; it was the card's 56G SR-IOV VF BAR reservation, which only a 4 GiB resize
+first gets the kernel to release. **Not yet persistent:** see "Make it survive a
+host reboot" below.
 
 > Watch the kernel log with `dmesg -wT | grep -iE 'dmar|vfio|lockup'`. It is
 > short enough not to wrap when pasted, and it never opens a pager. A wrapped
@@ -1401,6 +1419,10 @@ Reading the result:
   the 46-bit `cpu: host` address width, and this may well not be needed.
 
 ### Living with a small BAR
+
+> ℹ️ **Superseded on this host, 2026-09-16:** full 32 GiB ReBAR works (above). This
+> section applies only if the boot-time resize fails and the card comes up at 256M,
+> or at 4 GiB if only the second step fails.
 
 **This is very likely the outcome, and the VM is still worth building.** What
 small BAR does and doesn't cost, for LLM inference specifically:
@@ -1607,5 +1629,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] C2 VM created by `tofu apply` and in state (2026-09-16, after the C2a ATS lockup was fixed with `pci=noats`)
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
 - [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
+- [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via a 4 GiB resize first to release the SR-IOV reservation
+- [ ] D resize made persistent across host reboots
 - [ ] D model load time in the guest measured and written down
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
