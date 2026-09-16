@@ -1523,7 +1523,21 @@ BAR 2**, which is why every later resize succeeds. `lspci`'s SR-IOV
 an assignment; the sysfs `resource` file is the authority. The rule, from all four
 attempts: **a resize fails whenever the kernel must place VF BAR 2 and can't; the
 first 32 GiB attempt always fails but unassigns it.** Hence 15 (ENOSPC) → 12 → 15,
-and why 4 GiB at boot (4 + 56 fits) left VF BAR 2 in place. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
+and why 4 GiB at boot (4 + 56 fits) left VF BAR 2 in place.
+
+✅ **Fixed script installed and run, 2026-09-16 10:18 PDT** (SHA-256 `988b541b…`).
+From the post-boot state it predicted exactly:
+
+```
+gpu-rebar: BAR 2 is 4096 MiB, VF BAR 2 0 GiB; trying 32 GiB directly
+gpu-rebar: resize complete (32 GiB on the first try)
+gpu-rebar: BAR 2 is 32768 MiB
+gpu-rebar: 0000:53:00.0 driver: vfio-pci        0000:54:00.0 driver: vfio-pci
+```
+
+That exercised the early-success path only. **The full boot path (32 GiB refused →
+`VF BAR 2 0 GiB` → 4 GiB → 32 GiB) is proven only by the next host reboot**; check
+`journalctl -u gpu-rebar -b` before starting VM 105. The script now replays 15 (ENOSPC) → 12 → 15 and logs VF BAR 2
 at each step. **Re-test: `systemctl restart gpu-rebar` with VM 105 stopped, then
 another host reboot.**
 
@@ -1805,7 +1819,7 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
 - [x] D full 32 GiB ReBAR verified in the guest (2026-09-16), via 32 GiB (fails, releases the SR-IOV reservation) → 4 GiB → 32 GiB
 - [x] D `gpu-rebar.service` installed and enabled on the host (2026-09-16), no-op path verified
-- [ ] D boot-time resize verified across a real host reboot (`journalctl -u gpu-rebar -b` → `resize complete`)
+- [ ] D boot-time resize verified across a real host reboot (first try 2026-09-16 failed at 32 GiB; sequence fixed in PR #24; expect `direct 32 GiB refused … VF BAR 2 0 GiB` then `resize complete`)
 - [ ] D model load time in the guest measured and written down (now part of F4)
 - [ ] F0 preflight
 - [ ] F1 GPU user-space (Level Zero, Vulkan, oneAPI) verified
