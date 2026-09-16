@@ -1928,6 +1928,26 @@ Verified, with the SSH rule added before `ufw enable`:
   from `rate(node_hwmon_energy_joule_total)` (`card` = board, `pkg` = GPU); idle was
   46 W board / 26 W pkg. Not shown: VRAM *usage* (node_exporter has no source for it)
   and which router preset is loaded (the router isn't scraped).
+- ✅ **Per-model rows, 2026-09-16** (PR #31). Superseded the "router isn't scraped"
+  gap above:
+  - **Collector.** `scripts/llm/llama-metrics` runs as root every 15 s from
+    `llama-metrics.timer` and writes `/var/lib/prometheus/node-exporter/llama.prom`:
+    llama-server metrics for `fast` and for each **loaded** preset, with
+    `model="…"` added, plus `llamacpp:model_loaded{model}` 1/0 for all four. It
+    queries only loaded presets, with `autoload=false`; router GETs don't touch LRU
+    order. The key goes to curl via `-H @<(…)`, so it stays out of `ps`.
+    `llm-fast` ScrapeConfig removed: everything now arrives through `llm-node`.
+  - **Why not scrape the router:** `/metrics?model=` answers 400 for an unloaded
+    preset, which would leave permanently down targets and a permanently firing
+    `TargetDown`.
+  - **Dashboard.** The fast row became `Model: $model`, repeated per model: status,
+    generation/prompt speed, requests, 24h tokens, prompt-cache reuse, throughput.
+    ⚠️ **Speeds come from counters** (`tokens_predicted_total ÷
+    tokens_predicted_seconds_total`), not from `llamacpp:*_tokens_seconds`: those
+    gauges **reset on every `/metrics` read**, so with a 15 s collector and a 60 s
+    scrape they read 0. Idle windows are masked with `and (… > 0)` so panels show
+    "idle", not NaN. First reading: `qwen27` at 14.5 tok/s during a Claude Code
+    session.
 
 ✅ **F6c CLI chat, 2026-09-16** (PR #29). Simon Willison's `llm` 0.35 on `llm`, as `dev`:
 - Install with `sudo apt-get install -y pipx` and `pipx install llm==0.35`. Binaries
