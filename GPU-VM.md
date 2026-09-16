@@ -1323,8 +1323,28 @@ as predicted above; the reservation went away. That costs nothing, because
 whole-card passthrough never enables VFs. It also reopens 32 GiB: that attempt
 failed while VF BAR 2 was still assigned, and with it unassigned, 32 GiB needs only
 ~32.1G, inside the existing windows. Untested hypothesis: why the kernel dropped
-the VF BAR for 4 GiB but not for 32 GiB isn't known. Guest verification of 4 GiB
-first, then decide.
+the VF BAR for 4 GiB but not for 32 GiB isn't known.
+
+✅ **4 GiB verified end to end, 2026-09-16.** `qm start 105` with
+`dmesg -wT | grep -iE 'dmar|vfio|lockup'` open on the host showed only the usual
+three `vfio-pci` resets. In the guest:
+
+```
+xe: VRAM[0]: Actual physical size 0x800000000, usable size exclude stolen 0x7f9000000,
+    CPU accessible size 0x0000000100000000                      <- 4 GiB, was 0x10000000
+lspci: Region 2: Memory at 380000000000 (64-bit, prefetchable) [size=4G]
+       Region 0: Memory at 380100000000 (64-bit, prefetchable) [size=16M]
+```
+
+The CPU-visible window is **16× larger** (256 MiB → 4 GiB), and usable VRAM is
+unchanged at 31.89 GiB. OVMF placed the 4G BAR without any `X-PciMmio64Mb` or
+`args`. **Not persistent yet:** a host reboot returns the card to 256M. Settle the
+size (32 GiB retry below) before writing the boot-time unit, so it is written once.
+
+> Watch the kernel log with `dmesg -wT | grep -iE 'dmar|vfio|lockup'`. It is
+> short enough not to wrap when pasted, and it never opens a pager. A wrapped
+> `journalctl` / `-kf …` paste on 2026-09-16 ran bare `journalctl` and dropped
+> into `less` on the whole journal.
 
 **One smaller size remained untried at the time, and it was the owner's call.** The GPU port's
 existing 64G window holds ~56.4G today (56G VF BAR 2 + 256M BAR 2 + 16M BAR 0 +

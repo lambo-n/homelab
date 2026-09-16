@@ -133,8 +133,10 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   every size from 256MB to **32GB**, so the limit is the missing resize, not the
   hardware. ❌ **The host-side resize to 32 GiB then failed with `-ENOSPC`**
   (2026-09-16, card unbound): the 56G SR-IOV VF reservation fills the 64G GPU
-  window, and the kernel neither grew the windows nor dropped the VFs. A 4 GiB
-  resize would fit the existing window and is untried. See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
+  window, and the kernel neither grew the windows nor dropped the VFs. **A 4 GiB resize
+  works** (2026-09-16, verified in VM 105: CPU-accessible VRAM 256 MiB → 4 GiB).
+  The kernel dropped the unused 56G VF BAR reservation to do it. Not yet
+  persistent across host reboots. See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
   `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.
