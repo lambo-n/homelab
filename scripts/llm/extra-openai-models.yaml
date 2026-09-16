@@ -1,0 +1,31 @@
+# Model list for Simon Willison's `llm` CLI (https://llm.datasette.io), 0.35,
+# on VM 105 as user dev. GPU-VM.md F6c. Install to the directory printed by
+#   dirname "$(llm logs path)"
+# The key is stored separately with `llm keys set llama`, never in this file.
+#
+# model_name is what llama-server sees in the request's "model" field: the
+# router (:8080) loads the preset of that name and evicts the previous one.
+- model_id: fast
+  model_name: fast
+  api_base: "http://127.0.0.1:8081/v1"
+  api_key_name: llama
+  supports_tools: true
+
+- model_id: chat
+  model_name: chat
+  api_base: "http://127.0.0.1:8080/v1"
+  api_key_name: llama
+  supports_tools: true
+
+- model_id: qwen27
+  model_name: qwen27
+  api_base: "http://127.0.0.1:8080/v1"
+  api_key_name: llama
+  supports_tools: true
+
+# Needs `sudo llm-mode agent` first (stops llama-fast); otherwise the load fails.
+- model_id: qwen27-agent
+  model_name: qwen27-agent
+  api_base: "http://127.0.0.1:8080/v1"
+  api_key_name: llama
+  supports_tools: true
