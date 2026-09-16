@@ -1269,6 +1269,27 @@ lspci -nnk -s 53:00.0 | grep 'in use'
 lspci -nnk -s 54:00.0 | grep 'in use'
 ```
 
+❌ **Ran 2026-09-16: `-ENOSPC`. 32 GiB ReBAR is closed on this hardware.**
+
+```
+cat resource2_resize        000000000000ff00
+echo 15 > resource2_resize  -bash: echo: write error: No space left on device
+after D-3                   Region 2 [size=256M] unchanged; 53:00.0 and 54:00.0 back on vfio-pci
+```
+
+The kernel neither grew the bridge windows into the 1 TiB root aperture nor dropped
+the 56G of optional VF BARs to make room. `dmesg | tail` showed nothing useful:
+it was entirely AppArmor `ALLOWED` audit lines from CT 100's `rsyslogd`, logged
+every ~5 s, which push kernel PCI messages out of any short tail. Filter instead:
+`dmesg | grep -iE '53:00|52:01|51:00|50:02|bridge window|resiz'`.
+
+**One smaller size remains untried, and it's the owner's call.** The GPU port's
+existing 64G window holds ~56.4G today (56G VF BAR 2 + 256M BAR 2 + 16M BAR 0 +
+112M VF BAR 0). A **4 GiB** BAR 2 (`echo 12`) needs ~60.4G, which fits without
+growing any window. 8 GiB (~64.1G) does not. 4 GiB is not full ReBAR (`xe` still
+reports a small BAR), but the CPU-visible window grows from 256 MiB to 4 GiB,
+the part that throttles model loading. Same D-1/D-2/D-3, just as reversible.
+
 Reading the result:
 
 - **It works** (`Region 2 [size=32G]`): `qm start 105` with the host's
@@ -1502,6 +1523,6 @@ variables from C1, and `tofu apply -refresh=false` from the dev VM.
 - [x] **Phase B complete.** `sas-pool` survived the reboot — `zfs-import-scan` fix proven.
 - [x] C2 VM created by `tofu apply` and in state (2026-09-16, after the C2a ATS lockup was fixed with `pci=noats`)
 - [x] C3 guest on `xe` (kernel 7.0.0-31), `/models` mounted (2026-09-16); host showed 0 DMAR errors across three GPU resets. Follow-ups: GuC firmware 70.44.1 → 70.54.0; guest agent via PR #22
-- [ ] D one unbound resize attempt made, result recorded — then closed either way
+- [x] D one unbound resize attempt made (2026-09-16): 32 GiB → `-ENOSPC`, closed. 4 GiB (fits the existing window) untried, owner's call
 - [ ] D model load time in the guest measured and written down
 - [x] E VM 105 in tofu from creation (no import needed), `tofu plan` → No changes; README, SANOID, HOST-MONITORING, tofu/README updated, smartd monitoring `sde` on the host (2026-09-16).
