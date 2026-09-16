@@ -701,6 +701,19 @@ tofu downloads the image itself
 (`proxmox_virtual_environment_download_file.ubuntu_noble_cloud` →
 `local`). That is why `TofuStorage` carries `Datastore.AllocateTemplate`.
 
+> ⚠️ **The `local` storage must allow `import` content.** The image is downloaded
+> as content type `import`, because PVE 9 refuses to build a VM disk from an
+> `iso`-typed volume. The first apply on 2026-09-16 failed exactly that way:
+> `scsi0: local:iso/noble-server-cloudimg-amd64.img has wrong type 'iso' - needs
+> to be 'images' or 'import'`. Enabling a content type on a storage needs root,
+> like the other one-time console jobs. Check it first, and **append** `import`
+> rather than replacing the list:
+>
+> ```bash
+> grep -A4 '^dir: local$' /etc/pve/storage.cfg     # read the current `content` line
+> pvesm set local --content <that list>,import     # only if import is missing
+> ```
+
 Two variables have no defaults and must be supplied before the apply.
 
 > ⚠️ **Run these on the dev VM (`192.168.50.103`), not the Proxmox host.** Tofu,
