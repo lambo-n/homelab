@@ -1023,6 +1023,34 @@ sudo dmesg | grep -iE 'xe .*(BAR|GuC|HuC)'
 sudo lspci -vv -d 8086:e223 | grep Region  # 256M = small BAR, 32G = ReBAR working
 ```
 
+✅ **Verified 2026-09-16 ~09:35 UTC**, after the HWE install and a guest reboot
+(during which the host logged no DMAR or lockup lines):
+
+```
+uname -r                        7.0.0-31-generic     <- HWE has since moved past 6.17; still >= 6.17
+lspci -nnk | grep -A3 e223      01:00.0 [8086:e223] ASRock [1849:6025], Kernel driver in use: xe
+ls -l /dev/dri                  card0, card1, renderD128
+dmesg                           xe 0000:01:00.0: [drm] Small BAR device
+                                GuC 70.44.1 in use -- "70.54.0 is recommended"
+                                HuC 8.2.10 (same as the host had)
+lspci -vv Region                Region 0 [size=16M], Region 2 at 0x380000000000 [size=256M]
+systemctl is-active qemu-guest-agent    inactive
+```
+
+- **The card works in the guest.** `xe` binds, and a render node exists. `card0` is
+  presumably the VM's emulated display, and `card1` + `renderD128` the Arc.
+- **GuC is older than the 7.0 kernel wants** (`70.44.1` loaded, `70.54.0`
+  recommended). It works; the guest's `linux-firmware` lags the HWE kernel. Try
+  `sudo apt install --only-upgrade linux-firmware` first. Not blocking.
+- **`qemu-guest-agent` inactive is expected, not a failure.** The package is
+  installed, but Ubuntu only starts it when the virtio-serial channel
+  `org.qemu.guest_agent.0` exists, and VM 105 was created with
+  `agent { enabled = false }`. Flipping that in tofu adds the channel, and the
+  agent starts after the reboot the provider performs (`reboot_after_update`).
+- Region 2 256M confirms the small BAR survives into the guest unchanged, as
+  Phase D expects. OVMF placed the 64-bit window at 56 TiB, inside the 46-bit
+  physical address width `cpu: host` passes through.
+
 Models disk. Address it by id, and use **`nofail`** (the SAS disks' old fstab lines were missing it, and would have dropped the host to an emergency shell; `HARDWARE.md`):
 
 ```bash
