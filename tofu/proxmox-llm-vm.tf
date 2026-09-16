@@ -206,11 +206,16 @@ resource "proxmox_virtual_environment_vm" "llm" {
   }
 
   agent {
-    # OFF at create, on purpose. Ubuntu's cloud image does not ship
+    # Was OFF at create, on purpose: Ubuntu's cloud image does not ship
     # qemu-guest-agent, and with `enabled = true` the provider waits for an
-    # agent that will never answer until the timeout expires. Install it in the
-    # guest (GPU-VM.md C3), then flip this to true and apply -- a small, legible
-    # second diff instead of a 15-minute hang on the first one.
-    enabled = false
+    # agent that cannot answer until the timeout expires.
+    #
+    # ON since 2026-09-16, once C3 installed the package in the guest. Ubuntu
+    # only starts the agent when the virtio-serial channel exists, and this is
+    # what creates it -- so enabling it here is what turns the installed agent
+    # from `inactive` to running, via the reboot the provider performs
+    # (`reboot_after_update`). That reboot resets the GPU; safe since pci=noats
+    # (GPU-VM.md C2a).
+    enabled = true
   }
 }
