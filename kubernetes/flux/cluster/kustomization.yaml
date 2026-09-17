@@ -12,3 +12,4 @@ resources:
   - ../../apps/observability
   - ../../apps/reloader
   - ../../apps/sunfire
+  - ../../apps/voice

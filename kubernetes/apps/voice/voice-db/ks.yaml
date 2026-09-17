@@ -1,0 +1,25 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: voice-db
+  namespace: flux-system
+spec:
+  interval: 30m
+  # initdb only, no import -- but a first bootstrap still pulls the image and
+  # runs initdb before the Cluster reports healthy.
+  timeout: 10m
+  path: ./kubernetes/apps/voice/voice-db/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # The Cluster itself carries prune: disabled; see cluster.yaml.
+  prune: true
+  wait: true
+  dependsOn:
+    - name: cloudnative-pg
+  healthChecks:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      name: voice-db
+      namespace: voice

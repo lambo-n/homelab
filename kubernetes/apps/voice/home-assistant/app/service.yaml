@@ -1,0 +1,20 @@
+---
+# LoadBalancer through k3s ServiceLB (klipper): answers on :8123 at every node
+# address, .104-.106, same mechanism traefik uses for 80/443.
+#
+# LAN-reachable on purpose: HA dials the satellite's native API (:6053) and the
+# satellite and browsers reach HA here. Not routed through cloudflared -- nothing
+# in the voice stack is meant to leave the LAN.
+apiVersion: v1
+kind: Service
+metadata:
+  name: home-assistant
+  namespace: voice
+spec:
+  type: LoadBalancer
+  selector:
+    app: home-assistant
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http

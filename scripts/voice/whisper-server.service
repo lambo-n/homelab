@@ -1,0 +1,29 @@
+# Install: VOICE.md V1. Speech-to-text for the voice satellite, on the B70.
+# Loopback only: whisper-server has no API key option, so nothing but the
+# Wyoming bridge on this VM (wyoming-whisper.service) may reach it.
+[Unit]
+Description=whisper.cpp server (small.en q8_0) on 127.0.0.1:8910 (homelab VOICE.md V1)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/models
+
+[Service]
+# Same user and GPU groups as llama-fast/llama-router, and the same oneAPI
+# wrapper: this is a third SYCL client of the one card.
+User=llama
+Group=llama
+SupplementaryGroups=render video
+# VRAM: every llama preset runs --fit off. qwen27 was cut from 81,920 (fit's
+# choice beside `fast`, ~1 GiB left) to 65,536 to make room for this: ~1.5 GiB
+# free against an estimated ~0.5-0.8 GiB here. VOICE.md V1f measures it under
+# a long request. Fallbacks: ggml-base.en, then `-ng` (CPU; 8 AVX-512 cores).
+ExecStart=/usr/local/bin/llama-oneapi \
+  /models/src/whisper.cpp/build-sycl/bin/whisper-server \
+  --host 127.0.0.1 --port 8910 \
+  -m /models/whisper/ggml-small.en-q8_0.bin \
+  -t 4
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

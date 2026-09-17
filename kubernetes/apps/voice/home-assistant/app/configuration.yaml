@@ -1,0 +1,23 @@
+# Home Assistant configuration.yaml, mounted read-only from a ConfigMap.
+# Edit here, not in HA's UI: the UI cannot write this file.
+#
+# Keys set here become read-only in the UI (HA shows "configured in YAML").
+
+default_config:
+
+homeassistant:
+  time_zone: America/Los_Angeles
+  unit_system: us_customary
+  # The ServiceLB address the satellite and LAN browsers use. .104 (the control
+  # plane) because it is the node that is up whenever the cluster is up at all;
+  # ServiceLB answers on every node's address, so .105/.106 work too.
+  internal_url: http://192.168.50.104:8123
+
+recorder:
+  # postgresql://homeassistant:…@voice-db-rw.voice:5432/homeassistant, from the
+  # CNPG-generated voice-db-app Secret via the pod env. Never in this file.
+  db_url: !env_var HA_DB_URL
+  purge_keep_days: 10
+  # Commit every 5 s instead of every 1 s: fewer WAL writes to the zvol, and
+  # nothing here needs sub-second history.
+  commit_interval: 5

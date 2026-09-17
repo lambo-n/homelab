@@ -1,0 +1,53 @@
+---
+# Home Assistant's recorder database (history, logbook, statistics).
+#
+# Its own Cluster, not a database inside sunfire's postgres-cnpg: that one is a
+# production dependency of sunosrs.cc, and HA's recorder is a write-heavy,
+# disposable workload that should never share its WAL, its connections or its
+# maintenance windows.
+#
+# No backups, deliberately. Everything in here is history HA regenerates; the
+# state worth keeping (integrations, devices, the pipeline) lives in .storage on
+# the home-assistant-config PVC, not here. sanoid's snapshots of the zvol below
+# are the only safety net, and that is enough for this data.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: voice-db
+  namespace: voice
+  annotations:
+    # Deleting a Cluster deletes the PVCs it owns, and local-path reclaims with
+    # Delete. Disposable data, but a stray prune should not be how it goes.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  instances: 1
+  # Same image as sunfire's postgres-cnpg, so one digest bump covers both.
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15@sha256:34cd4159d07b3410a1b29da35072e2e927a0905e717a61afa3814624a2e8859a
+
+  # k3s-worker2 is where /var/lib/rancher/k3s/storage is the archive-pool zvol
+  # (STORAGE.md §4), so local-path lands this on the mirror instead of a worker
+  # root disk. The owner reserves archive-pool for databases and object storage;
+  # this is a database. Pinned by hostname rather than sunfire/role=postgres
+  # because the reason is the mount, not the sunfire role.
+  affinity:
+    nodeSelector:
+      kubernetes.io/hostname: k3s-worker2
+
+  storage:
+    # local-path enforces no quota. Recorder with purge_keep_days: 10 for one
+    # house is tens of MiB; 4Gi is a statement of the ceiling, not a limit.
+    size: 4Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: homeassistant
+      owner: homeassistant
+      # CNPG generates voice-db-app with a `uri` key; home-assistant reads it.
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 1Gi

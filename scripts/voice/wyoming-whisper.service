@@ -1,0 +1,26 @@
+# Install: VOICE.md V1. Wyoming protocol front for whisper-server, which is
+# what Home Assistant's Wyoming integration speaks. Adds no model of its own:
+# it wraps each utterance as a 16 kHz WAV and POSTs it to /inference.
+#
+# ser/wyoming-whisper-api-client @ 6fe7f273, cloned to /opt/wyoming/whisper-api
+# and set up with its own script/setup (venv in .venv).
+#
+# No auth in the Wyoming protocol: ufw admits :10300 from the three k3s nodes
+# only (VOICE.md V1), same rule shape as node_exporter's :9100.
+[Unit]
+Description=Wyoming STT bridge to whisper-server on :10300 (homelab VOICE.md V1)
+Wants=network-online.target whisper-server.service
+After=network-online.target whisper-server.service
+
+[Service]
+User=wyoming
+Group=wyoming
+ExecStart=/opt/wyoming/whisper-api/.venv/bin/python3 \
+  -m wyoming_whisper_api_client \
+  --uri tcp://0.0.0.0:10300 \
+  --api http://127.0.0.1:8910/inference
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
