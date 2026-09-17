@@ -1,5 +1,13 @@
 # Host storage — PGDATA zvol and worker disk growth
 
+> 📦 **Archived 2026-09-16 — completed runbook.** Every section (§1–8 plus the
+> appendix) finished and was verified on 2026-09-03/04 and 2026-09-09
+> respectively. The resulting state — the PGDATA zvol, its guards, and the
+> retirement of `/mnt/sas1` — is current fact, recorded in
+> [`../README.md`](../README.md) ("Where data actually sits"),
+> [`../HARDWARE.md`](../HARDWARE.md), and [`../SANOID.md`](../SANOID.md). Kept
+> here as the build record, not as an active procedure.
+
 **Everything here runs on the Proxmox host `192.168.50.101` as root**, plus a
 few steps inside `k3s-worker2`. The dev VM has no SSH key on `.101` and no route
 to the pool, so none of it can be run from there. See GITOPS.md Phase 5.

@@ -1,5 +1,12 @@
 # TrueNAS SCALE — SAS Storage VM on `.107`
 
+> 📦 **Archived 2026-09-16 — abandoned approach, never built.** Superseded
+> 2026-09-09 by native host ZFS ([`../SAS-STORAGE.md`](../SAS-STORAGE.md)) once
+> PCIe passthrough of the PERC H355 proved impossible (shared backplane +
+> Dell RMRR). VMID 105 and `.107` were reclaimed by the GPU/LLM VM instead
+> ([`../GPU-VM.md`](../GPU-VM.md)). Kept for the reasoning trail and the pool
+> topology comparison, not as a live plan.
+
 This runbook details the architecture, deployment, and configuration of a
 **TrueNAS SCALE** guest on Proxmox VE (`192.168.50.101`), passing through the
 dedicated **Dell PERC H355** controller (`c3:00.0`) carrying all three 3.84 TB

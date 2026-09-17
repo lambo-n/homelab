@@ -83,7 +83,7 @@ variable "llm_ssh_public_keys" {
 variable "llm_ipv4_address" {
   description = <<-EOT
     CIDR address for VM 105. `.107` was reserved for the TrueNAS guest that was
-    never created (TRUENAS.md), so it is free; guests run .102-.106 today.
+    never created (homelab/archive/TRUENAS.md), so it is free; guests run .102-.106 today.
     Confirm nothing outside this repo answers on it before applying.
   EOT
   type        = string

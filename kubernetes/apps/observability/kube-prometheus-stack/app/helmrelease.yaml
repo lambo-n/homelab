@@ -13,8 +13,9 @@
 #     available to it. That leaves local-path, which means a node's root disk.
 #
 #  2. IT MUST NOT SHARE A FILESYSTEM WITH PGDATA. k3s-worker2's local-path
-#     directory IS the PGDATA zvol (STORAGE.md sections 1-5 exist to make that
-#     true). local-path provisions a directory, not a quota, so a runaway TSDB
+#     directory IS the PGDATA zvol (homelab/archive/STORAGE.md sections 1-5
+#     exist to make that true). local-path provisions a directory, not a
+#     quota, so a runaway TSDB
 #     there would fill the database's filesystem -- re-coupling the two things
 #     that document went to some length to separate. Prometheus is therefore
 #     pinned to k3s-worker1, whose only tenant is MinIO, and MinIO keeps its

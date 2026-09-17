@@ -3,7 +3,7 @@
 Every other document here describes storage **logically**: pools, datasets, PVs,
 quotas, what data lives where. None of them names a device. `README.md` says
 `archive-pool` is a "ZFS 3-way mirror, 1.68 TiB usable" without recording what
-the three members are; `STORAGE.md` sets `blocksize` on a pool whose disks it
+the three members are; `archive/STORAGE.md` sets `blocksize` on a pool whose disks it
 never identifies.
 
 That was survivable while the answer to every storage question was "put it on
@@ -22,7 +22,7 @@ This file is the one place that records the metal.
 
 > ⚠️ **Two access paths, and they answer different questions.** `192.168.50.101`
 > accepts no SSH key from the dev VM or from a laptop (`tofu/README.md:200`), and
-> the dev VM has no route to the *pool* itself (`STORAGE.md:4-5`). But the
+> the dev VM has no route to the *pool* itself (`archive/STORAGE.md:4-5`). But the
 > Proxmox **API on `:8006`** is reachable from the dev VM and — via the approved
 > `192.168.50.0/24` subnet route — from any tailnet device running
 > `tailscale set --accept-routes` (see [`GITOPS.md`](GITOPS.md#tailscale-host)).
@@ -53,7 +53,7 @@ This file is the one place that records the metal.
 | Model | **Dell PowerEdge T550** (15G), BIOS **1.8.2** | `dmidecode`, 2026-09-16 |
 | CPU | **Xeon Silver 4314** @ 2.40 GHz — 1 socket, 32 threads, **1 NUMA node** (`node0` = 0–31) | `lscpu`, 2026-09-16 |
 | Proxmox VE | `pve-manager/9.1.1`, kernel `6.17.2-1-pve` | `pveversion`, 2026-09-16 |
-| Kernel cmdline | `quiet intel_iommu=on iommu=pt pci=realloc,bridge_realloc pci=noiov`, plain GRUB (`/etc/default/grub`, no `grub.d` override). The `pci=` options are presumably left from the 2026-09-15 ReBAR attempts, which the docs had only as "GRUB kernel parameters tried"; **`bridge_realloc` and `noiov` are confirmed no-ops**: `PCI: Unknown option` for both in the 2026-09-16 02:12 boot log. `pci=noats` was added and accepted 2026-09-16 ([`GPU-VM.md`](GPU-VM.md) C2a). | `/proc/cmdline`, 2026-09-16 |
+| Kernel cmdline | `quiet intel_iommu=on iommu=pt pci=realloc,bridge_realloc pci=noiov`, plain GRUB (`/etc/default/grub`, no `grub.d` override). The `pci=` options are presumably left from the 2026-09-15 ReBAR attempts, which the docs had only as "GRUB kernel parameters tried"; **`bridge_realloc` and `noiov` are confirmed no-ops**: `PCI: Unknown option` for both in the 2026-09-16 02:12 boot log. `pci=noats` was added and accepted 2026-09-16 ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) C2a). | `/proc/cmdline`, 2026-09-16 |
 | Platform | Ice Lake generation — `fe:00.x Intel Ice Lake Ubox Registers`, Dell subsystem IDs `1028:*` on every controller | `lspci -nnk`, 2026-09-09 |
 | RAM | **503 GiB total**, 35 GiB used, 467 GiB free | `free -g`, 2026-09-09 |
 | Swap | 8 GiB, on `pve-swap` (LVM, on the boot device) | `lsblk`, 2026-09-09 |
@@ -106,7 +106,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Model | **Intel Arc Pro B70** (ASRock) — `lspci` shows only the GPU family, "Battlemage G21" | owner, 2026-09-15 |
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
-| VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105. CPU-visible: **all 31.89 GiB with full ReBAR** (`CPU accessible size 0x7f9000000`, 2026-09-16, [`GPU-VM.md`](GPU-VM.md) D). The firmware default is 256 MiB (`0x10000000`, small BAR); `gpu-rebar.service` resizes it at host boot. Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
+| VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105. CPU-visible: **all 31.89 GiB with full ReBAR** (`CPU accessible size 0x7f9000000`, 2026-09-16, [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) D). The firmware default is 256 MiB (`0x10000000`, small BAR); `gpu-rebar.service` resizes it at host boot. Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
 | Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
 | Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
 | BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
@@ -125,7 +125,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   Passing it to a VM means rebinding `53:00.0` from `xe` to `vfio-pci`, which
   also takes it away from the host. The audio function `54:00.0` is in a
   different group — **10**, read 2026-09-16 — so the card is assignable without
-  it. `GPU-VM.md` B1 binds it to `vfio-pci` all the same, so that no host driver
+  it. `archive/GPU-VM-BUILD.md` B1 binds it to `vfio-pci` all the same, so that no host driver
   holds a device under the card's bridges during the Phase D BAR attempt; it is
   not attached to the VM.
 - ⚠️ **Resizable BAR is off — but the card supports it.** Confirmed 2026-09-16
@@ -138,7 +138,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   31.89 GiB, with no `Small BAR device`). The sequence is **32 GiB (fails with
   `-ENOSPC`, and its rollback leaves the unused 56G VF BAR reservation unassigned)
   → 4 GiB → 32 GiB**, which then fits in the root port's 72G. 4 GiB alone does
-  *not* release the reservation, since it fits beside it (boot test 2026-09-16). See [`GPU-VM.md`](GPU-VM.md) Phase D. Original finding:
+  *not* release the reservation, since it fits beside it (boot test 2026-09-16). See [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) Phase D. Original finding:
   `Failed to resize BAR2 to 32768M (-ENOENT)` →
   `Small BAR device`: the CPU sees only 256 MiB of the 32 GiB at a time. It works,
   but compute and model loading that move lots of data to the card will be slower.
@@ -149,7 +149,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   allocates enough address space and simply never resizes, and Linux does the resize
   itself (`gpu-rebar.service`, with the card held by `vfio-pci`; a bound `xe` makes
   the kernel refuse). What blocked the OS resize was the BIOS-enabled SR-IOV
-  reservation, not a refusal — see [`GPU-VM.md`](GPU-VM.md) Phase D.
+  reservation, not a refusal — see [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) Phase D.
 - 🔴 **Passthrough with ATS enabled hard-locks the host.** First `qm start 105`
   on 2026-09-16: after `vfio-pci` reset the card, VT-d Device-TLB invalidations
   to `53:00.0` timed out (`DMAR: … Invalidation Time-out Error`, `QI PRIOR:
@@ -157,7 +157,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   `watchdog: CPU13: Watchdog detected hard LOCKUP`. The whole host was down until
   a power cycle. **Fixed by `pci=noats`**, verified 2026-09-16 02:16 PDT: same
   reset sequence, no Device-TLB timeouts, `ATSCtl: Enable-` with the VM running,
-  and the guest booted ([`GPU-VM.md`](GPU-VM.md) C2a). Removing that parameter
+  and the guest booted ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) C2a). Removing that parameter
   brings the lockup back.
 - ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
@@ -167,7 +167,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 
 As read 2026-09-09. **`by-id` is the only name that should ever appear in a
 command** — `sdX` reorders when a disk is added or the controller enumerates
-differently (`STORAGE.md:189-190`).
+differently (`archive/STORAGE.md:189-190`).
 
 | Dev | `/dev/disk/by-id/…` | Model | Serial | Size | Bus | Role |
 |---|---|---|---|---|---|---|
@@ -230,10 +230,10 @@ Holds every guest root disk: `vm-100` 8 GiB, `vm-101` 32 GiB, `vm-102` 15 GiB,
 > (the BOSS mirror stays out of reach even then — it is iDRAC or nothing).
 
 > ⚠️ **Thin-pool free space is falling.** 90.5 GiB free on 2026-09-03, **82.12
-> GiB on 2026-09-09** — the `lvextend`/`resize2fs` work in `STORAGE.md` §6 wrote
+> GiB on 2026-09-09** — the `lvextend`/`resize2fs` work in `archive/STORAGE.md` §6 wrote
 > real blocks into the thin pool, as thin provisioning means it would. `local-lvm`
 > is shared by all five guests and **a full thin pool breaks every guest at
-> once** (`STORAGE.md:306-308`). Watch `Data%` in `lvs`.
+> once** (`archive/STORAGE.md:306-308`). Watch `Data%` in `lvs`.
 
 ---
 
@@ -253,7 +253,7 @@ archive-pool                               ONLINE
 | Health | `ONLINE`, **no known data errors** | `zpool status -v`, 2026-09-09 |
 | Capacity | 1721.0 GiB (1.68 TiB) total, **66.23 GiB used (3.85%)**, 1654.8 GiB free | `pvesm status`, 2026-09-09 |
 | Members | 3 × 1.92 TB SATA SSD — **2 × SK hynix + 1 × Micron** | `zpool status -v`, 2026-09-09 |
-| PVE `content` | `images,rootdir` · mountpoint `/archive-pool` · thick · `blocksize 8k` | `STORAGE.md:48-88` |
+| PVE `content` | `images,rootdir` · mountpoint `/archive-pool` · thick · `blocksize 8k` | `archive/STORAGE.md:48-88` |
 
 **The members are deliberately not matched, and that is worth keeping.** Two SK
 hynix and one Micron means the vdev does not share a firmware revision or a
@@ -264,14 +264,14 @@ defect cannot take the whole mirror. **Replace a failed SK hynix with a
 different vendor**, not with one of the spares below.
 
 Almost all of the 66.23 GiB used is the PGDATA zvol's 66.0 GiB `refreservation`
-(`STORAGE.md:8`). The actual NFS payload — `minio-data`, `postgres-data` — is
+(`archive/STORAGE.md:8`). The actual NFS payload — `minio-data`, `postgres-data` — is
 small enough to disappear into the rounding.
 
 Under sanoid: `minio-data`, `postgres-data`, `vm-104-disk-0` — 24 hourly / 30
 daily / 6 monthly (`SANOID.md`).
 
 > ⚠️ Holds `k3s-worker2`'s PGDATA zvol (`zd0`). Any pool work needs that VM
-> stopped first (`README.md:119-122`, `STORAGE.md:125-128`).
+> stopped first (`README.md:119-122`, `archive/STORAGE.md:125-128`).
 
 ---
 
@@ -320,7 +320,7 @@ non-disruptive capacity available today with no purchase and no migration.
 
 The largest pool of capacity in the chassis. Previously mounted at `/mnt/sas1`,
 `/mnt/sas2`, `/mnt/sas3` carrying ext4 filesystems with no redundancy. Reclaimed,
-unmounted, and wiped on 2026-09-09 per [`SAS-RECLAIM.md`](SAS-RECLAIM.md).
+unmounted, and wiped on 2026-09-09 per [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md).
 
 | Device | `by-id` | Serial | Size | Previous Mount | Status |
 |---|---|---|---|---|---|
@@ -401,7 +401,7 @@ usage.
 > ⚠️ **Last self-test was at lifetime hour 2** on `sdg` — i.e. when it was new,
 > and never since. Whatever owns these disks next should run a scheduled long
 > test; TrueNAS does this natively, which is one of the better arguments for it
-> (see [`TRUENAS.md`](TRUENAS.md)). **With the TrueNAS guest deferred, this is
+> (see [`archive/TRUENAS.md`](archive/TRUENAS.md)). **With the TrueNAS guest deferred, this is
 > goal G1 in [`HOST-MONITORING.md`](HOST-MONITORING.md) — `smartd` on the host.**
 
 **The wear is negligible and the age is not.** 0% endurance used after 222 TB
@@ -427,10 +427,10 @@ Physical block size:  4096 bytes
 512e with 4K physical. Any ZFS pool built on these must be created with
 **`ashift=12`**. ZFS usually infers it, but it is unchangeable after creation —
 the same class of permanent, one-shot decision as the `blocksize 8k` in
-`STORAGE.md` §1, and it is worth stating explicitly rather than trusting
+`archive/STORAGE.md` §1, and it is worth stating explicitly rather than trusting
 autodetection on a 512e drive.
 
-> ⚠️ **Prior state (resolved 2026-09-09):** Prior to [`SAS-RECLAIM.md`](SAS-RECLAIM.md),
+> ⚠️ **Prior state (resolved 2026-09-09):** Prior to [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md),
 > the three disks carried bare ext4 filesystems with no redundancy, no snapshots,
 > and no backups. `/mnt/sas1` carried 88 KB of SSH recordings bind-mounted into
 > CTID 100, while `/mnt/sas2` and `/mnt/sas3` were empty. All three were in
@@ -458,50 +458,31 @@ autodetection on a 512e drive.
 
 ---
 
-## Before anything claims the SAS disks
+## How the SAS disks were freed for `sas-pool`
 
-All six preconditions were completed 2026-09-09:
-
-1. ✅ **Done 2026-09-09 — `/mnt/sas2` and `/mnt/sas3` are empty.** The
-   migration cost was 2.2 MB, all of it on `/mnt/sas1`.
-2. ✅ **Done 2026-09-09 — recordings relocated to `archive-pool/ts-ssh-records`.**
-   ACL and UID mapping reproduced, dataset under sanoid. See `SAS-RECLAIM.md` §2–§3.
-3. ✅ **Done 2026-09-09 — fstab lines removed, host rebooted clean.** Backup at
-   `/etc/fstab.bak-2026-09-09`. All three ext4 superblock signatures wiped
-   (`wipefs -a` by `by-id`). See `SAS-RECLAIM.md` §4.
-4. ✅ **Done 2026-09-09 — `mount_point.volume` reconciled in OpenTofu.**
-   `tofu plan` confirmed 0 changes. `prevent_destroy` stayed on; the change was
-   made on the host (`pct set`) because `volume` is `ForceNew` in bpg/proxmox.
-   See `SAS-RECLAIM.md` §5.
-5. ✅ **Done 2026-09-09 — the PERC passes the disks through.** Native SAS SMART
-   with no `-d megaraid`, vendor `SAMSUNG`. See the section above. (`perccli` is
-   not installed and was not needed; `lsscsi` is not installed either.)
-6. ✅ **Done 2026-09-09 — all three read, all three clean.** Zero grown
-   defects, zero uncorrected errors, 0% endurance on every drive.
-
-> ✅ **Outcome 2026-09-09:** PCIe passthrough of `c3:00.0` was rejected by VFIO
-> due to Dell BIOS RMRR, and discovered to carry all 8 front-bay drives (including
-> `archive-pool`). The three SAS disks were instead configured natively on the
-> host as **`sas-pool`** (RAIDZ1, 6.85 TiB usable) under `sanoid` and exported
-> via Samba (`[data]`). See [`SAS-STORAGE.md`](SAS-STORAGE.md).
+The three SAS disks carried bare ext4 with no redundancy until 2026-09-09: SSH
+session recordings were relocated off `/mnt/sas1` first (order matters — see
+[`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md)), then all three filesystems
+were retired and the disks wiped. PCIe passthrough of the PERC H355 itself was
+then rejected by VFIO (Dell BIOS RMRR, and it carries all 8 front-bay drives
+including `archive-pool`), so the disks were configured natively on the host as
+**`sas-pool`** (RAIDZ1, 6.85 TiB usable) under `sanoid` and exported via Samba —
+see [`SAS-STORAGE.md`](SAS-STORAGE.md) for that pool's current config, and
+[`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md) for the full runbook.
 
 ---
 
 ## Still unknown
 
-| Unknown | Why it matters | How to close it |
-|---|---|---|
-| SMART on the 6 SATA disks — all 3 SAS disks are done | Four SK hynix from one batch age together; wear decides replace-vs-expand | `smartctl -a /dev/sdX` |
-| BOSS-S2 mirror health | A failed M.2 is invisible to every monitor here | iDRAC, or the BOSS CLI |
-| ~~PERC H355 personality~~ | ✅ **Closed 2026-09-09** — non-RAID passthrough, native SMART | — |
-| Which of `sdb`–`sdf` is on `00:11.5` vs `00:17.0` | Only matters if SATA controller passthrough is ever reconsidered | `ls -l /sys/block/sd*/device` |
-| Total bays, and how many are physically empty | Whether expansion means buying disks or also buying a chassis | Front-panel count, or iDRAC |
+Tracked in [`BACKLOG.md`](BACKLOG.md) → "Hardware — still unknown": SMART
+baseline on the 6 SATA disks, BOSS-S2 mirror health, and total bay/empty-bay
+count.
 
 ---
 
 ## Related
 
-- `STORAGE.md` — how the PGDATA zvol was created and guarded; §1 is the PVE-side
+- `archive/STORAGE.md` — how the PGDATA zvol was created and guarded; §1 is the PVE-side
   pool configuration this file is the physical counterpart to
 - `SANOID.md` — which datasets are snapshotted, and which are not
 - `README.md` — logical placement of every piece of data
@@ -509,7 +490,7 @@ All six preconditions were completed 2026-09-09:
   `sde` and `sdf`
 - `tofu/README.md:196-322` — the API token, its privileges, and why it is
   read-only
-- [`SAS-RECLAIM.md`](SAS-RECLAIM.md) — the completed runbook freeing the three SAS disks from ext4
-- [`TRUENAS.md`](TRUENAS.md) — TrueNAS SCALE guest architecture, PCIe passthrough, and pool setup
+- [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md) — the completed runbook freeing the three SAS disks from ext4
+- [`archive/TRUENAS.md`](archive/TRUENAS.md) — TrueNAS SCALE guest architecture, PCIe passthrough, and pool setup
 - [`HOST-MONITORING.md`](HOST-MONITORING.md) — the SMART/scrub/visibility goals that
   outlived the TrueNAS guest, and who owns each one
