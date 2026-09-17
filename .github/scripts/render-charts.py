@@ -27,6 +27,20 @@ from pathlib import Path
 import yaml
 
 
+class _AppConfigLoader(yaml.SafeLoader):
+    """SafeLoader that tolerates application-specific tags.
+
+    Not every .yaml under kubernetes/ is a manifest: configMapGenerator sources
+    such as Home Assistant's configuration.yaml carry tags like `!env_var` and
+    `!secret` that only the application understands. Their values are
+    irrelevant here -- only documents with a `kind` are used -- so any unknown
+    tag loads as None instead of failing the whole run.
+    """
+
+
+_AppConfigLoader.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
 def load_docs(root: Path):
     """Every YAML document under root, skipping SOPS files (ciphertext, and
     nothing here points at a chart)."""
@@ -35,7 +49,7 @@ def load_docs(root: Path):
             continue
         try:
             with path.open() as fh:
-                for doc in yaml.safe_load_all(fh):
+                for doc in yaml.load_all(fh, Loader=_AppConfigLoader):
                     if isinstance(doc, dict) and doc.get("kind"):
                         yield path, doc
         except yaml.YAMLError as exc:
