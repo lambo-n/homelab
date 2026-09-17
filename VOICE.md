@@ -3,7 +3,8 @@
 A Waveshare **ESP32-S3-Touch-LCD-1.85C-BOX** (360×360 round LCD, mic,
 speaker box) listens for a wake word **on the device** and hands everything
 after that to the homelab. Scaffolded 2026-09-17 on branch
-`feat/voice-assistant`. Nothing has been deployed or flashed yet.
+`feat/voice-assistant` (PR #32). **V1 done 2026-09-17** (speech services live
+on `llm`); nothing in k3s deployed and nothing flashed yet.
 
 ## Decisions
 
@@ -14,7 +15,7 @@ Settled with the owner on 2026-09-17:
 | Firmware | Stock **ESPHome**, not custom ESP-IDF | `micro_wake_word`, `voice_assistant` and OTA already exist; a custom firmware would still need the same mic/stream/speaker pieces |
 | On-device scope | **Wake word + the minimum audio I/O only** | ESPHome warns audio components crash devices that carry too much else, BLE especially. See V3 |
 | Orchestrator | **Home Assistant** in k3s (`voice` namespace) | ESPHome's `voice_assistant` only talks to HA |
-| Speech-to-text | **whisper.cpp on the B70** (VM 105), Wyoming bridge beside it | Sub-second, next to llama; `-ng` is the CPU fallback |
+| Speech-to-text | **whisper.cpp on the B70** (VM 105), `small.en` **f16**, Wyoming bridge beside it | 0.21 s for 11 s of audio (measured); q8_0 is broken on this SYCL build; `-ng` is the CPU fallback (1.84 s) |
 | Text-to-speech | **Piper on VM 105's CPU** | Fast on CPU; not worth VRAM |
 | Storage | HA config on `local-path` (worker1 root), recorder in a **new CNPG Cluster** `voice-db` on worker2 (the `archive-pool` zvol) | Worker roots are small; `archive-pool` is for databases and object storage (owner), and the recorder is a database. Models stay on `/models` |
 | LLM | **`llama-fast` :8081** (Qwen3.5-4B, thinking off) | Always loaded. The router (`--models-max 1`) could swap a model mid-request and add seconds |
@@ -86,9 +87,12 @@ Every block runs on `llm` (`ssh llm`) and carries its own setup.
 
 Same toolchain as llama.cpp's F2 build. Pinned to `v1.9.4` (2026-09-11).
 
+`setvars.sh` is sourced **before** `set -e`: its internal probes may return
+non-zero, and under `set -e` that would abort the block silently.
+
 ```bash
-( set -e
-source /opt/intel/oneapi/setvars.sh >/dev/null
+( source /opt/intel/oneapi/setvars.sh >/dev/null
+set -e
 cd /models/src
 git clone https://github.com/ggml-org/whisper.cpp
 cd whisper.cpp
@@ -107,6 +111,9 @@ ls -l /models/src/whisper.cpp/build-sycl/bin/whisper-server
 
 ### V1b. Models and voice (pinned by revision and SHA-256)
 
+> **f16, not q8_0.** `ggml-small.en-q8_0.bin` transcribes garbage on this SYCL
+> build (V1f, 2026-09-17). The q8_0 file is still on `/models/whisper`, unused.
+
 Read from the Hugging Face API on 2026-09-17.
 
 ```bash
@@ -114,10 +121,10 @@ Read from the Hugging Face API on 2026-09-17.
 sudo install -d -o llama -g llama /models/whisper
 R=https://huggingface.co/ggerganov/whisper.cpp
 U=$R/resolve/5359861c739e955e79d9a303bcbc70fb988958b1
-F=ggml-small.en-q8_0.bin
+F=ggml-small.en.bin
 sudo -u llama curl -fL -o /models/whisper/$F $U/$F
 cd /models/whisper
-H=67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067
+H=c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d
 echo "$H  $F" | sha256sum -c
 )
 ```
@@ -184,7 +191,9 @@ sudo systemctl enable --now wyoming-whisper wyoming-piper
 ```
 
 ```bash
-systemctl --no-pager status whisper-server wyoming-whisper wyoming-piper | grep -E "Active|error|fail"
+for u in whisper-server wyoming-whisper wyoming-piper; do
+  echo "$u: $(systemctl is-active $u)"
+done
 ```
 
 ### V1e. Firewall
@@ -221,7 +230,7 @@ sudo ufw status numbered | grep -E "10200|10300"
    context for `qwen27` beside `fast`, leaving ~1 GiB free. **It was cut to
    65,536 on 2026-09-17** (`scripts/llm/models.ini`), freeing ~540 MiB more
    (16,384 tokens × ~34 KiB, q8_0), so ~1.5 GiB is free against whisper
-   `small.en` q8_0's estimated ~0.5–0.8 GiB. These are estimates. Measure:
+   `small.en`'s estimated ~0.5–0.8 GiB. These are estimates. Measure:
    1. Install the new `models.ini` and `claude-local` (V1g).
    2. Start `whisper-server` **before** loading `qwen27`. Every preset runs
       `--fit off`, so it is the model loaded last that fails.
@@ -235,6 +244,36 @@ sudo ufw status numbered | grep -E "10200|10300"
      were also fit to the margin. Load each once; if either fails, the
      rare-use answer is to `systemctl stop whisper-server` first (for
      `qwen27-agent`, inside `llm-mode agent`).
+
+**Results, 2026-09-17:**
+- **q8_0 on SYCL is broken.** `jfk.wav` came back as single wrong words
+  (`chapel`, `matching`, `photographs`) in ~0.2 s, with flash attention on
+  and with `-nfa`. The same file on CPU (`-ng -t 8`) was correct in 1.84 s.
+- **f16 on SYCL is correct**, 4/4 runs at **0.21 s** warm. The first request
+  after a start takes **~34 s** (SYCL kernel compilation), so the unit now
+  sends a warm-up request in `ExecStartPost`.
+- **VRAM:** `xpu-smi` reports **27,221 / 32,656 MiB used** with `qwen27`
+  (65,536), `fast` and the q8_0 whisper all loaded, so ~5.3 GiB is free at
+  idle. That is far more than fit's 1024 MiB margin implied. f16 adds
+  ~220 MiB. The long-request test (step 4) still stands.
+- **Test trap:** whisper-server sets `SO_REUSEPORT`, so a second test server
+  on the same port *starts* and the kernel splits requests between the two.
+  Leftover servers from earlier pastes mixed results. Kill test servers by
+  `$!` PID, never `%1`.
+- **Firewall:** `:10300` is refused from the dev VM (`.103`), as intended.
+- **Long-context test passed:** a 60,354-token `qwen27` request (GPU-VM.md +
+  GITOPS.md) with `fast` and the f16 whisper loaded, and a transcription loop
+  running. Prompt 104.4 s (578 tok/s), generation 6.76 tok/s at that depth,
+  correct answer, no allocation failure (03:39:01–03:40:56 UTC). The
+  transcription loop was **300/300 correct** across the whole window.
+- **Grafana's "Memory used" and "CPU busy" are the VM's RAM and CPU, not the
+  card.** node_exporter has no VRAM source; use `xpu-smi`. During the test, RAM
+  peaked at 6.95 GiB and CPU at 23% (8 cores). The 100% CPU on the dashboard was
+  the whisper.cpp build at 03:06–03:09.
+- **f16 service installed:** `model size = 487.00 MB`, JFK correct in 0.22 s
+  straight after restart. The restart took 13 s, not the ~34 s cold compile,
+  probably because the kernels were still cached from test C; the warm-up
+  covers the cold case either way.
 
 ### V1g. Install the 65,536 `qwen27` preset
 
@@ -403,13 +442,13 @@ If the device crashes, get a backtrace with ESPHome's Troubleshooting guide
 ## Checklist
 
 - [ ] V0 pin map checked against the Waveshare schematic
-- [ ] V1a whisper-server built @ v1.9.4
-- [ ] V1b whisper model and Piper voice downloaded, hashes OK
-- [ ] V1c venvs installed
-- [ ] V1d units enabled
-- [ ] V1e ufw rules for 10200/10300 from .104–.106
+- [x] V1a whisper-server built @ v1.9.4
+- [x] V1b whisper model (f16; q8_0 broken on SYCL) and Piper voice downloaded, hashes OK
+- [x] V1c venvs installed
+- [x] V1d units enabled
+- [x] V1e ufw rules for 10200/10300 from .104–.106
 - [x] V1g `qwen27` at 65,536 installed on `llm` (2026-09-17: loaded warm in 27 s, `/props` n_ctx 65536, 1 slot); `claude-local` updated
-- [ ] V1f transcription time recorded; **`qwen27` + `fast` + whisper measured under a long request**; `chat`/`qwen27-agent` checked
+- [x] V1f transcription time recorded; **`qwen27` + `fast` + whisper measured under a long request**; `chat`/`qwen27-agent` checked
 - [ ] V2 PR merged; voice-db healthy; HA onboarded; Wyoming entries added; pipeline created
 - [ ] V3a secrets.sops.yaml created
 - [ ] V3c first USB flash; firmware .bin deleted

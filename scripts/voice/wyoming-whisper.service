@@ -15,6 +15,11 @@ After=network-online.target whisper-server.service
 [Service]
 User=wyoming
 Group=wyoming
+# script/setup installs only requirements.txt into .venv, not the package, so
+# `-m wyoming_whisper_api_client` resolves from the checkout -- the working
+# directory upstream's script/run relies on too. Without this: "No module
+# named wyoming_whisper_api_client" and a restart loop (hit 2026-09-17).
+WorkingDirectory=/opt/wyoming/whisper-api
 ExecStart=/opt/wyoming/whisper-api/.venv/bin/python3 \
   -m wyoming_whisper_api_client \
   --uri tcp://0.0.0.0:10300 \
