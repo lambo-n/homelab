@@ -4,8 +4,12 @@
 # wyoming-piper 2.5.2 in a venv at /opt/wyoming/piper. Voices on /models, not
 # the 32 GiB root disk.
 #
-# --local-files-only: the voice is downloaded once by hand in V1, so a cold
-# boot with no internet still speaks. Adding a voice means repeating that step.
+# --local-files-only does NOT stop Piper voice downloads (2026-09-17): picking
+# or previewing a voice in HA's assistant settings downloaded ryan-low,
+# lessac-low and norman-medium into /models/piper from piper-voices `main`,
+# unpinned. It only affects the voices.json refresh and the OmniVoice backend.
+# Harmless -- files land on /models and then work offline -- but they are not
+# the hash-pinned V1b set.
 #
 # No auth in the Wyoming protocol: ufw admits :10200 from the three k3s nodes
 # only (VOICE.md V1).

@@ -3,8 +3,10 @@
 A Waveshare **ESP32-S3-Touch-LCD-1.85C-BOX** (360×360 round LCD, mic,
 speaker box) listens for a wake word **on the device** and hands everything
 after that to the homelab. Scaffolded 2026-09-17 on branch
-`feat/voice-assistant` (PR #32). **V1 done 2026-09-17** (speech services live
-on `llm`); nothing in k3s deployed and nothing flashed yet.
+`feat/voice-assistant` (PR #32, merged). **Status 2026-09-17:** V1 speech
+services live on `llm`; V2 Home Assistant + `voice-db` deployed and the
+"Doofus" assistant created; V3 firmware compiled (board arrives 2026-09-18,
+not flashed); V4 LLM agent wired to `llama-fast`.
 
 ## Decisions
 
@@ -51,7 +53,7 @@ What each component does when something is down:
 | Path | What |
 |---|---|
 | `esphome/voice-satellite.yaml` | Firmware. Validated with `esphome config` 2026.9.0 |
-| `esphome/secrets.sops.yaml` | **Not created yet**; V3a |
+| `esphome/secrets.sops.yaml` | Wi-Fi SSID/password and the API key (generated into SOPS, never printed) |
 | `scripts/esphome-run.sh` | Runs ESPHome with secrets decrypted into tmpfs for one run |
 | `scripts/voice/*.service` | `whisper-server`, `wyoming-whisper`, `wyoming-piper` for VM 105 |
 | `kubernetes/apps/voice/voice-db/` | CNPG Cluster `voice-db` |
@@ -331,6 +333,19 @@ updated on 2026-09-17, so Claude Code's context cap matches the new window.
    report no database issue, and `kubectl -n voice logs deploy/home-assistant`
    should mention no `sqlite`.
 
+**Results, 2026-09-17:**
+- PR #32 merged (`8f4fe24`). First CI run failed: `render-charts.py` parsed
+  HA's `configuration.yaml` and rejected `!env_var`; fixed to ignore unknown
+  tags. `voice-db` healthy on worker2; HA on worker1; recorder created 13
+  tables in Postgres.
+- Wyoming entries `whisper-cpp` (:10300) and `piper` (:10200). "Piper" in the
+  integration search is only an alias for Wyoming Protocol; its port must be
+  typed (a second attempt re-used 10300).
+- Assistant **"Doofus"**: STT `stt.whisper_cpp`, TTS `tts.piper` voice
+  `en_US-norman-medium`, set as preferred.
+- Picking or previewing voices in HA downloads them into `/models/piper`
+  despite `--local-files-only` (see the unit comment).
+
 ## V3 — Firmware
 
 ### V3a. Secrets
@@ -408,21 +423,47 @@ If the device crashes, get a backtrace with ESPHome's Troubleshooting guide
 | listening | | | |
 | speaking | | | |
 
+**Results, 2026-09-17 (pre-hardware):**
+- V3a: `secrets.sops.yaml` created with the API key generated straight into
+  SOPS; SSID `NETGEAR19` (2.4 GHz confirmed by owner); password entered by
+  the owner in a terminal with `read -rs`, never in chat.
+- V3b: needs `python3.12-venv` on the dev VM (ESPHome builds an ESP-IDF
+  5.5.5 venv). Compiled: RAM 32.8 % (111,959 / 341,760 B), flash 13.2 %.
+- `esphome-run.sh` assumed PlatformIO's `.pioenvs/`; ESPHome 2026.9 builds
+  with native ESP-IDF, so it now locates `firmware.factory.bin`.
+- The factory image is on the owner's workstation for V3c; the dev VM copy
+  was deleted.
+
 ## V4 — Conversation agent → `llama-fast`
 
-1. The agent needs an **OpenAI-compatible integration with a configurable base
-   URL**. HA core's OpenAI integration has historically not allowed one. Check
-   what HA 2026.9 ships before installing a custom integration (e.g. Extended
-   OpenAI Conversation via HACS).
-2. Base URL `http://192.168.50.107:8081/v1`, model `fast`, API key = the
-   cluster key (SOPS `llm-api-key`, line 2 of `/etc/llama/api-keys`). Pod egress
-   masquerades to the node IPs, which the F6a LAN rule already admits.
-3. Enable **"Prefer handling commands locally"** so on/off/timer commands never
-   reach the LLM and keep working when VM 105 is down.
-4. Write a voice-specific system prompt: no markdown, short sentences, no
-   lists.
-5. Record wake → reply-start latency and each stage (HA → Settings → Voice
-   assistants → Debug).
+✅ **Done 2026-09-17.**
+
+- **Integration:** HA 2026.9 ships a native **llama.cpp** integration (base
+  URL + API key + model), so no HACS component. Entry
+  `http://192.168.50.107:8081/v1`, streaming on, key = the cluster key from
+  `kubernetes/apps/observability/llm-vm/app/llm-api-key.sops.yaml` (the owner
+  decrypted it in their own terminal). Conversation agent `conversation.fast`,
+  model `fast`.
+- **Checked first:** `llama-fast` returns proper `tool_calls` for a
+  `HassTurnOn` definition; `n_ctx` 8192 across 4 slots; the HA pod reaches
+  `:8081` (401 without a key).
+- **Doofus pipeline:** agent `conversation.fast`, **prefer handling commands
+  locally = on**, preferred assistant.
+- **Control Home Assistant (Assist) is OFF for now.** With no exposed
+  entities the 4B model called `GetLiveContext` domain by domain until HA's
+  `MAX_TOOL_ITERATIONS = 10` (`llama_cpp/entity.py`) ran out, producing
+  "Unable to get response". Re-enable once real devices are exposed.
+- **Prompt lessons** (tested directly against `llama-fast`, 14 prompts each):
+  - Concrete few-shot examples leak: the prompt with a cat example answered
+    "the wifi is slow" with "move the damn cat". The example-free prompt leaked
+    0/14. Describe style; don't give example dialogues.
+  - Without an explicit rule it claims actions it cannot do ("turning off the
+    lamp") — the prompt now says only report actions a tool performed.
+  - It needs a spoken-output rule (no markdown or lists; 1–3 sentences) or it
+    produces ~250-word bulleted answers.
+  - Sound effects only when asked, lowercase (Piper may spell out all-caps).
+  - The 4B model gets simple facts wrong (cups → ounces answered 16 and 12).
+  - Saved prompt: 1,806 characters, in HA only (`.storage`, not git).
 
 ## V5 — Later, each measured against V3e
 
@@ -450,9 +491,10 @@ If the device crashes, get a backtrace with ESPHome's Troubleshooting guide
 - [x] V1g `qwen27` at 65,536 installed on `llm` (2026-09-17: loaded warm in 27 s, `/props` n_ctx 65536, 1 slot); `claude-local` updated
 - [x] V1f transcription time recorded; **`qwen27` + `fast` + whisper measured under a long request**
 - [ ] V1f `chat` and `qwen27-agent` load once with whisper-server running (rare-use presets; not yet checked)
-- [ ] V2 PR merged; voice-db healthy; HA onboarded; Wyoming entries added; pipeline created
-- [ ] V3a secrets.sops.yaml created
+- [x] V2 PR merged; voice-db healthy; HA onboarded; Wyoming entries added; pipeline created
+- [x] V3a secrets.sops.yaml created
 - [ ] V3c first USB flash; firmware .bin deleted
 - [ ] V3d device adopted, IP reserved
 - [ ] V3e memory baseline recorded
-- [ ] V4 conversation agent on :8081; latency recorded
+- [x] V4 conversation agent on :8081 (device control off until devices exist)
+- [ ] V4 end-to-end latency (wake → reply start) recorded on the real device
