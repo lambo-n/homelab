@@ -179,6 +179,19 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
   > network layer. Corrected 2026-09-09; see
   > [`GITOPS.md`](GITOPS.md#tailscale-host).
 
+- **The dev VM (`.103`) accepts SSH from the gateway only** (2026-09-17). `ufw`:
+  default deny incoming, allow `22/tcp` from `192.168.50.102`. Verified from `llm`
+  and `k3s-worker1` that `:22` and rpcbind `:111` are blocked, and that the VM's
+  outbound traffic (kubectl, GitHub, SSH to guests, HA, llama) still works. Tailnet
+  traffic through the subnet route *also* arrives as `.102`, so this rule cannot
+  tell ProxyJump from a routed tailnet device; the key check (only the owner's two
+  GitHub keys) is what separates them. Rescue if locked out: the PVE console,
+  `sudo ufw disable`.
+- **SSH from the dev VM to guests is one-way** (2026-09-17). Its own key,
+  `~/.ssh/id_ed25519_homelab`, is in `authorized_keys` on `llm` and the three k3s
+  nodes, pinned with `from="192.168.50.103"`. No guest holds a key the dev VM
+  accepts, and the Proxmox host is deliberately not included.
+
 ---
 
 ## How a public request reaches a workload
