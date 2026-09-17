@@ -465,6 +465,30 @@ If the device crashes, get a backtrace with ESPHome's Troubleshooting guide
   - The 4B model gets simple facts wrong (cups → ounces answered 16 and 12).
   - Saved prompt: 1,806 characters, in HA only (`.storage`, not git).
 
+## Pipeline test (no hardware)
+
+`scripts/voice/pipeline-test.py` sends WAV files into the **Doofus** pipeline over
+HA's websocket API at the STT stage, the way a satellite does, follows it through
+the agent and TTS, downloads the reply audio and prints per-stage timings. Token:
+`scripts/voice/ha-api.sops.yaml` (HA long-lived token `pipeline-test`, entered by
+the owner with `read -rs`). Needs `websockets` + `aiohttp` in a throwaway venv.
+
+**Results, 2026-09-17** (questions spoken by Piper lessac, 0.8–2.7 s; two runs):
+
+| Question | Path | Heard | Intent | Total |
+|---|---|---|---|---|
+| "What is the capital of Australia?" | LLM | exact | 727–885 ms, first token ~350 ms | **1.30–1.34 s** |
+| "The wifi is so slow today, this sucks." | LLM | exact | 851–1,038 ms | **1.39–1.74 s** |
+| "What time is it?" | **local** (`processed_locally: true`) | exact | 2–11 ms | **0.17–0.29 s** |
+
+- STT 145–251 ms, including streaming the whole clip in at once. On the device
+  audio arrives in real time and HA waits for end-of-speech silence, so real
+  wake → reply adds the length of the question plus that tail.
+- TTS renders on fetch: 116–443 ms for an mp3 of the reply.
+- Persona: once of two runs, "capital of Australia" got a refusal ("look it up
+  yourself") instead of the answer. If that keeps happening, add "always answer
+  simple questions, even while complaining" to the instructions.
+
 ## V5 — Later, each measured against V3e
 
 - **Display.** Add `qspi_dbi` + LVGL with a simple state face

@@ -17,3 +17,7 @@ creation_rules:
   # scripts/esphome-run.sh, into tmpfs, for one build.
   - path_regex: esphome/.*\.sops\.ya?ml
     age: "age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt"
+  # Operator tooling secrets used from the dev VM, not by the cluster (VOICE.md:
+  # the Home Assistant API token for pipeline tests). Flat files, all values.
+  - path_regex: scripts/.*\.sops\.ya?ml
+    age: "age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt"
