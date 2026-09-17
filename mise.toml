@@ -17,6 +17,10 @@ crane = "0.22.1"
 # hand -- deliberately NOT reconciled by Flux, see "Scope: Flux manages the
 # cluster, not the hypervisor".
 opentofu = "1.12.6"
+# ESPHome firmware for the voice satellite (VOICE.md V3). Compiled and flashed
+# from this VM; uv is the installer mise's pipx backend uses when present.
+uv = "0.12.15"
+"pipx:esphome" = "2026.9.0"
 
 [env]
 KUBECONFIG = "{{config_root}}/kubeconfig"

@@ -1,0 +1,19 @@
+---
+# /config: .storage (every UI-configured integration, the device registry, the
+# Assist pipeline, auth), plus logs. Small -- the recorder is in voice-db.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: home-assistant-config
+  namespace: voice
+  annotations:
+    # local-path reclaims with Delete: pruning this claim deletes the directory
+    # and every UI-made config entry with it. Removing it must be a manual act.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      # local-path enforces no quota; this is a statement, not a ceiling.
+      storage: 2Gi

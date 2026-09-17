@@ -12,3 +12,8 @@ creation_rules:
     encrypted_regex: "^(data|stringData)$"
     mac_only_encrypted: true
     age: "age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt"
+  # ESPHome secrets (VOICE.md V3): a flat key/value file, so every value is
+  # encrypted, not just data/stringData. Decrypted only by
+  # scripts/esphome-run.sh, into tmpfs, for one build.
+  - path_regex: esphome/.*\.sops\.ya?ml
+    age: "age1ncpf5hg778lpszpv0u9mm48k5sdlm4y4v4dfsnaqskuwtwfgn3eqkz25qt"
