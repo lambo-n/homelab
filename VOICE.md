@@ -448,7 +448,8 @@ If the device crashes, get a backtrace with ESPHome's Troubleshooting guide
 - [x] V1d units enabled
 - [x] V1e ufw rules for 10200/10300 from .104–.106
 - [x] V1g `qwen27` at 65,536 installed on `llm` (2026-09-17: loaded warm in 27 s, `/props` n_ctx 65536, 1 slot); `claude-local` updated
-- [x] V1f transcription time recorded; **`qwen27` + `fast` + whisper measured under a long request**; `chat`/`qwen27-agent` checked
+- [x] V1f transcription time recorded; **`qwen27` + `fast` + whisper measured under a long request**
+- [ ] V1f `chat` and `qwen27-agent` load once with whisper-server running (rare-use presets; not yet checked)
 - [ ] V2 PR merged; voice-db healthy; HA onboarded; Wyoming entries added; pipeline created
 - [ ] V3a secrets.sops.yaml created
 - [ ] V3c first USB flash; firmware .bin deleted
