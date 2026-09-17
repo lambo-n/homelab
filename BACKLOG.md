@@ -72,29 +72,29 @@ Goal G1 (SMART long tests) is live; the rest of the plan in
       LLM VM's `:8080`/`:8081` to tailnet devices beyond what F6a's firewall rules
       intend (the same route this file's "subnet route" item above is about).
 
-## Voice assistant — V0, V2 through V5
+## Voice assistant — hardware, and everything after it
 
-V1 (speech services on VM 105) is done. Everything else in
-[`VOICE.md`](VOICE.md) is still open, in build order:
+V1 (speech services), V2 (Home Assistant + `voice-db`) and V4 (the
+conversation agent) are done — see [`VOICE.md`](VOICE.md). What's left:
 
 - [ ] **V0** — check the firmware pin map against the Waveshare schematic
       before flashing anything.
 - [ ] **V1f leftover** — load `chat` and `qwen27-agent` once each with
       `whisper-server` running; both are rare-use presets and weren't checked
       when VRAM headroom was measured.
-- [ ] **V2** — confirm `voice-db`/`home-assistant` are actually healthy (the
-      manifests are merged but unexercised), onboard Home Assistant, and wire
-      up the Wyoming STT/TTS entries and a voice pipeline by hand in its UI
-      (no YAML for this — see `VOICE.md` V2 for what a rebuilt PVC would need
-      redone).
-- [ ] **V3** — generate `esphome/secrets.sops.yaml`, compile and flash the
-      ESP32-S3 firmware from the workstation (the dev VM has no USB), adopt it
-      in HA, and record the idle/listening/speaking memory baseline before
-      adding anything else to the device.
-- [ ] **V4** — wire Home Assistant's conversation agent to `llama-fast`
-      (`:8081`), with "prefer local" enabled so on/off/timer commands don't
-      need the LLM.
-- [ ] **V5** — later ideas, each measured against V3's baseline: an LVGL
+- [ ] **V3c/d/e** — flash the ESP32-S3 firmware from the workstation (the dev
+      VM has no USB; board expected 2026-09-18), adopt it in Home Assistant,
+      and record the idle/listening/speaking memory baseline before adding
+      anything else to the device.
+- [ ] **V4 leftover** — record real wake → reply-start latency once the device
+      is adopted. The 1.3–1.7 s measured so far is the pipeline alone
+      (`scripts/voice/pipeline-test.py`, no hardware); it excludes on-device
+      wake-word detection and the end-of-speech silence wait.
+- [ ] **Re-enable Home Assistant device control (Assist)** for the
+      conversation agent once real entities exist — off today because the 4B
+      model burns through HA's tool-iteration cap calling `GetLiveContext`
+      with nothing exposed yet.
+- [ ] **V5** — later ideas, each measured against V3e's baseline: an LVGL
       status display, a CPU-only STT fallback for when VM 105 is off,
       Prometheus metrics on the pipeline, a custom wake word.
 

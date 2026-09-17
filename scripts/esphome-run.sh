@@ -37,7 +37,11 @@ cd "$repo"
 mise exec -- esphome "$cmd" "$work/$cfg" "$@"
 
 if [ "$cmd" = compile ] && [ -n "${ESPHOME_KEEP_FIRMWARE:-}" ]; then
-  src="$work/.esphome/build/voice-satellite/.pioenvs/voice-satellite"
-  install -m 600 "$src/firmware.factory.bin" "$ESPHOME_KEEP_FIRMWARE/"
+  # Located, not hardcoded: ESPHome 2026.9 builds with native ESP-IDF into
+  # build/voice-satellite/build/, not PlatformIO's .pioenvs/ -- the path this
+  # used to assume, which failed after a successful compile.
+  bin=$(find "$work/.esphome/build" -name firmware.factory.bin | head -n 1)
+  [ -n "$bin" ] || { echo "no firmware.factory.bin under $work" >&2; exit 1; }
+  install -m 600 "$bin" "$ESPHOME_KEEP_FIRMWARE/"
   echo "kept $ESPHOME_KEEP_FIRMWARE/firmware.factory.bin -- contains secrets"
 fi
