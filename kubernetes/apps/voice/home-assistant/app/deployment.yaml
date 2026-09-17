@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: home-assistant
+  namespace: voice
+  annotations:
+    # configuration.yaml is a subPath mount, which never sees ConfigMap updates,
+    # and HA_DB_URL is read once at start. Restart on either changing.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # RWO local-path volume and SQLite-style single-writer .storage: the old pod
+  # must be gone before the new one mounts. RollingUpdate would deadlock or,
+  # worse, briefly run two writers.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: home-assistant
+  template:
+    metadata:
+      labels:
+        app: home-assistant
+    spec:
+      # Worker1's root filesystem (17.83 GiB since STORAGE.md §6), NOT worker2,
+      # where local-path writes onto the archive-pool zvol. The owner keeps that
+      # pool for databases and object storage; HA's config is neither. local-path
+      # is node-local, so this selector is what keeps the volume findable.
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker1
+      containers:
+        - name: home-assistant
+          image: ghcr.io/home-assistant/home-assistant:2026.9.2@sha256:a1bc133af84ee6505fe2c266d9805b7c75b780dfdc188edfee3b11e8f3cd8efe
+          env:
+            - name: TZ
+              value: America/Los_Angeles
+            - name: HA_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: voice-db-app
+                  key: uri
+          ports:
+            - name: http
+              containerPort: 8123
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: configuration-yaml
+              mountPath: /config/configuration.yaml
+              subPath: configuration.yaml
+              readOnly: true
+          # HA can take minutes on first start (dependency installs, recorder
+          # schema creation). The startup probe absorbs that so liveness does not
+          # kill it mid-migration.
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: home-assistant-config
+        - name: configuration-yaml
+          configMap:
+            name: home-assistant-config

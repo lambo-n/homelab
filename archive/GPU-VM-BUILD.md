@@ -1822,7 +1822,7 @@ no longer the deciding factor, so F1 installs that, at 2025.3 (see F1).
 
   | Preset | Model | Context (q8_0 KV, 1 slot) | Beside `fast`? |
   |---|---|---:|---|
-  | `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 81,920 | yes |
+  | `qwen27` | Qwen3.8-27B UD-Q6_K_XL | ~~81,920~~ **65,536** (cut 2026-09-17 to fit whisper-server; `VOICE.md` V1f) | yes |
   | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | **262,144** (full; fit chose it beside `fast`) | yes |
   | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL | 195,072 | **no**: `sudo llm-mode agent` first |
 
@@ -2000,7 +2000,7 @@ the dev VM.
     `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`) on **one** preset. The router holds a
     single model, so a background "haiku" call to another preset would evict the
     working model;
-  - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the preset's real window (81,920 / 195,072
+  - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the preset's real window (65,536 / 195,072
     / 262,144);
   - `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`, and nonessential traffic and
     telemetry off;

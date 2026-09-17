@@ -47,7 +47,7 @@ user `llama`:
 
 | Preset | Model | Context (beside `fast`) |
 |---|---|---:|
-| `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 2 × 40,960 |
+| `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 65,536 (cut from 81,920 on 2026-09-17 to leave room for `whisper-server` — see [`VOICE.md`](VOICE.md)) |
 | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | 262,144 (full) |
 | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone | ~195,072 (`sudo llm-mode agent` first — stops `llama-fast`) |
 
@@ -104,6 +104,8 @@ and the VM being unreachable.
   hardware bring-up, the PCI mapping and scoped API token, the ATS lockup and
   its fix, every step of the ReBAR resize, and the first llama.cpp benchmarks
 - [`HARDWARE.md`](HARDWARE.md) — the GPU and `llm-pool` in the physical inventory
+- [`VOICE.md`](VOICE.md) — the voice assistant stack (whisper/piper STT-TTS,
+  ESPHome, Home Assistant) sharing this VM's GPU alongside `llama-server`
 - [`BACKLOG.md`](BACKLOG.md) — the one open item from this build (verifying the
   boot-time ReBAR resize across a real host reboot)
 - `tofu/proxmox-llm-vm.tf`, `tofu/README.md` — the VM definition and its token

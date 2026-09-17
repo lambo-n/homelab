@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+configMapGenerator:
+  # configuration.yaml is owned by git. Everything HA configures through its UI
+  # (the Wyoming and LLM integrations, the ESPHome device, the Assist pipeline)
+  # is a config entry in .storage on the PVC instead -- HA offers no YAML for
+  # those. VOICE.md V2 lists them so a rebuilt PVC can be redone by hand.
+  - name: home-assistant-config
+    namespace: voice
+    files:
+      - configuration.yaml
+generatorOptions:
+  disableNameSuffixHash: true

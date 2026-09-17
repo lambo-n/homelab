@@ -2,6 +2,8 @@
 age.key
 *.agekey
 kubeconfig
+# Local SSH client config for this VM's ProxyJump aliases; per-machine, not repo state.
+ssh-config
 *.decrypted.yaml
 *.plaintext.yaml
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Claude Code against the local llama-server router on VM 105 (GPU-VM.md F6d).
 #
-#   claude-local [claude args...]                 # qwen27, 81,920 ctx, beside fast
+#   claude-local [claude args...]                 # qwen27, 65,536 ctx, beside fast
 #   CLAUDE_LOCAL_MODEL=qwen27-agent claude-local  # 195,072 ctx; `sudo llm-mode agent` on llm first
 #   CLAUDE_LOCAL_MODEL=chat claude-local          # Qwen3.6-35B-A3B, 262,144 ctx
 #
@@ -15,7 +15,7 @@ KEY_FILE="${LLAMA_API_KEY_FILE:-$HOME/.config/llama/api-key}"
 MODEL="${CLAUDE_LOCAL_MODEL:-qwen27}"
 
 case "$MODEL" in
-  qwen27)       CTX=81920 ;;
+  qwen27)       CTX=65536 ;;
   qwen27-agent) CTX=195072 ;;
   chat)         CTX=262144 ;;
   *) echo "claude-local: unknown model '$MODEL' (qwen27, qwen27-agent, chat)" >&2; exit 2 ;;

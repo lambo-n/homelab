@@ -1,0 +1,31 @@
+# Install: VOICE.md V1. Text-to-speech for the voice satellite, on VM 105's
+# CPU. Piper is fast enough there that the card is not worth the VRAM.
+#
+# wyoming-piper 2.5.2 in a venv at /opt/wyoming/piper. Voices on /models, not
+# the 32 GiB root disk.
+#
+# --local-files-only: the voice is downloaded once by hand in V1, so a cold
+# boot with no internet still speaks. Adding a voice means repeating that step.
+#
+# No auth in the Wyoming protocol: ufw admits :10200 from the three k3s nodes
+# only (VOICE.md V1).
+[Unit]
+Description=Wyoming Piper TTS on :10200 (homelab VOICE.md V1)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/models
+
+[Service]
+User=wyoming
+Group=wyoming
+ExecStart=/opt/wyoming/piper/.venv/bin/wyoming-piper \
+  --uri tcp://0.0.0.0:10200 \
+  --voice en_US-lessac-medium \
+  --data-dir /models/piper \
+  --download-dir /models/piper \
+  --local-files-only
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
