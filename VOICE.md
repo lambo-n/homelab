@@ -573,8 +573,27 @@ saying it to a person in the room wakes the satellite.
 at cutoff 0.97 and 6 at 0.90, and every "do us" variant scores about zero: the
 collision is handled. The gap is recall in noise. Clean recall is 93% at 0.90,
 but upstream's augmented test misses 27.5% at 0.79. Numbers and method are in
-the `~/mww-hey-doofus` README. Not deployable yet: the manifest needs the
-model's tensor arena size, and V3e comes first.
+the `~/mww-hey-doofus` README.
+
+**v2, 2026-09-18: in the firmware.** A second training phase at a tenth of the
+learning rate (v1's validation never settled) cut upstream's noisy-set miss
+rate at zero ambient false accepts from 27.5% to 17.5%. Clean held-back recall
+at 0.97 went from 87.5% to 98.4%, for 18/4,080 hard-negative false accepts
+("hey do us" 1/140). The model is `esphome/wake_words/hey_doofus.tflite`
+(sha256 `7fbff053…90edb89`) and replaces `okay_nabu`. The owner chose
+real-world testing before any further training.
+
+Tensor arena: 28,000 B. TFLite Micro on `llm` (`/models/mww/.venv-tflm`,
+tflite-micro `0.dev20260203175027`; the newest builds fail to import on Python
+3.12) found a minimum of 25,599 B for this model and 24,499 B for
+`okay_nabu`. `okay_nabu`'s manifest ships 26,080, a 6.5% margin over the host
+figure, and the same margin gives about 27,250. Rounded up because a short
+arena fails at boot and a spare KB costs almost nothing. Compiled with ESPHome
+2026.9: static RAM and flash unchanged at 32.8% / 13.2%.
+
+**Order on the device:** flash the stock image already on the workstation
+first (V3c), record V3e, then OTA this build. The V3e numbers are what make
+the swap's heap cost measurable, and they take minutes.
 
 #### Wiring it in
 
@@ -597,6 +616,19 @@ micro_wake_word:
 Drop the stock `okay_nabu` at that point rather than running both: each model is
 a second always-running inference and its own tensor arena.
 
+`scripts/esphome-run.sh` copies `esphome/wake_words/` into its tmpfs build
+directory beside the YAML, since ESPHome resolves the local manifest path
+relative to it. Then, after V3e:
+
+```bash
+cd ~/homelab
+scripts/esphome-run.sh upload --device 192.168.50.<ip>
+```
+
+After the upload, record the three V3e rows again and compare. Retune with
+`probability_cutoff` in the YAML: 0.99 if false wakes annoy (97.5% clean
+recall, 5/4,080 hard-negative false accepts).
+
 ## Checklist
 
 - [ ] V0 pin map checked against the Waveshare schematic
@@ -613,5 +645,7 @@ a second always-running inference and its own tensor arena.
 - [ ] V3c first USB flash; firmware .bin deleted
 - [ ] V3d device adopted, IP reserved
 - [ ] V3e memory baseline recorded
+- [x] V5 "Hey Doofus" v2 wired in (manifest, arena 28,000 B, compiled)
+- [ ] V5 "Hey Doofus" OTA after V3e; heap re-measured; real-world wake/false-wake notes
 - [x] V4 conversation agent on :8081 (device control off until devices exist)
 - [ ] V4 end-to-end latency (wake → reply start) recorded on the real device

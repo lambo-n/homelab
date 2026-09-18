@@ -107,10 +107,18 @@ micro_wake_word:
   microphone: mic
   # Inference task stack in PSRAM, not internal RAM.
   task_stack_in_psram: true
-  # One stock model to start (~22 KB tensor arena). No VAD model until false
-  # accepts show it is needed -- it is a second always-running model.
+  # One model: the custom "Hey Doofus" (VOICE.md V5), v2 from
+  # ~/mww-hey-doofus, sha256 7fbff053...90edb89. It replaces the stock
+  # okay_nabu rather than running beside it: each model is a second
+  # always-running inference with its own tensor arena (28,000 B here, from
+  # TFLite Micro measurement + okay_nabu's manifest margin). Cutoff and window
+  # are the manifest's, repeated so a retune is a one-line diff. No VAD model
+  # until false accepts show it is needed.
   models:
-    - model: okay_nabu
+    - model: wake_words/hey_doofus.json
+      id: hey_doofus
+      probability_cutoff: 0.97
+      sliding_window_size: 5
   on_wake_word_detected:
     - voice_assistant.start:
         wake_word: !lambda return wake_word;

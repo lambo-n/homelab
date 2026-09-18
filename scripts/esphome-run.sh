@@ -31,6 +31,8 @@ trap 'rm -rf "$work"' EXIT
 chmod 700 "$work"
 
 cp "$repo/esphome/$cfg" "$work/$cfg"
+# Local wake-word models resolve relative to the YAML, so they travel with it.
+cp -r "$repo/esphome/wake_words" "$work/wake_words"
 sops decrypt "$repo/esphome/secrets.sops.yaml" > "$work/secrets.yaml"
 
 cd "$repo"
