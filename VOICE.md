@@ -537,8 +537,9 @@ Outline, in order:
    `microwakeword` collection on Hugging Face. Tens of GB — stage them on a data
    disk, not a VM root.
 3. **Hard negatives (below).**
-4. Augment: room impulse responses and background mixing, then SpecAugment
-   masking during training.
+4. Augment: room impulse responses and background mixing. SpecAugment stays
+   **off**: frequency masking can blank the band carrying the `/f/`, the one
+   sound separating "hey doofus" from "hey, do us".
 5. Train the streaming MixConv model — 40 spectrogram features every 10 ms —
    then quantize to int8 for TFLite Micro. Record the tensor arena size.
 6. Evaluate, tune the cutoff, write the manifest, OTA, re-measure heap against
@@ -566,6 +567,14 @@ its own.
 
 Second-order and not a training problem: "doofus" is a real insult, so anyone
 saying it to a person in the room wakes the satellite.
+
+**First model, 2026-09-18.** 62 KB quantized streaming model after 10,000 steps
+(21 min on `llm`'s CPU). On 4,080 held-back hard negatives it false-accepts 2
+at cutoff 0.97 and 6 at 0.90, and every "do us" variant scores about zero: the
+collision is handled. The gap is recall in noise. Clean recall is 93% at 0.90,
+but upstream's augmented test misses 27.5% at 0.79. Numbers and method are in
+the `~/mww-hey-doofus` README. Not deployable yet: the manifest needs the
+model's tensor arena size, and V3e comes first.
 
 #### Wiring it in
 
