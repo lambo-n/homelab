@@ -500,9 +500,87 @@ the owner with `read -rs`). Needs `websockets` + `aiohttp` in a throwaway venv.
 - **Metrics.** HA's `prometheus` integration needs a long-lived token, so it
   can only be added after onboarding. Scrape it and add per-stage pipeline
   latency to Grafana.
-- **Custom wake word** (e.g. "hey sunfire"): the microWakeWord training
-  pipeline is a separate project.
+- **Custom wake word** "Hey Doofus": a separate training project, below.
 - **VAD model** in `micro_wake_word`, only if false accepts show up.
+
+### Custom wake word — "Hey Doofus"
+
+The phrase is fixed: **"Hey Doofus"**, matching the assistant name in HA. Three
+syllables, which is the minimum that trains cleanly, and a real dictionary word,
+so eSpeak inside the Piper sample generator pronounces it without a lexicon
+entry or IPA override. A coined name would have needed one, and a wrong
+phonemization poisons every positive sample generated from it.
+
+Train it **after V3e**. A custom model changes both heap and false-accept
+behaviour, and without the stock-model baseline there is no way to tell which
+of the two regressed.
+
+The upstream pipeline has two homes: the original `kahrendt/microWakeWord` and
+the Open Home Foundation fork `OHF-Voice/micro-wake-word`, which is the one
+tracking ESPHome releases. `basic_training_notebook.ipynb` is the starting
+point. Run it in Colab for the first pass: the B70 in VM 105 is an Intel card
+on a SYCL stack and TensorFlow training is not a supported path there, so
+locally it means CPU and hours.
+
+Outline, in order:
+
+1. Generate positives with the Piper **sample generator** (a different repo from
+   the `wyoming-piper` TTS in V1). Tens of thousands of clips, many speakers,
+   varied speed and pitch.
+2. Fetch the precomputed negative and ambient spectrogram features from the
+   `microwakeword` collection on Hugging Face. Tens of GB — stage them on a data
+   disk, not a VM root.
+3. **Hard negatives (below).**
+4. Augment: room impulse responses and background mixing, then SpecAugment
+   masking during training.
+5. Train the streaming MixConv model — 40 spectrogram features every 10 ms —
+   then quantize to int8 for TFLite Micro. Record the tensor arena size.
+6. Evaluate, tune the cutoff, write the manifest, OTA, re-measure heap against
+   V3e.
+
+#### The hard-negative step
+
+"Hey Doofus" collides with ordinary speech: *"hey, do us a favour"* differs from
+it by a single consonant, the `/f/`. Ambient noise datasets will not catch this,
+because the collision **is** speech. The generic negative set is not enough on
+its own.
+
+- Synthesize a few thousand near-miss clips with the same Piper generator and
+  fold them into the negatives: "do us a favour", "hey dude", "hey, does",
+  "goofus", "who's this", "hey, do you".
+- Raise `penalty_weight` and `negative_class_weight` on that subset so a hard
+  negative costs more than a generic background clip.
+- Hold back ~20% of them as a **separate** eval set. Report false accepts per
+  hour on ambient audio and on the hard-negative set as two numbers: a model can
+  look clean on one and fail the other.
+- Tune `probability_cutoff` against the hard negatives first, then confirm
+  recall at normal speaking distance across the room. Expect to land at 0.97
+  or above; three syllables with a common collision does not tolerate a loose
+  cutoff.
+
+Second-order and not a training problem: "doofus" is a real insult, so anyone
+saying it to a person in the room wakes the satellite.
+
+#### Wiring it in
+
+`wake_word` in the manifest reads `Hey Doofus`. That string is what HA shows in
+the pipeline UI and what the `on_wake_word_detected` lambda in V3 passes to
+`voice_assistant.start`.
+
+```yaml
+micro_wake_word:
+  id: mww
+  microphone: mic
+  task_stack_in_psram: true
+  models:
+    - model: hey_doofus.json
+      id: hey_doofus
+      probability_cutoff: 0.97
+      sliding_window_size: 5
+```
+
+Drop the stock `okay_nabu` at that point rather than running both: each model is
+a second always-running inference and its own tensor arena.
 
 ## Checklist
 
