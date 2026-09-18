@@ -518,9 +518,15 @@ of the two regressed.
 The upstream pipeline has two homes: the original `kahrendt/microWakeWord` and
 the Open Home Foundation fork `OHF-Voice/micro-wake-word`, which is the one
 tracking ESPHome releases. `basic_training_notebook.ipynb` is the starting
-point. Run it in Colab for the first pass: the B70 in VM 105 is an Intel card
-on a SYCL stack and TensorFlow training is not a supported path there, so
-locally it means CPU and hours.
+point. The work lives in `~/mww-hey-doofus`, with data on `llm` under
+`/models/mww`.
+
+Training runs on `llm`'s **CPU**, not the B70, and not Colab. Measured
+2026-09-18: the model is 23,489 parameters and a full 10,000-step run takes
+about 12.5 minutes on the 8 cores. The card cannot help regardless of what is
+loaded on it: Intel's TensorFlow plugin does not support Battlemage, and pins a
+TensorFlow, Python and oneAPI that conflict with this VM's stack. The
+project README has the details.
 
 Outline, in order:
 
