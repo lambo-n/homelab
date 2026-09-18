@@ -60,8 +60,7 @@ What each component does when something is down:
 | `esphome/wake_words/` | "Hey Doofus" v2 model and manifest, from `~/mww-hey-doofus` (V5) |
 | `esphome/secrets.sops.yaml` | Wi-Fi SSID/password and the API key (generated into SOPS, never printed) |
 | `scripts/esphome-run.sh` | Runs ESPHome with secrets decrypted into tmpfs for one run |
-| `scripts/voice/*.service` | `whisper-server`, `wyoming-whisper`, `wyoming-piper`, `wyoming-piper-pitch` units for VM 105 |
-| `scripts/voice/piper_pitch_proxy.py` | Wyoming proxy: pitch-shifts a Piper voice (ffmpeg asetrate+atempo) and advertises it as its own voice — see "Pitched voice" below |
+| `scripts/voice/*.service` | `whisper-server`, `wyoming-whisper`, `wyoming-piper` units for VM 105 |
 | `scripts/voice/ha-api.sops.yaml` | HA long-lived token for `pipeline-test.py`, operator-only (not read by the cluster) |
 | `scripts/voice/pipeline-test.py` | Drives the Doofus pipeline over HA's websocket API without hardware |
 | `kubernetes/apps/voice/voice-db/` | CNPG Cluster `voice-db` |
@@ -80,7 +79,6 @@ Three services on `llm` (VM 105), alongside `llama-fast`/`llama-router` (see
 | `whisper-server` | `127.0.0.1:8910` (loopback) | whisper.cpp `v1.9.4`, SYCL build, **`small.en` f16** — q8_0 was found to transcribe garbage on this SYCL build |
 | `wyoming-whisper` | `:10300` | Wyoming protocol bridge in front of `whisper-server`, for Home Assistant |
 | `wyoming-piper` | `:10200` | Piper TTS, Wyoming protocol, CPU only |
-| `wyoming-piper-pitch` | `:10201` | Proxy in front of `wyoming-piper`, advertises `en_US-norman-medium_x0.8` — see "Pitched voice" below. Deployed 2026-09-18; the **Doofus** assistant's voice |
 
 **Measured:** f16 transcribes in 0.21 s warm (first request after a cold start
 takes ~34 s for SYCL kernel compilation, so the unit sends itself a warm-up
@@ -89,7 +87,7 @@ request). With `qwen27` (cut to 65,536 context — see [`GPU-VM.md`](GPU-VM.md))
 leaving ~5.3 GiB free at idle. A 60K-token `qwen27` request ran clean
 concurrently with a transcription loop (300/300 correct).
 
-**Firewall:** ports 10200/10300/10201 open only to the three k3s node IPs
+**Firewall:** ports 10200/10300 open only to the three k3s node IPs
 (`192.168.50.104–106`); `whisper-server` itself binds loopback and is not
 reachable off the VM at all.
 
@@ -103,54 +101,50 @@ Full build log: [`archive/VOICE-BUILD-V1.md`](archive/VOICE-BUILD-V1.md).
 
 #### Pitched voice — `en_US-norman-medium_x0.8`
 
-The owner wants a deeper Norman without slowing the speech down. Piper itself
-has no pitch control (`SynthesisConfig` only exposes `speaker_id`,
-`length_scale`, `noise_scale`, `noise_w_scale`) and `wyoming-piper` 2.5.2 calls
-`piper.PiperVoice` in-process rather than shelling out to a binary, so there is
-no external command to wrap. `scripts/voice/piper_pitch_proxy.py` is a small
-standalone Wyoming server instead: it forwards each `Synthesize` to the real
-`wyoming-piper` on `:10200` requesting `en_US-norman-medium`, buffers the PCM
-it gets back (one utterance is always short enough to hold in memory), and
-pipes it through ffmpeg's `asetrate=<rate*0.8>,aresample=<rate>,atempo=1.25`
-before re-emitting it — `asetrate` alone would lower pitch and slow tempo
-together, so `atempo=1/0.8` cancels the slowdown back out, changing only the
-pitch. Verified locally against a synthetic tone: a 220 Hz input measured
-176.07 Hz out (0.8×, expected 176.0) at the same duration (±0.5%, from
-`atempo`'s block-based resampling — inaudible). It advertises itself as a
-single voice, `en_US-norman-medium_x0.8`, on its own port so it shows up as a
-distinct choice next to the unmodified voices; it does not touch
-`wyoming-piper`'s own voice list on `:10200`.
+The **Doofus** assistant speaks with Norman pitched down to 0.8× at normal
+speed (`tts.piper`, voice `en_US-norman-medium_x0.8`; was
+`en_US-norman-medium`). It is an ordinary custom voice in `/models/piper`,
+served by `wyoming-piper` itself: no extra service, port or firewall rule.
 
-**Deployed 2026-09-18** from the dev VM (which does have SSH to `llm`; see
-README): `apt install ffmpeg` (6.1.1), script to
-`/opt/wyoming/piper/piper_pitch_proxy.py`, unit `wyoming-piper-pitch` enabled,
-ufw `10201/tcp` from `.104`, `.105`, `.106`. To redeploy after editing:
+Piper has no pitch control, but `wyoming-piper` takes the playback rate from
+the voice's `.onnx.json` (`audio.sample_rate`, sent in `AudioStart`) and the
+speaking speed from `inference.length_scale`. The voice is the unmodified
+Norman model with both scaled by 0.8: playback at 17,640 Hz instead of
+22,050 lowers pitch and formants together (the slowed-tape sound), and
+`length_scale` 0.8 makes Piper speak 25% faster to cancel the slowdown.
+`dataset` is set to `norman_deep` so the HA dropdown labels it apart from
+plain Norman. To rebuild it, or make another ratio, on `llm`:
 
 ```bash
-cd ~/homelab
-scp scripts/voice/piper_pitch_proxy.py scripts/voice/wyoming-piper-pitch.service llm:/tmp/
-ssh llm 'sudo install -o wyoming -g wyoming -m 644 /tmp/piper_pitch_proxy.py /opt/wyoming/piper/ && sudo install -m 644 /tmp/wyoming-piper-pitch.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart wyoming-piper-pitch'
+( set -e
+cd /models/piper
+N=en_US-norman-medium_x0.8
+sudo -u wyoming cp -p en_US-norman-medium.onnx $N.onnx
+sudo -u wyoming python3 -c '
+import json
+d = json.load(open("en_US-norman-medium.onnx.json"))
+d["audio"]["sample_rate"] = round(d["audio"]["sample_rate"] * 0.8)
+d["inference"]["length_scale"] = round(d["inference"]["length_scale"] * 0.8, 3)
+d["dataset"] = "norman_deep"
+json.dump(d, open("en_US-norman-medium_x0.8.onnx.json", "w"), indent=2)'
+)
 ```
 
-In HA: Wyoming Protocol integration **`piper-pitch`** at **`192.168.50.107`**
-(VM 105, like the other two Wyoming entries; not a node IP) port `10201`,
-entity `tts.piper_pitch`. The **Doofus** assistant's TTS is set to it, voice
-`en_US-norman-medium_x0.8` (was `tts.piper` / `en_US-norman-medium`; switch
-back in Settings → Voice assistants → Doofus).
+`wyoming-piper` rescans the directory on every Describe, so no restart. HA
+caches the voice list: reload the `piper` Wyoming integration (Settings →
+Devices & services → piper → Reload), then pick the voice on the assistant.
 
-**Verified on `llm`:** on identical Piper output the filter measured median F0
-91 → 72 Hz (0.79×) and 4.052 → 4.060 s. Through HA (`/api/tts_get_url` on
-`tts.piper_pitch`) a sentence came back as 2.9 s of mp3 that `whisper-server`
-transcribed word for word. Two unrelated Piper runs of one sentence differ by
-up to ~0.6 s in length, so compare durations on the same audio, not across
-synths.
+**Verified 2026-09-18, through HA** (`/api/tts_get_url` on `tts.piper`): median
+F0 95 Hz for plain Norman and 77 Hz for this voice (0.81×), at similar length
+(3.87 s and 4.18 s; Piper varies ~0.6 s between runs of one sentence), and
+`whisper-server` transcribed it word for word. Samples before choosing:
+Norman stays intelligible to ×0.7 and garbles at ×0.6; `ryan-low` holds to ×0.6.
 
-**Alternative, not used:** Piper reads the playback rate and `length_scale`
-from the voice's `.onnx.json`. A copy of the voice with `sample_rate × 0.8`
-and `length_scale × 0.8` gives a similar deep voice inside `wyoming-piper`
-itself, with no extra service or port and no ffmpeg time-stretch. Samples were
-rendered that way on 2026-09-18 (whisper-clean for Norman down to ×0.7, Ryan
-to ×0.6). Worth trying if the time-stretch sounds artificial on the speaker.
+**Superseded:** commit `9e49e7b` did the same with a Wyoming proxy on `:10201`
+that ran the audio through ffmpeg `asetrate`+`atempo`. It was deployed for an
+hour and removed the same day (service, script, ufw rules and HA entry): the
+time-stretch can sound processed, and it was a second service and port for
+what one config file does. The code is in git history.
 
 ### Home Assistant + `voice-db` in k3s (V2)
 
@@ -506,9 +500,9 @@ recall, 5/4,080 hard-negative false accepts).
 - [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.97)
 - [ ] V5 leftover — real-world false-wake notes (HA pipeline debug transcripts)
 - [ ] V5 — display, STT fallback, metrics (deferred)
-- [x] V1g — pitched voice `en_US-norman-medium_x0.8` deployed on `llm`,
-      HA integration `piper-pitch` added, Doofus assistant switched to it
-      (2026-09-18)
+- [x] V1g — pitched voice `en_US-norman-medium_x0.8`, as a custom Piper
+      voice (`.onnx.json` rate + length_scale), is the Doofus assistant's
+      voice (2026-09-18)
 
 ## Related
 
