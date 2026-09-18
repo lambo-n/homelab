@@ -142,7 +142,9 @@ Norman stays intelligible to ×0.7 and garbles at ×0.6; `ryan-low` holds to ×0
 
 **Superseded:** commit `9e49e7b` did the same with a Wyoming proxy on `:10201`
 that ran the audio through ffmpeg `asetrate`+`atempo`. It was deployed for an
-hour and removed the same day (service, script, ufw rules and HA entry): the
+hour and removed the same day (service, script, ufw rules, HA entry, and
+the `ffmpeg` apt install it needed: exactly the 172 packages of that one
+transaction, purged by list, nothing older touched): the
 time-stretch can sound processed, and it was a second service and port for
 what one config file does. The code is in git history.
 
