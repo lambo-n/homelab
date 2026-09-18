@@ -80,7 +80,7 @@ Three services on `llm` (VM 105), alongside `llama-fast`/`llama-router` (see
 | `whisper-server` | `127.0.0.1:8910` (loopback) | whisper.cpp `v1.9.4`, SYCL build, **`small.en` f16** — q8_0 was found to transcribe garbage on this SYCL build |
 | `wyoming-whisper` | `:10300` | Wyoming protocol bridge in front of `whisper-server`, for Home Assistant |
 | `wyoming-piper` | `:10200` | Piper TTS, Wyoming protocol, CPU only |
-| `wyoming-piper-pitch` | `:10201` | Proxy in front of `wyoming-piper`, advertises `en_US-norman-medium_x0.8` — see "Pitched voice" below. **Not deployed yet** (no SSH access to `llm` from the dev VM used to build it; ffmpeg not confirmed installed) |
+| `wyoming-piper-pitch` | `:10201` | Proxy in front of `wyoming-piper`, advertises `en_US-norman-medium_x0.8` — see "Pitched voice" below. Deployed 2026-09-18; the **Doofus** assistant's voice |
 
 **Measured:** f16 transcribes in 0.21 s warm (first request after a cold start
 takes ~34 s for SYCL kernel compilation, so the unit sends itself a warm-up
@@ -89,10 +89,9 @@ request). With `qwen27` (cut to 65,536 context — see [`GPU-VM.md`](GPU-VM.md))
 leaving ~5.3 GiB free at idle. A 60K-token `qwen27` request ran clean
 concurrently with a transcription loop (300/300 correct).
 
-**Firewall:** ports 10200/10300 open only to the three k3s node IPs
+**Firewall:** ports 10200/10300/10201 open only to the three k3s node IPs
 (`192.168.50.104–106`); `whisper-server` itself binds loopback and is not
-reachable off the VM at all. 10201 needs the same rule once
-`wyoming-piper-pitch` is deployed — see "Pitched voice" below.
+reachable off the VM at all.
 
 ⚠️ **`--local-files-only` doesn't stop Piper voice downloads.** Picking or
 previewing a voice in HA's assistant settings downloads it into `/models/piper`
@@ -122,27 +121,36 @@ single voice, `en_US-norman-medium_x0.8`, on its own port so it shows up as a
 distinct choice next to the unmodified voices; it does not touch
 `wyoming-piper`'s own voice list on `:10200`.
 
-**Not deployed yet** — this dev VM has no SSH key for `llm` (`Permission
-denied (publickey)`), so an operator has to run the deploy by hand:
+**Deployed 2026-09-18** from the dev VM (which does have SSH to `llm`; see
+README): `apt install ffmpeg` (6.1.1), script to
+`/opt/wyoming/piper/piper_pitch_proxy.py`, unit `wyoming-piper-pitch` enabled,
+ufw `10201/tcp` from `.104`, `.105`, `.106`. To redeploy after editing:
 
 ```bash
-scp -3 scripts/voice/piper_pitch_proxy.py scripts/voice/wyoming-piper-pitch.service llm:/tmp/
-ssh llm '
-  sudo apt install -y ffmpeg
-  sudo install -o wyoming -g wyoming -m 644 /tmp/piper_pitch_proxy.py /opt/wyoming/piper/piper_pitch_proxy.py
-  sudo install -m 644 /tmp/wyoming-piper-pitch.service /etc/systemd/system/wyoming-piper-pitch.service
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now wyoming-piper-pitch
-  sudo ufw allow from 192.168.50.104 to any port 10201 proto tcp
-  sudo ufw allow from 192.168.50.105 to any port 10201 proto tcp
-  sudo ufw allow from 192.168.50.106 to any port 10201 proto tcp
-'
+cd ~/homelab
+scp scripts/voice/piper_pitch_proxy.py scripts/voice/wyoming-piper-pitch.service llm:/tmp/
+ssh llm 'sudo install -o wyoming -g wyoming -m 644 /tmp/piper_pitch_proxy.py /opt/wyoming/piper/ && sudo install -m 644 /tmp/wyoming-piper-pitch.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart wyoming-piper-pitch'
 ```
 
-Then in HA: Settings → Devices & services → Add integration → **Wyoming
-Protocol** → host = a node IP, port `10201`. It advertises one voice,
-`en_US-norman-medium_x0.8`; pick it as the TTS voice on the "Doofus" assistant
-(or any other) the same way `tts.piper` was picked in V2.
+In HA: Wyoming Protocol integration **`piper-pitch`** at **`192.168.50.107`**
+(VM 105, like the other two Wyoming entries; not a node IP) port `10201`,
+entity `tts.piper_pitch`. The **Doofus** assistant's TTS is set to it, voice
+`en_US-norman-medium_x0.8` (was `tts.piper` / `en_US-norman-medium`; switch
+back in Settings → Voice assistants → Doofus).
+
+**Verified on `llm`:** on identical Piper output the filter measured median F0
+91 → 72 Hz (0.79×) and 4.052 → 4.060 s. Through HA (`/api/tts_get_url` on
+`tts.piper_pitch`) a sentence came back as 2.9 s of mp3 that `whisper-server`
+transcribed word for word. Two unrelated Piper runs of one sentence differ by
+up to ~0.6 s in length, so compare durations on the same audio, not across
+synths.
+
+**Alternative, not used:** Piper reads the playback rate and `length_scale`
+from the voice's `.onnx.json`. A copy of the voice with `sample_rate × 0.8`
+and `length_scale × 0.8` gives a similar deep voice inside `wyoming-piper`
+itself, with no extra service or port and no ffmpeg time-stretch. Samples were
+rendered that way on 2026-09-18 (whisper-clean for Norman down to ×0.7, Ryan
+to ×0.6). Worth trying if the time-stretch sounds artificial on the speaker.
 
 ### Home Assistant + `voice-db` in k3s (V2)
 
@@ -498,10 +506,9 @@ recall, 5/4,080 hard-negative false accepts).
 - [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.97)
 - [ ] V5 leftover — real-world false-wake notes (HA pipeline debug transcripts)
 - [ ] V5 — display, STT fallback, metrics (deferred)
-- [ ] V1g — pitched voice `en_US-norman-medium_x0.8`: proxy written and
-      verified locally (pitch and duration both check out), not deployed to
-      `llm` yet — see "Pitched voice" under V1, needs an operator with SSH
-      access to run the deploy and add the HA integration
+- [x] V1g — pitched voice `en_US-norman-medium_x0.8` deployed on `llm`,
+      HA integration `piper-pitch` added, Doofus assistant switched to it
+      (2026-09-18)
 
 ## Related
 
