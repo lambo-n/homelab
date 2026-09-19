@@ -9,7 +9,6 @@
 #   NO  media_player      -- `speaker:` below; HA streams already-decoded PCM
 #   NO  LVGL              -- the display (V5) is one lambda drawing a state
 #                            face; its frame buffer lives in PSRAM
-#   NO  touch             -- the CST816 did not answer the I2C scan; later
 #   NO  web_server, captive_portal, verbose logging
 #
 # Pin map: first from ulsmith/home-assistant-esphome-esp32-s3-touch-lcd-185c
@@ -31,7 +30,7 @@ esphome:
       - speaker.volume_set:
           id: spk
           volume: !lambda return id(speaker_volume).state / 100.0f;
-      - micro_wake_word.start:
+      - script.execute: resume_wake_word
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -63,7 +62,7 @@ api:
   # waiting for it. 0s disables the reboot.
   reboot_timeout: 0s
   on_client_connected:
-    - micro_wake_word.start:
+    - script.execute: resume_wake_word
 
 ota:
   - platform: esphome
@@ -146,6 +145,34 @@ switch:
     pin: GPIO15
     restore_mode: ALWAYS_ON
     internal: true
+  # Mic mute: long press on the screen, or from HA. Stops the wake word and any
+  # conversation; a dim red ring stays on screen while muted. Software only --
+  # the mic keeps power -- and off again after a reboot.
+  - platform: template
+    id: mic_mute
+    name: Mic Mute
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(muted) = true;
+      - voice_assistant.stop:
+      - micro_wake_word.stop:
+      - script.execute:
+          id: set_ui
+          state: 0
+    turn_off_action:
+      # Also runs at boot (ALWAYS_OFF), when there is nothing to undo; on_boot
+      # starts the wake word then.
+      - if:
+          condition:
+            lambda: return id(muted);
+          then:
+            - lambda: id(muted) = false;
+            - micro_wake_word.start:
+            - script.execute:
+                id: set_ui
+                state: 0
 
 # Output volume, set through the ES8311. The speaker defaults to full scale,
 # which is far too loud in a room (2026-09-19). A slider in HA, kept across
@@ -169,7 +196,7 @@ number:
           volume: !lambda return x / 100.0f;
 
 # ---------------------------------------------------------------------------
-# Display (V5): a state face, no touch. Dark and backlight off while idle; a
+# Display (V5): a state face. Dark and backlight off while idle; a
 # filled circle while listening (pulsing gently while HA thinks); the circle
 # plus a ring of bars around it while the reply plays.
 #
@@ -200,6 +227,15 @@ globals:
   - id: ui_audio_at
     type: uint32_t
     initial_value: "0"
+  # millis() when the current touch began; tap vs long press on release.
+  - id: touch_at
+    type: uint32_t
+    initial_value: "0"
+  # Mic Mute's real state. The template switch publishes only after its
+  # actions run, so they cannot read the switch itself.
+  - id: muted
+    type: bool
+    initial_value: "false"
 
 pca9554:
   - id: exio
@@ -242,7 +278,12 @@ display:
       static float level[48] = {0};
       it.fill(Color::BLACK);
       const int state = id(ui_state);
-      if (state == 0) return;
+      if (state == 0) {
+        if (id(muted)) {
+          for (int r = 170; r < 178; r++) it.circle(cx, cy, r, Color(200, 0, 0));
+        }
+        return;
+      }
       const float t = millis() / 1000.0f;
       // Thinking: the circle breathes. Otherwise it holds still.
       const int r = state == 2 ? 92 + (int) (6.0f * sinf(t * 4.0f)) : 92;
@@ -268,7 +309,68 @@ display:
         it.filled_triangle(x0, y0, x2, y2, x3, y3, accent);
       }
 
+# Touch: CST816 at 0x15 on the shared I2C bus, IRQ on GPIO4, reset on the
+# PCA9554's EXIO1 (Waveshare 01_lvgl_example). The expander powers up with
+# EXIO1 low, which holds the chip in reset -- why the 2026-09-19 bus scan under
+# this firmware missed it, though the factory demo (which releases it) had
+# working touch.
+#
+#   tap           idle: talk (as the side button); conversation: stop it
+#   press >= 0.8s toggle Mic Mute
+#
+# Any tap is ignored while muted; only the long press unmutes.
+touchscreen:
+  - platform: cst816
+    id: touch
+    display: screen
+    # Waveshare waits 50 ms after reset before talking to the chip; ESPHome
+    # waits 30 ms, and the probe then failed ("Failed to read chip ID",
+    # 2026-09-19). Read a minute after boot, the chip answers 0xB5 (CST816T),
+    # so it is only the timing: skip the probe.
+    skip_probe: true
+    interrupt_pin:
+      number: GPIO4
+      # Open-drain IRQ; Waveshare's example sets INPUT_PULLUP.
+      mode:
+        input: true
+        pullup: true
+    reset_pin:
+      pca9554: exio
+      number: 1
+    on_touch:
+      - lambda: |-
+          id(touch_at) = millis();
+          ESP_LOGI("touch", "touch x=%d y=%d", touch.x, touch.y);
+    on_release:
+      - if:
+          condition:
+            lambda: return millis() - id(touch_at) >= 800;
+          then:
+            - switch.toggle: mic_mute
+          else:
+            - if:
+                condition:
+                  switch.is_on: mic_mute
+                then:
+                  - logger.log: "tap ignored while muted"
+                else:
+                  - if:
+                      condition: voice_assistant.is_running
+                      then:
+                        - voice_assistant.stop:
+                      else:
+                        - voice_assistant.start:
+
 script:
+  # Restarts the wake word after a conversation or reconnect, unless muted.
+  - id: resume_wake_word
+    then:
+      - if:
+          condition:
+            lambda: return !id(muted);
+          then:
+            - micro_wake_word.start:
+
   # Every state change goes through here: store it, redraw, and switch the
   # backlight (off when idle so the screen is dark, not a lit black panel).
   - id: set_ui
@@ -283,13 +385,14 @@ script:
       - component.update: screen
       - if:
           condition:
-            lambda: return state == 0;
+            lambda: return state == 0 && !id(muted);
           then:
             - light.turn_off: backlight
           else:
+            # Dim while idle and muted (just the red ring), bright otherwise.
             - light.turn_on:
                 id: backlight
-                brightness: 80%
+                brightness: !lambda "return state == 0 ? 0.2f : 0.8f;"
 
 interval:
   # ~20 fps. Drives speaking/done from the speaker's real state, then redraws
@@ -370,12 +473,12 @@ voice_assistant:
     - wait_until:
         not:
           voice_assistant.is_running:
-    - micro_wake_word.start:
+    - script.execute: resume_wake_word
     - script.execute:
         id: set_ui
         state: 0
   on_error:
-    - micro_wake_word.start:
+    - script.execute: resume_wake_word
     - script.execute:
         id: set_ui
         state: 0
@@ -383,7 +486,7 @@ voice_assistant:
     # Cluster gone mid-conversation: go back to listening for the wake word
     # rather than holding the mic open against nothing.
     - voice_assistant.stop:
-    - micro_wake_word.start:
+    - script.execute: resume_wake_word
     - script.execute:
         id: set_ui
         state: 0
