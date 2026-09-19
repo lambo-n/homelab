@@ -7,8 +7,9 @@
 #
 #   NO  esp32_ble / bluetooth_proxy / BLE improv -- the named crash source
 #   NO  media_player      -- `speaker:` below; HA streams already-decoded PCM
-#   NO  display / LVGL    -- deferred to V5, added only once V3's heap numbers
-#                            show room (the frame buffers are the largest cost)
+#   NO  LVGL              -- the display (V5) is one lambda drawing a state
+#                            face; its frame buffer lives in PSRAM
+#   NO  touch             -- the CST816 did not answer the I2C scan; later
 #   NO  web_server, captive_portal, verbose logging
 #
 # Pin map: first from ulsmith/home-assistant-esphome-esp32-s3-touch-lcd-185c
@@ -51,7 +52,9 @@ psram:
   speed: 80MHz
 
 logger:
-  level: WARN
+  # TEMPORARY (2026-09-19): DEBUG to trace the speaker left retrying "Parent
+  # bus is busy" after replies. Back to WARN once understood.
+  level: DEBUG
 
 api:
   encryption:
@@ -165,6 +168,155 @@ number:
           id: spk
           volume: !lambda return x / 100.0f;
 
+# ---------------------------------------------------------------------------
+# Display (V5): a state face, no touch. Dark and backlight off while idle; a
+# filled circle while listening (pulsing gently while HA thinks); the circle
+# plus a ring of bars around it while the reply plays.
+#
+# The bars are ANIMATED, not audio-reactive: ESPHome's speaker exposes only a
+# frames-played callback, not the samples, so a true level meter would need a
+# custom component.
+#
+# Speaking and "done" follow the SPEAKER, not voice_assistant events: HA's TTS
+# events can arrive after the reply has already played (2026-09-19, the
+# screen stayed lit and the bars came back). The interval below shows the bars
+# only while the speaker is actually running, and goes dark once it has been
+# quiet for 1 s with the assistant idle, or 30 s after the last activity.
+#
+# Panel: ST77916, 360x360 QSPI. ESPHome's built-in ESP-VOCAT model carries the
+# same 181-command init sequence as Waveshare's 01_lvgl_example (compared
+# 2026-09-19); only the pins differ, and they come from that example: SCK 40,
+# data 46/45/42/41, CS 21, reset on the PCA9554's EXIO2, backlight GPIO5.
+# ---------------------------------------------------------------------------
+globals:
+  # 0 idle, 1 listening, 2 thinking, 3 speaking.
+  - id: ui_state
+    type: int
+    initial_value: "0"
+  # millis() of the last state change and of the last moment audio played.
+  - id: ui_changed_at
+    type: uint32_t
+    initial_value: "0"
+  - id: ui_audio_at
+    type: uint32_t
+    initial_value: "0"
+
+pca9554:
+  - id: exio
+    address: 0x20
+
+spi:
+  - id: display_qspi
+    type: quad
+    clk_pin: GPIO40
+    data_pins: [GPIO46, GPIO45, GPIO42, GPIO41]
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO5
+
+light:
+  - platform: monochromatic
+    id: backlight
+    output: backlight_pwm
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 200ms
+    internal: true
+
+display:
+  - platform: mipi_spi
+    id: screen
+    model: ESP-VOCAT
+    spi_id: display_qspi
+    cs_pin: GPIO21
+    reset_pin:
+      pca9554: exio
+      number: 2
+    # Redrawn on state changes and, while animating, by the interval below.
+    update_interval: never
+    auto_clear_enabled: false
+    lambda: |-
+      const int cx = 180, cy = 180;
+      const Color accent(0, 180, 216);
+      static float level[48] = {0};
+      it.fill(Color::BLACK);
+      const int state = id(ui_state);
+      if (state == 0) return;
+      const float t = millis() / 1000.0f;
+      // Thinking: the circle breathes. Otherwise it holds still.
+      const int r = state == 2 ? 92 + (int) (6.0f * sinf(t * 4.0f)) : 92;
+      it.filled_circle(cx, cy, r, accent);
+      if (state != 3) {
+        for (auto &l : level) l = 0.0f;
+        return;
+      }
+      // Speaking: 48 bars around the circle. Two drifting sine waves plus a
+      // little noise give each bar a target; bars ease towards it.
+      const float step = 2.0f * M_PI / 48.0f, half = 0.045f;
+      for (int i = 0; i < 48; i++) {
+        float target = 0.5f + 0.5f * sinf(t * 7.0f + i * 0.9f) * sinf(t * 3.1f - i * 0.37f);
+        target *= 0.6f + 0.4f * random_float();
+        level[i] += (target - level[i]) * 0.35f;
+        const float r0 = 106.0f, r1 = r0 + 8.0f + 62.0f * level[i];
+        const float a = i * step;
+        const float c0 = cosf(a - half), s0 = sinf(a - half);
+        const float c1 = cosf(a + half), s1 = sinf(a + half);
+        const int x0 = cx + r0 * c0, y0 = cy + r0 * s0, x1 = cx + r0 * c1, y1 = cy + r0 * s1;
+        const int x2 = cx + r1 * c1, y2 = cy + r1 * s1, x3 = cx + r1 * c0, y3 = cy + r1 * s0;
+        it.filled_triangle(x0, y0, x1, y1, x2, y2, accent);
+        it.filled_triangle(x0, y0, x2, y2, x3, y3, accent);
+      }
+
+script:
+  # Every state change goes through here: store it, redraw, and switch the
+  # backlight (off when idle so the screen is dark, not a lit black panel).
+  - id: set_ui
+    mode: queued
+    parameters:
+      state: int
+    then:
+      - lambda: |-
+          if (id(ui_state) != state) ESP_LOGI("ui", "state %d -> %d", id(ui_state), state);
+          id(ui_state) = state;
+          id(ui_changed_at) = millis();
+      - component.update: screen
+      - if:
+          condition:
+            lambda: return state == 0;
+          then:
+            - light.turn_off: backlight
+          else:
+            - light.turn_on:
+                id: backlight
+                brightness: 80%
+
+interval:
+  # ~20 fps. Drives speaking/done from the speaker's real state, then redraws
+  # while something moves (thinking pulse, speaking bars).
+  - interval: 50ms
+    then:
+      - lambda: |-
+          const int state = id(ui_state);
+          if (state == 0) return;
+          const uint32_t now = millis();
+          if (id(spk).is_running()) {
+            id(ui_audio_at) = now;
+            if (state == 2) id(set_ui)->execute(3);
+            return;
+          }
+          const bool quiet = now - id(ui_audio_at) > 1000;
+          if (state == 3 && quiet && !id(va).is_running()) {
+            id(set_ui)->execute(0);
+          } else if (now - id(ui_changed_at) > 30000 && now - id(ui_audio_at) > 30000) {
+            id(set_ui)->execute(0);
+          }
+      - if:
+          condition:
+            lambda: return id(ui_state) >= 2;
+          then:
+            - component.update: screen
+
 micro_wake_word:
   id: mww
   microphone: mic
@@ -183,6 +335,9 @@ micro_wake_word:
       probability_cutoff: 0.97
       sliding_window_size: 5
   on_wake_word_detected:
+    - script.execute:
+        id: set_ui
+        state: 1
     - voice_assistant.start:
         wake_word: !lambda return wake_word;
 
@@ -196,6 +351,19 @@ voice_assistant:
   volume_multiplier: 2.0
   # Wake word runs above, on-device. HA must not run its own.
   use_wake_word: false
+  # Display states (the push-to-talk button lands in on_listening too).
+  on_listening:
+    - script.execute:
+        id: set_ui
+        state: 1
+  on_stt_vad_end:
+    - script.execute:
+        id: set_ui
+        state: 2
+  on_idle:
+    - script.execute:
+        id: set_ui
+        state: 0
   on_end:
     # stop_after_detection defaults to true, so the wake word is stopped for the
     # length of the conversation and restarted here.
@@ -203,13 +371,22 @@ voice_assistant:
         not:
           voice_assistant.is_running:
     - micro_wake_word.start:
+    - script.execute:
+        id: set_ui
+        state: 0
   on_error:
     - micro_wake_word.start:
+    - script.execute:
+        id: set_ui
+        state: 0
   on_client_disconnected:
     # Cluster gone mid-conversation: go back to listening for the wake word
     # rather than holding the mic open against nothing.
     - voice_assistant.stop:
     - micro_wake_word.start:
+    - script.execute:
+        id: set_ui
+        state: 0
 
 # Side button (GPIO0, BOOT): push-to-talk, and the only way to stop a reply.
 binary_sensor:
