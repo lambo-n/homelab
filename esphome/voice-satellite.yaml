@@ -51,9 +51,7 @@ psram:
   speed: 80MHz
 
 logger:
-  # TEMPORARY (2026-09-19): DEBUG while diagnosing no wake word models and a
-  # silent mic. Back to WARN once both are fixed.
-  level: DEBUG
+  level: WARN
 
 api:
   encryption:
@@ -92,9 +90,8 @@ wifi:
 i2c:
   sda: GPIO11
   scl: GPIO10
-  # TEMPORARY (2026-09-19): log the bus at boot. Expect touch 0x15, PCA9554
-  # 0x20, ES8311 0x18, ES7210 0x40 (RTC too). Remove with the DEBUG logger.
-  scan: true
+  # Bus scan 2026-09-19: ES8311 0x18, PCA9554 0x20, ES7210 0x40, RTC 0x51.
+  scan: false
 
 i2s_audio:
   - id: i2s_bus
@@ -248,17 +245,10 @@ sensor:
       name: Heap Max Block
     psram:
       name: PSRAM Free
+    # Lowest free heap since boot: catches the trough during a reply, which a
+    # 30 s sample of Heap Free would usually miss.
+    min_free:
+      name: Heap Min Free
   - platform: wifi_signal
     name: Wi-Fi Signal
     update_interval: 60s
-  # TEMPORARY diagnostic (2026-09-19): mic loudness, to tell a silent mic from
-  # a wake word problem. Passive: it reads only while the wake word (or a
-  # conversation) holds the mic, so it never keeps the shared I2S bus from
-  # the speaker.
-  - platform: sound_level
-    passive: true
-    measurement_duration: 1s
-    peak:
-      name: Mic Peak
-    rms:
-      name: Mic RMS

@@ -6,7 +6,9 @@ after that to the homelab. Scaffolded 2026-09-17 on branch
 `feat/voice-assistant` (PR #32, merged). **Status 2026-09-17:** V1 speech
 services live on `llm`; V2 Home Assistant + `voice-db` deployed and the
 "Doofus" assistant created; V3 firmware compiled (board arrives 2026-09-18,
-not flashed); V4 LLM agent wired to `llama-fast`.
+not flashed); V4 LLM agent wired to `llama-fast`. **Status 2026-09-19:**
+board flashed and adopted at `192.168.50.70`; "Hey Doofus" wakes it and the
+Doofus pipeline answers aloud. Audio needed Waveshare's real wiring (V0).
 
 ## Decisions
 
@@ -66,17 +68,29 @@ What each component does when something is down:
 
 1. Plug the board into the **workstation** by USB-C. The dev VM has no USB
    passthrough; the first flash happens from the workstation (V3c).
-2. Compare the pin map in `esphome/voice-satellite.yaml` with the schematic on
-   Waveshare's `ESP32-S3-Touch-LCD-1.85C` wiki page. It came from
-   `ulsmith/home-assistant-esphome-esp32-s3-touch-lcd-185c` @ `db184c07`:
+2. Pin map. **Take audio pins from Waveshare's own code**
+   (`waveshareteam/ESP32-S3-Touch-LCD-1.85C`, Arduino examples
+   `03_audio_out_no_tf` and `08_esp_sr`), not from the community config
+   `ulsmith/home-assistant-esphome-esp32-s3-touch-lcd-185c` @ `db184c07` the
+   pins first came from. That config drove GPIO2 and GPIO15 as mic clocks and
+   skipped both audio chips; on this board the mic then reads all-zero samples
+   (`-inf dB`) on either channel. A WebFetch summary of the wiki also got this
+   wrong (it named a PCM5101 and direct mic pins), so read the example source.
 
    | Signal | Pin |
    |---|---|
-   | Mic I2S LRCLK / BCLK / DIN | GPIO2 / GPIO15 / GPIO39 (right channel) |
-   | Speaker I2S LRCLK / BCLK / DOUT | GPIO38 / GPIO48 / GPIO47 |
-   | Side button | GPIO0 (BOOT) |
-   | I²C (touch 0x15, PCA9554 0x20) | SDA GPIO11 / SCL GPIO10. Unused until V5 |
+   | I2S BCLK / LRCK / MCLK (one bus, shared) | GPIO48 / GPIO38 / GPIO2 |
+   | Mic data in, from the **ES7210** ADC (I²C 0x40, two analog mics) | GPIO39 |
+   | Speaker data out, to the **ES8311** codec (I²C 0x18) | GPIO47 |
+   | Speaker amplifier enable (drive HIGH) | GPIO15 |
+   | I²C | SDA GPIO11 / SCL GPIO10. Scan found 0x18, 0x20 (PCA9554), 0x40, 0x51 (RTC) |
+   | Side button | GPIO0 (BOOT). Top right; RESET is bottom right |
+   | Slide switch | Battery power. Not a mic mute; no effect on USB power |
    | Backlight | GPIO5. Unused until V5 |
+
+   One shared bus means mic and speaker take turns (ESPHome locks it). Any
+   extra mic consumer, like a `sound_level` sensor, must be `passive: true`,
+   or it holds the bus and the speaker can never play.
 
 3. Give the board a **DHCP reservation** once it has joined Wi-Fi (V3). HA adds
    it by IP, because mDNS does not cross the pod network.
@@ -423,6 +437,35 @@ If the device crashes, get a backtrace with ESPHome's Troubleshooting guide
 | listening | | | |
 | speaking | | | |
 
+**Results, 2026-09-19 (hardware):**
+- V3c: the factory image was rebuilt on dev from `5fea582` (stock
+  `okay_nabu`) after the Wi-Fi password changed (`2feb374`); flashed from
+  web.esphome.io; the `.bin` deleted on dev.
+- V3d: joined Wi-Fi at `192.168.50.70` (−31 to −39 dBm), adopted as
+  "Voice Satellite" (entities `*.doofus1_*`), assistant **Doofus**. The
+  **Wake word** selects in HA read `unavailable`: HA 2026.9.3 gets an empty
+  list from the device even with the model loaded (confirmed at DEBUG). It
+  is cosmetic; detection runs on the device regardless.
+- Stock build: wake word and push-to-talk both dead. HA pipeline runs showed
+  `stt-start` then `run-end` with no VAD events: the mic was delivering
+  zeros. Fixed by the V0 wiring (`708f93b`); the stock baseline was then
+  moot and "Hey Doofus" went straight on.
+- Hey Doofus v2 on the device: detected at 0.98 average probability, full
+  pipeline, spoken reply. The speaker defaults to full scale, far too loud:
+  a **Speaker Volume** number (restored, applied at boot) sits at 65–70 %.
+
+Baseline, Hey Doofus + ES7210/ES8311 build (idle = wake word armed; the
+"speaking" trough is `Heap Min Free`, the lowest free heap since boot):
+
+| State | Heap Free | Max Block | PSRAM Free |
+|---|---:|---:|---:|
+| idle, wake word armed (07:40 UTC) | 216,164 | 200,704 | 7,330,348 |
+| lowest since boot, idle only | 206,956 | | |
+| lowest since boot, after one conversation | _pending_ | | |
+
+For comparison, the stock build with the broken audio wiring idled at
+216,368 / 204,800 / 7,346,812.
+
 **Results, 2026-09-17 (pre-hardware):**
 - V3a: `secrets.sops.yaml` created with the API key generated straight into
   SOPS; SSID `NETGEAR19` (2.4 GHz confirmed by owner); password entered by
@@ -631,7 +674,7 @@ recall, 5/4,080 hard-negative false accepts).
 
 ## Checklist
 
-- [ ] V0 pin map checked against the Waveshare schematic
+- [x] V0 pin map: audio corrected to Waveshare's official examples (2026-09-19)
 - [x] V1a whisper-server built @ v1.9.4
 - [x] V1b whisper model (f16; q8_0 broken on SYCL) and Piper voice downloaded, hashes OK
 - [x] V1c venvs installed
@@ -642,10 +685,12 @@ recall, 5/4,080 hard-negative false accepts).
 - [ ] V1f `chat` and `qwen27-agent` load once with whisper-server running (rare-use presets; not yet checked)
 - [x] V2 PR merged; voice-db healthy; HA onboarded; Wyoming entries added; pipeline created
 - [x] V3a secrets.sops.yaml created
-- [ ] V3c first USB flash; firmware .bin deleted
-- [ ] V3d device adopted, IP reserved
-- [ ] V3e memory baseline recorded
+- [x] V3c first USB flash; firmware .bin deleted on dev (workstation copy: owner)
+- [x] V3d device adopted at 192.168.50.70
+- [ ] V3d DHCP reservation for 192.168.50.70 confirmed
+- [ ] V3e memory baseline: idle recorded; conversation trough pending
 - [x] V5 "Hey Doofus" v2 wired in (manifest, arena 28,000 B, compiled)
-- [ ] V5 "Hey Doofus" OTA after V3e; heap re-measured; real-world wake/false-wake notes
+- [x] V5 "Hey Doofus" OTA (with the audio fix, 2026-09-19); wakes at 0.98
+- [ ] V5 real-world false-wake notes (check HA pipeline debug runs for empty or stray transcripts)
 - [x] V4 conversation agent on :8081 (device control off until devices exist)
 - [ ] V4 end-to-end latency (wake → reply start) recorded on the real device
