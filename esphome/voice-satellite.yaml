@@ -6,7 +6,9 @@
 # Assistant, play the reply. Everything else runs on the cluster or VM 105.
 #
 #   NO  esp32_ble / bluetooth_proxy / BLE improv -- the named crash source
-#   NO  media_player      -- `speaker:` below; HA streams already-decoded PCM
+#   ONE media_player      -- added 2026-09-19 (owner) for HA announcements;
+#                            announcement pipeline only, WAV only (no decoder),
+#                            buffer and task stack in PSRAM
 #   NO  LVGL              -- the display (V5) is one lambda drawing a state
 #                            face; its frame buffer lives in PSRAM
 #   NO  web_server, captive_portal, verbose logging
@@ -27,9 +29,6 @@ esphome:
   on_boot:
     priority: -100
     then:
-      - speaker.volume_set:
-          id: spk
-          volume: !lambda return id(speaker_volume).state / 100.0f;
       - script.execute: resume_wake_word
 
 esp32:
@@ -174,26 +173,48 @@ switch:
                 id: set_ui
                 state: 0
 
-# Output volume, set through the ES8311. The speaker defaults to full scale,
-# which is far too loud in a room (2026-09-19). A slider in HA, kept across
-# reboots and applied at boot.
-number:
-  - platform: template
-    id: speaker_volume
-    name: Speaker Volume
-    icon: mdi:volume-high
-    unit_of_measurement: "%"
-    min_value: 0
-    max_value: 100
-    step: 5
-    initial_value: 30
-    restore_value: true
-    optimistic: true
-    mode: slider
-    on_value:
-      - speaker.volume_set:
-          id: spk
-          volume: !lambda return x / 100.0f;
+# Media player (2026-09-19): lets HA push audio -- `assist_satellite.announce`
+# and `start_conversation` -- instead of only replying to a wake word. The
+# assistant's replies play through it too (voice_assistant takes a
+# media_player or a speaker, not both).
+#
+# Announcement pipeline only; no music. HA's ffmpeg proxy converts to 16 kHz
+# mono WAV, so no FLAC/MP3 decoder is compiled in.
+#
+# Volume is the media player's own (HA's media player entity), kept across
+# reboots. It replaces the old Speaker Volume slider. It starts at 30%: the
+# speaker at full scale is far too loud in a room.
+media_player:
+  - platform: speaker
+    id: mp
+    name: Media Player
+    task_stack_in_psram: true
+    buffer_size: 500000
+    volume_initial: 30%
+    volume_increment: 5%
+    announcement_pipeline:
+      speaker: spk
+      format: WAV
+      sample_rate: 16000
+      num_channels: 1
+    # Mic and speaker share one I2S bus: stop the wake word while anything
+    # plays, and restart it after (unless a conversation will do that itself).
+    on_announcement:
+      - micro_wake_word.stop:
+      - if:
+          condition:
+            lambda: return id(ui_state) == 0;
+          then:
+            - script.execute:
+                id: set_ui
+                state: 3
+    on_idle:
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - script.execute: resume_wake_word
 
 # ---------------------------------------------------------------------------
 # Display (V5): a state face. Dark and backlight off while idle; a
@@ -355,9 +376,11 @@ touchscreen:
                   - logger.log: "tap ignored while muted"
                 else:
                   - if:
-                      condition: voice_assistant.is_running
+                      condition:
+                        lambda: return id(va).is_running() || id(mp).state == media_player::MEDIA_PLAYER_STATE_ANNOUNCING;
                       then:
                         - voice_assistant.stop:
+                        - media_player.stop: mp
                       else:
                         - voice_assistant.start:
 
@@ -447,7 +470,7 @@ micro_wake_word:
 voice_assistant:
   id: va
   microphone: mic
-  speaker: spk
+  media_player: mp
   micro_wake_word: mww
   noise_suppression_level: 2
   auto_gain: 31dBFS
@@ -491,7 +514,7 @@ voice_assistant:
         id: set_ui
         state: 0
 
-# Side button (GPIO0, BOOT): push-to-talk, and the only way to stop a reply.
+# Side button (GPIO0, BOOT): push-to-talk, or stop a reply/announcement.
 binary_sensor:
   - platform: gpio
     id: side_button
@@ -506,9 +529,11 @@ binary_sensor:
       - delayed_off: 50ms
     on_press:
       - if:
-          condition: voice_assistant.is_running
+          condition:
+            lambda: return id(va).is_running() || id(mp).state == media_player::MEDIA_PLAYER_STATE_ANNOUNCING;
           then:
             - voice_assistant.stop:
+            - media_player.stop: mp
           else:
             - voice_assistant.start:
 
