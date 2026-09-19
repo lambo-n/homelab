@@ -460,8 +460,7 @@ Baseline, Hey Doofus + ES7210/ES8311 build (idle = wake word armed; the
 | State | Heap Free | Max Block | PSRAM Free |
 |---|---:|---:|---:|
 | idle, wake word armed (07:40 UTC) | 216,164 | 200,704 | 7,330,348 |
-| lowest since boot, idle only | 206,956 | | |
-| lowest since boot, after one conversation | _pending_ | | |
+| lowest since boot, through one full conversation (07:40:40 UTC) | 206,956 | | |
 
 For comparison, the stock build with the broken audio wiring idled at
 216,368 / 204,800 / 7,346,812.
@@ -688,7 +687,7 @@ recall, 5/4,080 hard-negative false accepts).
 - [x] V3c first USB flash; firmware .bin deleted on dev (workstation copy: owner)
 - [x] V3d device adopted at 192.168.50.70
 - [ ] V3d DHCP reservation for 192.168.50.70 confirmed
-- [ ] V3e memory baseline: idle recorded; conversation trough pending
+- [x] V3e memory baseline: idle 216,164 B; conversation trough 206,956 B (~9 KB)
 - [x] V5 "Hey Doofus" v2 wired in (manifest, arena 28,000 B, compiled)
 - [x] V5 "Hey Doofus" OTA (with the audio fix, 2026-09-19); wakes at 0.98
 - [ ] V5 real-world false-wake notes (check HA pipeline debug runs for empty or stray transcripts)
