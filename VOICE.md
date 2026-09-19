@@ -337,6 +337,14 @@ and end-of-speech silence wait a real satellite adds.
   can only be added after onboarding. Scrape it and add per-stage pipeline
   latency to Grafana.
 - **Custom wake word** "Hey Doofus": done 2026-09-19, below.
+- **Touch and announcements**: done 2026-09-19. Touch (CST816T): tap to
+  talk or stop, hold for 0.8 s or longer to toggle Mic Mute. An announce-only
+  `media_player` (WAV, PSRAM buffers; heap about 203 KB free, down about 5 KB)
+  gives the satellite `assist_satellite.announce`, and HA scripts
+  `doofus_say` (speak text) and `doofus_ask` (prompt → `conversation.fast` →
+  speak) use it. The shared I2S bus means each announcement stops the wake
+  word and restarts it on idle; the speaker's first start retries once
+  ("Parent bus is busy"), adding about 1 s.
 - **VAD model** in `micro_wake_word`, only if false accepts show up.
 
 #### Custom wake word — "Hey Doofus"

@@ -21,3 +21,52 @@ recorder:
   # Commit every 5 s instead of every 1 s: fewer WAL writes to the zvol, and
   # nothing here needs sub-second history.
   commit_interval: 5
+
+# Push speech to the Doofus satellite without the wake word (2026-09-19). Run
+# from the HA app: Settings → Automations & scenes → Scripts, or add them to a
+# dashboard. Both speak with the satellite's pipeline voice (norman x0.8).
+# Announcements need the satellite's media_player (esphome/voice-satellite.yaml).
+script:
+  doofus_say:
+    alias: Doofus — say this
+    icon: mdi:bullhorn
+    mode: queued
+    fields:
+      message:
+        name: Message
+        required: true
+        selector:
+          text:
+            multiline: true
+    sequence:
+      - action: assist_satellite.announce
+        target:
+          entity_id: assist_satellite.doofus1_assist_satellite
+        data:
+          message: "{{ message }}"
+          preannounce: false
+
+  doofus_ask:
+    alias: Doofus — ask the LLM
+    icon: mdi:robot-happy
+    mode: queued
+    fields:
+      prompt:
+        name: Prompt
+        required: true
+        selector:
+          text:
+            multiline: true
+    sequence:
+      # The same agent and persona as the voice pipeline, answered out loud.
+      - action: conversation.process
+        data:
+          agent_id: conversation.fast
+          text: "{{ prompt }}"
+        response_variable: reply
+      - action: assist_satellite.announce
+        target:
+          entity_id: assist_satellite.doofus1_assist_satellite
+        data:
+          message: "{{ reply.response.speech.plain.speech }}"
+          preannounce: false
