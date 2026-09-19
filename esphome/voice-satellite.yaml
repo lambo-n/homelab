@@ -11,9 +11,9 @@
 #                            show room (the frame buffers are the largest cost)
 #   NO  web_server, captive_portal, verbose logging
 #
-# Pin map: from ulsmith/home-assistant-esphome-esp32-s3-touch-lcd-185c
-# @ db184c07 (verified working on the 1.85C by its author), cross-checked
-# against Waveshare's 1.85C wiki schematic in V0. That config streams audio to
+# Pin map: first from ulsmith/home-assistant-esphome-esp32-s3-touch-lcd-185c
+# @ db184c07; its audio pins were wrong for this board and the audio section
+# now follows Waveshare's official examples (see i2s_audio below). That config streams audio to
 # HA continuously for server-side wake word; this one does NOT -- the wake word
 # runs on the device and the mic reaches the network only after it fires.
 #
@@ -27,6 +27,9 @@ esphome:
   on_boot:
     priority: -100
     then:
+      - speaker.volume_set:
+          id: spk
+          volume: !lambda return id(speaker_volume).state / 100.0f;
       - micro_wake_word.start:
 
 esp32:
@@ -48,7 +51,9 @@ psram:
   speed: 80MHz
 
 logger:
-  level: WARN
+  # TEMPORARY (2026-09-19): DEBUG while diagnosing no wake word models and a
+  # silent mic. Back to WARN once both are fixed.
+  level: DEBUG
 
 api:
   encryption:
@@ -73,34 +78,95 @@ wifi:
   # join Wi-Fi is fixed over USB anyway.
   ap: !remove
 
-# Two separate I2S ports: the mic keeps feeding the wake word while the
-# speaker plays, with no shared-clock contention.
+# Audio wiring from Waveshare's own code for this board
+# (waveshareteam/ESP32-S3-Touch-LCD-1.85C, Arduino examples 03_audio_out and
+# 08_esp_sr), NOT the community config the pins first came from: that one drove
+# GPIO2 (really MCLK) and GPIO15 (really the amp enable) as mic clocks, and the
+# mic read all-zero samples (-inf dB) on both channels (2026-09-19).
+#
+# One I2S bus shared by both chips: the ES7210 ADC digitises the two analog
+# mics, the ES8311 codec drives the speaker. Both need MCLK and an I2C setup,
+# which the audio_adc / audio_dac components below do at boot. Mic and speaker
+# take turns on the bus (ESPHome locks it), which suits this device: the wake
+# word stops after detection and restarts in voice_assistant.on_end.
+i2c:
+  sda: GPIO11
+  scl: GPIO10
+  # TEMPORARY (2026-09-19): log the bus at boot. Expect touch 0x15, PCA9554
+  # 0x20, ES8311 0x18, ES7210 0x40 (RTC too). Remove with the DEBUG logger.
+  scan: true
+
 i2s_audio:
-  - id: i2s_in
-    i2s_lrclk_pin: GPIO2
-    i2s_bclk_pin: GPIO15
-  - id: i2s_out
+  - id: i2s_bus
     i2s_lrclk_pin: GPIO38
     i2s_bclk_pin: GPIO48
+    i2s_mclk_pin: GPIO2
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    bits_per_sample: 16bit
+    sample_rate: 16000
+    # Waveshare's speech-recognition example uses 36 dB.
+    mic_gain: 36db
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    bits_per_sample: 16bit
+    sample_rate: 16000
 
 microphone:
   - platform: i2s_audio
     id: mic
-    i2s_audio_id: i2s_in
+    i2s_audio_id: i2s_bus
     i2s_din_pin: GPIO39
     adc_type: external
     pdm: false
-    channel: right
+    # The ES7210 puts mic 1 on the left slot, mic 2 on the right.
+    channel: left
     sample_rate: 16000
     bits_per_sample: 16bit
 
 speaker:
   - platform: i2s_audio
     id: spk
-    i2s_audio_id: i2s_out
+    i2s_audio_id: i2s_bus
     i2s_dout_pin: GPIO47
     dac_type: external
-    i2s_mode: primary
+    audio_dac: es8311_dac
+    sample_rate: 16000
+    bits_per_sample: 16bit
+
+# Speaker amplifier enable. Waveshare's audio example drives it HIGH before
+# playing; nothing else uses the pin.
+switch:
+  - platform: gpio
+    id: speaker_amp
+    pin: GPIO15
+    restore_mode: ALWAYS_ON
+    internal: true
+
+# Output volume, set through the ES8311. The speaker defaults to full scale,
+# which is far too loud in a room (2026-09-19). A slider in HA, kept across
+# reboots and applied at boot.
+number:
+  - platform: template
+    id: speaker_volume
+    name: Speaker Volume
+    icon: mdi:volume-high
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 5
+    initial_value: 30
+    restore_value: true
+    optimistic: true
+    mode: slider
+    on_value:
+      - speaker.volume_set:
+          id: spk
+          volume: !lambda return x / 100.0f;
 
 micro_wake_word:
   id: mww
@@ -185,3 +251,14 @@ sensor:
   - platform: wifi_signal
     name: Wi-Fi Signal
     update_interval: 60s
+  # TEMPORARY diagnostic (2026-09-19): mic loudness, to tell a silent mic from
+  # a wake word problem. Passive: it reads only while the wake word (or a
+  # conversation) holds the mic, so it never keeps the shared I2S bus from
+  # the speaker.
+  - platform: sound_level
+    passive: true
+    measurement_duration: 1s
+    peak:
+      name: Mic Peak
+    rms:
+      name: Mic RMS
