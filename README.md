@@ -104,7 +104,7 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 >
 > The same enumeration found **10.47 TiB of SAS SSD that this table never
 > mentioned** — three disks that previously carried bare ext4 filesystems with no
-> redundancy (reclaimed and wiped 2026-09-09 per [`SAS-RECLAIM.md`](SAS-RECLAIM.md)).
+> redundancy (reclaimed and wiped 2026-09-09 per [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md)).
 
 > **Storage pool active 2026-09-09.** The three SAS SSDs are configured as
 > **`sas-pool`** in RAIDZ1 (6.85 TiB usable) on the Proxmox host under `sanoid`,
@@ -178,6 +178,19 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
   > property of the SSH path, not of the tailnet. Nothing enforces it at the
   > network layer. Corrected 2026-09-09; see
   > [`GITOPS.md`](GITOPS.md#tailscale-host).
+
+- **The dev VM (`.103`) accepts SSH from the gateway only** (2026-09-17). `ufw`:
+  default deny incoming, allow `22/tcp` from `192.168.50.102`. Verified from `llm`
+  and `k3s-worker1` that `:22` and rpcbind `:111` are blocked, and that the VM's
+  outbound traffic (kubectl, GitHub, SSH to guests, HA, llama) still works. Tailnet
+  traffic through the subnet route *also* arrives as `.102`, so this rule cannot
+  tell ProxyJump from a routed tailnet device; the key check (only the owner's two
+  GitHub keys) is what separates them. Rescue if locked out: the PVE console,
+  `sudo ufw disable`.
+- **SSH from the dev VM to guests is one-way** (2026-09-17). Its own key,
+  `~/.ssh/id_ed25519_homelab`, is in `authorized_keys` on `llm` and the three k3s
+  nodes, pinned with `from="192.168.50.103"`. No guest holds a key the dev VM
+  accepts, and the Proxmox host is deliberately not included.
 
 ---
 
@@ -395,6 +408,9 @@ kubernetes/apps/
 .github/scripts/          render-charts.py — renders every HelmRelease from its pinned chart version
 scripts/                  one-shot bootstrap scripts (tunnel, MinIO accounts, Infisical seed)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
+runbooks/                 repeatable procedures, meant to be re-run (restore drill, snapshot verification)
+archive/                  completed one-time runbooks and superseded designs — history, not live docs
+BACKLOG.md                every open item across this repo, in one place
 ```
 
 Each app is `ks.yaml` (a Flux `Kustomization`) plus `app/` (plain manifests).
@@ -489,10 +505,14 @@ never be `cat`-ed**, including to display it for backup.
 
 | Document | Covers |
 |---|---|
-| [`GITOPS.md`](GITOPS.md) | **Flags, gotchas, config context and open items, by tool.** Start here when something is odd |
-| [`STORAGE.md`](STORAGE.md) | The PGDATA zvol and worker disk growth — runs on the Proxmox host |
-| [`SANOID.md`](SANOID.md) | ZFS snapshot policy and the rollback drill — same host |
-| [`RESTORE.md`](RESTORE.md) | The CNPG restore drill, step by step |
-| [`HOST-MONITORING.md`](HOST-MONITORING.md) | SMART tests, scrubs and host metrics — the goals left over from the deferred TrueNAS guest, and the host-side runbook they start with |
+| [`GITOPS.md`](GITOPS.md) | **Flags, gotchas and config context, by tool.** Start here when something is odd |
+| [`BACKLOG.md`](BACKLOG.md) | Every open item across this repo, in one place |
+| [`HARDWARE.md`](HARDWARE.md) | The physical inventory — devices, controllers, capacity |
+| [`GPU-VM.md`](GPU-VM.md) | VM 105's GPU passthrough and llama.cpp inference stack — current state |
+| [`SANOID.md`](SANOID.md) | ZFS snapshot policy — which datasets, on what schedule |
+| [`SAS-STORAGE.md`](SAS-STORAGE.md) | `sas-pool` — architecture, snapshots, Samba access |
+| [`HOST-MONITORING.md`](HOST-MONITORING.md) | SMART tests, scrubs and host metrics — what's live and what's still open |
+| [`runbooks/`](runbooks/) | Repeatable procedures — the CNPG restore drill, the snapshot rollback drill |
+| [`archive/`](archive/) | Completed one-time runbooks and superseded designs, kept for history |
 | `tofu/README.md` | The OpenTofu root module, its tokens, and the import history |
 | `AGENTS.md` | Orientation for AI assistants working in this tree |

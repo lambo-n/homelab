@@ -12,11 +12,14 @@ Nothing here is theory. Every ⚠️ is something that already happened on this
 cluster, with the date it happened and how it was diagnosed. Several of them
 describe failures that reported success — those are the ones worth reading twice.
 
-Three runbooks hold procedures that cannot run from inside the cluster:
-[`STORAGE.md`](STORAGE.md) (PGDATA zvol, worker disk growth — on the Proxmox
-host), [`SANOID.md`](SANOID.md) (ZFS snapshots, same host), and
-[`RESTORE.md`](RESTORE.md) (the CNPG restore drill). `tofu/README.md` covers the
-OpenTofu root module.
+The PGDATA zvol and worker disk growth were built via a host-side runbook, now
+complete and archived at [`archive/STORAGE.md`](archive/STORAGE.md); the
+resulting config is current-state reference in [`SANOID.md`](SANOID.md) (ZFS
+snapshots) and [`HARDWARE.md`](HARDWARE.md). Two **repeatable** runbooks live
+under `runbooks/`: [`runbooks/RESTORE.md`](runbooks/RESTORE.md) (the CNPG
+restore drill) and [`runbooks/SANOID-VERIFY.md`](runbooks/SANOID-VERIFY.md)
+(the snapshot rollback drill). `tofu/README.md` covers the OpenTofu root module.
+Open items and remaining backlog live in [`BACKLOG.md`](BACKLOG.md), not here.
 
 ---
 
@@ -45,77 +48,10 @@ OpenTofu root module.
 
 ## Open items
 
-Everything the phased migration left deliberately unfinished. Nothing here is
-blocking; each entry says what it is waiting on.
-
-### Waiting on a decision
-
-- [ ] **Retire the legacy NFS PV/PVC** (`postgres-pvc` → `postgres-pv`, 100 GiB,
-      `Retain`). Still bound, still holding the pre-cutover data. They live in
-      `sunfire-storage` where prune is permanently disabled, so removing them is a
-      manual act a git edit cannot do by accident. The clock is the decay note under
-      [CloudNativePG](#cloudnativepg--plugin-barman-cloud): when rolling back would
-      lose more than it saves, there is nothing left to keep them for.
-- [ ] **Verify the 15-day retention projection** — due around **2026-09-19**. The
-      figure is derived from 65,810 active series, not measured. Check that
-      `retention: 15d` is what is actually happening rather than `retentionSize: 4GiB`
-      truncating it; the whole point of that finding is that the two can disagree in
-      silence. See [kube-prometheus-stack](#kube-prometheus-stack).
-- [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
-      *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
-      grants layer-3 access to every port on the LAN — see
-      [Tailscale](#tailscale-host). Three options: leave it (one operator, four
-      devices, and the honest documentation now exists); restrict it with a
-      Tailscale ACL so only named devices may use the route; or drop the route and
-      go back to `ProxyJump` only, which costs the ability to reach `:8006` and
-      Grafana without a jump host. **Not urgent** — this is the same "100% uptime
-      is not guaranteed, nothing here is worth much" calculus as the rest of
-      `README.md`'s operating assumptions. It is listed because it was undocumented,
-      not because it is wrong.
-- [ ] **Repoint `sunfire-postgrest`'s `dependsOn`** at `sunfire-postgres-cnpg`. It
-      still names `sunfire-postgres`, which since 2026-09-04 holds only a Secret.
-      Harmless — a secret-only Kustomization is always Ready — but the edge no longer
-      means what it says.
-
-### Blocked on a layer that does not exist yet
-
-- [ ] **Pin `sanoid` in Ansible/host config.** It is host-level, not a Kubernetes
-      object, so neither Flux nor OpenTofu reconciles it. Needs the host-config layer
-      named in the [scope split](#scope-flux-manages-the-cluster-not-the-hypervisor).
-- [ ] **Build host monitoring** *(raised 2026-09-10)*. The Proxmox host is not a
-      scrape target, so no host disk is watched by anything here, and the SAS SSDs
-      have not self-tested since lifetime hour 2. Seven goals, split host-side
-      (`smartd`, scrub timers, node-exporter, textfile metrics — operator, first)
-      and cluster-side (`ScrapeConfig`, `PrometheusRule`, dashboard, optional
-      `prometheus-pve-exporter` — this repo, after). The CRDs and chart selectors
-      are already in place. See [`HOST-MONITORING.md`](HOST-MONITORING.md); note
-      its pve-exporter section touches the in-cluster-hypervisor-token line drawn
-      under [Explicitly rejected](#explicitly-rejected).
-- [ ] **Split the OpenTofu root module in two.** Both providers share one root, so a
-      Proxmox-only plan still refreshes Cloudflare and dies without that token.
-      `-refresh=false` is the workaround in use. See [OpenTofu](#opentofu).
-
-### Backlog — not now
-
-- [ ] kubeconform or [`flux-schema`](https://github.com/fluxcd/flux-schema) validation in CI
-      *(my own recommendation — the reference repo does **not** do this)*
-- [ ] **`tofu validate` + `tofu fmt -check` in CI for PRs touching `tofu/`.** Neither
-      needs credentials, so no secret has to reach GitHub Actions — but `tofu init`
-      does download providers, so the job is not hermetic. Added 2026-09-15 after
-      Renovate raised the provider constraints in `versions.tf` without refreshing
-      `.terraform.lock.hcl`: **every tofu command then failed on a fresh checkout**
-      (`Required plugins are not installed`) and nothing noticed for six days,
-      because `validate-manifests.yaml` covers `kubernetes/` only. A job that runs
-      `init` would have failed the Renovate PR itself. See
-      [`tofu/README.md`](tofu/README.md#versions)
-- [ ] Loki + Promtail for logs — the third Flux dashboard (`logs.json`) is deliberately not
-      deployed because there is nothing to back it. Wants its own storage answer first:
-      the TSDB argument in Phase 7 applies again, and worker1's root disk is already the
-      constraint
-- [ ] Talos Linux for the k3s nodes — the real endgame for declarative node config, but a rebuild
-- [ ] Gateway API / Envoy Gateway instead of Traefik Ingress (CRDs already present)
-- [ ] ~~External Secrets Operator~~ — superseded by the Infisical Operator for the cross-boundary class; SOPS keeps the cluster-only class
-
+Tracked in [`BACKLOG.md`](BACKLOG.md), not here — that file consolidates open
+items from across this repo in one place. What follows below is current
+per-tool reference, plus one standing record of decisions that are *closed*,
+not open:
 
 ### Explicitly rejected
 
@@ -622,7 +558,7 @@ checks Flux can gate on — not only backups. Note barman-cloud is now a **separ
 > `postgres.sunfire.svc.cluster.local`, so PostgREST reads the *old* Deployment and
 > the CNPG cluster sits idle apart from archiving. **Both databases are live and
 > will now drift.** Repointing PostgREST at `postgres-cnpg-rw` is its own commit,
-> and `RESTORE.md` should run before it — the drill is what proves the new stack is
+> and `runbooks/RESTORE.md` should run before it — the drill is what proves the new stack is
 > recoverable, and it is far cheaper to find a problem while the old Deployment is
 > still authoritative.
 
@@ -1054,7 +990,7 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 >    out `archive-pool`, the only redundant storage this cluster has, and leaves
 >    `local-path`, which means a node's root disk.
 > 2. **It must not share a filesystem with PGDATA.** `k3s-worker2`'s `local-path` directory
->    *is* the PGDATA zvol — `STORAGE.md` §1–5 exists to make that true. `local-path`
+>    *is* the PGDATA zvol — `archive/STORAGE.md` §1–5 exists to make that true. `local-path`
 >    provisions a directory, not a quota, so a runaway TSDB there would fill the database's
 >    filesystem and undo exactly the separation that document was written to create.
 >    Prometheus, Alertmanager and Grafana are therefore all pinned to `k3s-worker1`, whose
@@ -1112,7 +1048,7 @@ Tailscale state. It provides two things:
 |---|---|
 | Exit node | offered, `AllowedIPs` includes `0.0.0.0/0` and `::/0` |
 | Subnet router | advertises **and has approved** `192.168.50.0/24` — `PrimaryRoutes: ["192.168.50.0/24"]` |
-| SSH session recording | `/var/log/ts-ssh-records`, on the `/archive-pool/ts-ssh-records` bind mount (`STORAGE.md:416-448`, `SAS-RECLAIM.md`) |
+| SSH session recording | `/var/log/ts-ssh-records`, on the `/archive-pool/ts-ssh-records` bind mount (`archive/STORAGE.md:416-448`, `archive/SAS-RECLAIM.md`) |
 
 > ⚠️ **The subnet route is a second way in, and it is not the recorded one**
 > *(found 2026-09-09)*. `README.md` asserted that administrative access "is
@@ -1295,7 +1231,7 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 > The cause was the stock Ubuntu Server installer: an 18.22 GiB VG on `sda3`
 > with only a 10 GiB root LV carved out of it. No Proxmox resize and no
 > thin-pool space were needed — `lvextend -l +100%FREE` plus `resize2fs`, online,
-> on each worker. `STORAGE.md` §6 records it.
+> on each worker. `archive/STORAGE.md` §6 records it.
 >
 > Note `.status.allocatable.ephemeral-storage` still reports the pre-growth
 > figure afterwards: kubelet caches it from cadvisor machine info and refreshes
@@ -1330,7 +1266,7 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 > device on `archive-pool` puts it on the storage that exists for exactly this.
 > `storage:` is now `64Gi`, matching the zvol, so the manifest states a number
 > something actually enforces. The root disks still grow to ~24 GiB, for
-> container-image churn only. Host-side procedure: `STORAGE.md`.
+> container-image churn only. Host-side procedure: `archive/STORAGE.md`.
 >
 > One thing this does *not* invalidate: the manifests are correct. All three
 > objects pass
@@ -1404,7 +1340,7 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 >
 > The worker root filesystems are still growing 9.75 → ~24 GiB, but for
 > **container-image churn only** — 6.5 of 9.75 GiB is already used. No database
-> data lands there. See `STORAGE.md`.
+> data lands there. See `archive/STORAGE.md`.
 
 > **Three steps are yours, not the assistant's** *(was two; the disk grow is
 > new)*. `kubectl exec` against a pod is
@@ -1417,10 +1353,10 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 > barman needs to list WALs and backups. Same reasoning, opposite answer; it is
 > not a copy-paste slip.
 >
-> The third is **`STORAGE.md`** — creating the PGDATA zvol on `archive-pool`,
+> The third is **`archive/STORAGE.md`** — creating the PGDATA zvol on `archive-pool`,
 > attaching it to `k3s-worker2`, and growing the three root disks for image
 > churn. Proxmox has no Kubernetes API to reach it through, and the zvol now
-> gates the CNPG cutover. `RESTORE.md` is likewise yours to execute end to end;
+> gates the CNPG cutover. `runbooks/RESTORE.md` is likewise yours to execute end to end;
 > it is written and blocked on the same volume, since a restore drill needs a
 > second PGDATA alongside the live one.
 
@@ -1437,138 +1373,10 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 
 ## Migration history
 
-The homelab was moved to GitOps in seven phases between **2026-09-02 and
-2026-09-04**. All seven are complete, and the "Known gaps" list they were written
-against is fully closed.
-
-These headings are kept because other documents link to them by number —
-`STORAGE.md`, `SANOID.md`, `RESTORE.md`, `tofu/README.md` and three files in the
-separate `~/sunfire/` repo all say *"see GITOPS.md Phase N"*. The findings each
-phase produced have moved up into the tool sections above; what remains here is
-the timeline and what was verified when.
-
-### Phase 1 — Prerequisites ✅ *done 2026-09-02*
-
-mise installed and pinning `kubectl`/`flux2`/`helm`/`sops`/`age`; all four
-workload images moved off `:latest` onto `tag@sha256:digest`, resolved from the
-digests **actually running** so adoption upgraded nothing by accident. The one
-real change was `postgres:16` → `16.15`, because the running pod sat on an older
-now-untagged 16.x. → [Renovate](#renovate), [mise](#mise)
-
-### Phase 2 — Secrets ✅ *done 2026-09-02*
-
-All five secrets encrypted as `*.sops.yaml` with age; `.gitignore` set to refuse a
-bare `secret.yaml` outright; `age.key` backed up to LastPass. One item deferred to
-Phase 3 (the in-cluster `sops-age` Secret, which needs Flux to exist).
-→ [SOPS + age](#sops--age)
-
-### Phase 2b — Infisical ✅ *done 2026-09-04*
-
-Cross-boundary secrets (`PGRST_JWT_SECRET`, four scoped MinIO Worker keys) moved
-to Infisical as system of record, with the Infisical Operator reconciling them
-into the cluster. `minio-worker-credentials` — a Secret no Deployment referenced,
-sitting in the cluster purely as a filing cabinet — was moved and deleted, all
-four values sha256-matched. → [Infisical](#infisical)
-
-### Phase 3 — Flux ✅ *done 2026-09-02*
-
-`flux-operator` + a `FluxInstance` running four controllers, syncing
-`kubernetes/flux/cluster` over SSH with a read-only deploy key. The live cluster
-was **adopted**, not recreated: the NFS PVs were taken over in place. `prune: true`
-followed on 2026-09-03 after clean reconciles. → [Flux](#flux--flux-operator)
-
-### Phase 4 — Renovate ✅ *done 2026-09-03*
-
-Self-hosted `renovatebot/github-action` on a daily cron, extended with
-`home-operations/renovate-presets` so it parses `HelmRelease`, `OCIRepository` and
-`Kustomization` files. `**/*.sops.*` excluded from scanning.
-→ [Renovate](#renovate)
-
-### Phase 5 — Data protection ✅ *done 2026-09-04*
-
-The largest phase. PostgreSQL became a CNPG `Cluster` with PGDATA on a 64 GiB zvol
-on `archive-pool`; WAL archived continuously plus a daily base backup into MinIO
-via `plugin-barman-cloud`; `sanoid` snapshotting all three ZFS datasets on `.101`.
-cert-manager and Reloader were both pulled in as dependencies discovered along the
-way.
-
-**Two things were tested rather than assumed, which is the point of the phase:**
-
-- **Restore drill** (`RESTORE.md`) — recovered into a scratch namespace in 56s,
-  row counts matched exactly, `authenticator`'s SCRAM hash fingerprint was
-  identical to the source, and PITR landed *between* two marker writes rather than
-  merely somewhere after the base backup. Wrote nothing to the backup bucket and
-  left no orphans.
-- **Snapshot rollback** (`SANOID.md` §4) — both clone tests passed. The zvol clone
-  returned the same filesystem UUID it was created with, and the `minio-data` clone
-  contained the Postgres backups as well as the guide media.
-
-PostgREST was cut over to `postgres-cnpg-rw` afterwards and verified end to end
-(`HTTP 206`, `Content-Range: 0-0/57`; `401` anonymous), with no Cloudflare Worker
-change required. The legacy `postgres` Deployment was retired later the same day —
-scaled to zero, then deleted and pruned, at 0 PostgREST restarts.
-→ [CloudNativePG](#cloudnativepg--plugin-barman-cloud), [sanoid](#sanoid-host),
-[k3s / storage substrate](#k3s--storage-substrate)
-
-### Phase 6 — Close the clickops gaps ✅ *done 2026-09-04*
-
-Everything that lived in a web dashboard rather than in git. The cloudflared tunnel
-became **locally managed** — which required minting a new tunnel, because
-`config_src` is immutable after creation. Reloader was deployed. All five Proxmox
-guests were imported into OpenTofu state without recreation, `0 to change, 0 to
-destroy`, every body generated from the live guest and reviewed rather than
-hand-written. The MinIO CORS Transform Rule was resolved by **deleting the
-question**: it is vestigial, because no browser ever addresses
-`minio-api.sunosrs.cc`. → [cloudflared](#cloudflared), [OpenTofu](#opentofu)
-
-### Phase 7 — Observability ✅ *done 2026-09-04*
-
-kube-prometheus-stack in an `observability` namespace — 26/26 targets up, 222/222
-rules healthy — plus Flux reconcile-failure alerting on two independent paths, and
-Flux's own Grafana dashboards. Closed the last entry in "Known gaps".
-
-Verified by **causing a failure**: a Kustomization pointed at a nonexistent path
-produced `FluxKustomizationArtifactfailed` in Alertmanager within seconds, and put
-`FluxReconciliationFailure` into `pending` on the same event. That test is what
-surfaced two faults that every health signal called healthy — see
-[kube-prometheus-stack](#kube-prometheus-stack).
-
----
-
-## Context that predates the migration
-
-> **The Sun Clan Bingo app is decommissioned (2026-09-02)**, but MinIO and
-> PostgreSQL are being **kept** for a new Cloudflare Worker, rebranded `bingo`
-> → `sunfire`. Namespaces cannot be renamed, so the namespace is deleted and
-> recreated; node labels, the Postgres database, its owner, and
-> `bingo_readwrite` → `sunfire_readwrite` move with it. Sequence:
-> `POOL-DOWNSIZE.md` §3/§5. Tunnel/zone swap: `sunfire/CUTOVER.md` and `sunfire/homelab/RUNBOOK.md`.
->
-> **Ordering note for Phase 3.** These four Deployments are currently empty
-> shells — zero buckets, zero tables. Porting them to Flux as-is has little
-> value; standing the *new Worker's* stack up under Flux from day one has a lot.
-> Prefer the latter ordering, and treat the `sunfire` rebuild as the natural
-> moment to do it — the manifests are being rewritten anyway.
-
-> **Repository separation** *(settled 2026-09-02)*: three sibling trees under `/home/dev`, never nested.
->
-> | Path | Repo | Role |
-> |---|---|---|
-> | `~/homelab/` | `lambo-n/homelab` (private) | GitOps source of truth — this plan, executable |
-> | `~/sunfire/` | `Sunfire-Team/sunfire` | Consuming app; cloned **for model context only**, read-only here |
-> | `~/sunfire-backend/` | untracked, `chmod 600` | Pre-GitOps hand-applied manifests + plaintext secrets; rollback path |
->
-> **Do not `git init` in `/home/dev` itself** — it would swallow the `~/sunfire/`
-> clone, `~/.ssh`, and `~/.claude.json`. Keeping `~/sunfire/` a sibling means the
-> app repo and the infra repo can be committed and pushed independently, and the
-> `~/homelab` `.gitignore` never has to reason about a nested working tree.
->
-> Chose `lambo-n` over the `Sunfire-Team` org: the cluster is personal infra, and
-> org members would otherwise inherit access to the encrypted tunnel token and DB
-> credentials.
-
-**Superseded 2026-09-04:** `~/sunfire-backend/` no longer exists. Every value in
-it was hash-verified against SOPS and Infisical first; the only two that were
-irrecoverable were already dead (a token for the deleted tunnel, and a
-pre-cutover `PGRST_DB_URI`). The rollback path is git history. `~/archive/` now
-holds the decommissioned bingo assets, `chmod 700`.
+The homelab was moved to GitOps in seven phases between 2026-09-02 and
+2026-09-04. All seven are complete, and the findings each phase produced have
+moved up into the tool sections above. The timeline itself, and the pre-GitOps
+context it grew out of, are archived at
+[`archive/GITOPS-MIGRATION.md`](archive/GITOPS-MIGRATION.md) — other documents
+that say "see GITOPS.md Phase N" mean the tool section a phase number maps to
+there.

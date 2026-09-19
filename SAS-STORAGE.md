@@ -4,42 +4,16 @@ This document details the architecture, ZFS pool layout, snapshot automation,
 and Samba access for **`sas-pool`**, built on the three 3.84 TB Samsung SAS SSDs
 on `192.168.50.101` (`pve`).
 
-> ✅ **Resolved 2026-09-16 — but read this before the next reboot.**
-> `sas-pool` was found **not imported** while running [`GPU-VM.md`](GPU-VM.md)
-> A2, and had been since the host booted for the GPU install on 2026-09-15
-> 14:20 PDT. The owner imported it (**140 GiB intact, no data lost**) and
-> enabled `zfs-import-scan`.
->
-> **Why it happened, and why nothing complained:**
->
-> - **This pool has no owner for its import.** It is host-native and *not* in
->   `/etc/pve/storage.cfg`, so nothing brings it up at boot. `archive-pool` is a
->   PVE storage, so `pvestatd` activates it — which is why that one was imported
->   and snapshotting all evening while this one sat idle. The difference is not
->   ZFS, it is who owns the import.
-> - On that boot `/etc/zfs/zpool.cache` was missing or empty, so
->   `zfs-import-cache` skipped itself on `ConditionFileNotEmpty`, and
->   `zfs-import-scan` was **disabled**. Nothing was left to try.
-> - `smbd` started regardless and served `/sas-pool` — an **empty directory** —
->   as the `[data]` share, and `sanoid` kept firing every 15 minutes against a
->   dataset that did not exist. **Both dependants reported healthy.**
->
-> **The durable fix is `systemctl enable zfs-import-scan`, not the cachefile.**
-> The PVE ZFS plugin imports with `-o cachefile=none`, so `zpool get cachefile`
-> reads `none`/`local` and setting it back to `/etc/zfs/zpool.cache` can be
-> reverted on the next activation. `zfs-import-scan` protects both pools.
->
-> ⚠️ **`zpool status -x` does not catch this.** An unimported pool is not
-> unhealthy, it is absent, and `-x` happily reports "all pools are healthy".
-> After any reboot of `.101`, check **`zpool list`** and confirm all three pools
-> are present by name before trusting `/sas-pool/data` or the `[data]` share.
->
-> ✅ **Fix proven across a real reboot, 2026-09-16 00:48 PDT.** The
-> [`GPU-VM.md`](GPU-VM.md) B2 power cycle was the same kind of boot that dropped
-> the pool the first time, and `sas-pool` imported on its own alongside
-> `archive-pool` and `llm-pool`. `zpool list` then read `ALLOC 210G` — raw space
-> including RAIDZ1 parity, ~1.5 × the ~140 GiB `USED` seen at recovery, not new
-> data.
+> ⚠️ **`zpool status -x` cannot detect an unimported pool — check `zpool list`
+> after every host reboot.** `sas-pool` is host-native, not a PVE storage, so
+> nothing owns its import the way `pvestatd` owns `archive-pool`'s. It went
+> missing for a full day in 2026-09-15/16 while every dependant (`smbd`,
+> `sanoid`) reported healthy against an absent pool. The fix —
+> `systemctl enable zfs-import-scan` — is in place and has been proven across
+> one real reboot. Confirm all three pools (`archive-pool`, `sas-pool`,
+> `llm-pool`) are present by name before trusting `/sas-pool/data` or the
+> `[data]` share. Full incident record:
+> [`archive/SAS-STORAGE-INCIDENT.md`](archive/SAS-STORAGE-INCIDENT.md).
 
 ---
 
@@ -47,7 +21,7 @@ on `192.168.50.101` (`pve`).
 
 ### 1. The Disks
 
-Following [`SAS-RECLAIM.md`](SAS-RECLAIM.md), the three Samsung PM1633a 3.84 TB
+Following [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md), the three Samsung PM1633a 3.84 TB
 SAS SSDs were freed from ext4, wiped with `wipefs -a`, and verified healthy:
 
 | Device | `by-id` | Serial | Size | Role |
@@ -79,25 +53,11 @@ surfaced regarding the **Dell PERC H355 Front** controller (`c3:00.0`):
 performance, zero VM RAM overhead, uniform `sanoid` snapshot scheduling, and zero
 device contention.
 
-> **The unbind really did fault the pool — evidence recovered 2026-09-10.** Point 1
-> above was written as a constraint discovered by reasoning about the cabling. ZED
-> had in fact logged it happening: three `ZFS device fault for pool archive-pool`
-> events at **15:53:45** and a `ZFS resilver_finish` at **15:57:42** on 2026-09-09,
-> during the passthrough attempt. `archive-pool` lost its members, faulted, and
-> resilvered itself in four minutes once they came back — short because nothing had
-> changed in the interval.
->
-> **Nobody saw any of it for hours.** The notifications were found sitting in the
-> postfix queue while fixing an unrelated mail problem
-> ([`HOST-MONITORING.md`](HOST-MONITORING.md) A1) — `/etc/aliases.db` had never been
-> built, so every message this host ever generated was deferred, unread.
->
-> Two things worth keeping from that. ZED's side worked perfectly: the pool holding
-> the live MinIO data and the Postgres NFS PV faulted, and the host said so
-> immediately, in detail, to an address that could not receive it. **The detection
-> was never the missing piece — the delivery was.** And a documented risk had
-> already become a logged event without anyone noticing, which is the strongest
-> available argument for Part B of `HOST-MONITORING.md`.
+> ⚠️ **Unbinding the controller really did fault `archive-pool`, briefly** — it
+> resilvered clean in four minutes once the drives came back, and the incident
+> went unnoticed for hours only because host mail delivery was silently broken
+> at the time. See [`archive/SAS-STORAGE-INCIDENT.md`](archive/SAS-STORAGE-INCIDENT.md)
+> for the full account and why it argues for [`HOST-MONITORING.md`](HOST-MONITORING.md).
 
 ---
 

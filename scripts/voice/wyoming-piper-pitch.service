@@ -1,0 +1,41 @@
+# Install: VOICE.md V1. Pitch-shifted Piper voice(s) on VM 105, proxied in
+# front of wyoming-piper (:10200).
+#
+# piper_pitch_proxy.py forwards synthesis to wyoming-piper, then runs the
+# returned PCM through ffmpeg's asetrate+atempo trick (lower pitch, tempo
+# corrected back to the original speed) and advertises the result as its own
+# Wyoming voice. wyoming-piper's own voice list on :10200 is unchanged --
+# add this as a *second* Wyoming Protocol integration in HA, pointed at
+# :10201, to pick the pitched voice up as a separate selectable option.
+#
+# Deploy the script alongside this unit (same venv, no new Python deps --
+# `wyoming` is already installed as a wyoming-piper dependency):
+#   scp -3 scripts/voice/piper_pitch_proxy.py llm:/tmp/
+#   ssh llm 'sudo install -o wyoming -g wyoming -m 644 /tmp/piper_pitch_proxy.py /opt/wyoming/piper/piper_pitch_proxy.py'
+#
+# Needs ffmpeg on the host: `sudo apt install ffmpeg`.
+#
+# No auth in the Wyoming protocol: ufw must admit :10201 from the three k3s
+# node IPs only, same as :10200 (VOICE.md V1) -- add the rule by hand,
+# `sudo ufw allow from <node-ip> to any port 10201 proto tcp` per node.
+[Unit]
+Description=Wyoming Piper pitch-shift proxy on :10201 (homelab VOICE.md V1)
+Wants=network-online.target wyoming-piper.service
+After=network-online.target wyoming-piper.service
+Requires=wyoming-piper.service
+RequiresMountsFor=/models
+
+[Service]
+User=wyoming
+Group=wyoming
+ExecStart=/opt/wyoming/piper/.venv/bin/python3 /opt/wyoming/piper/piper_pitch_proxy.py \
+  --uri tcp://0.0.0.0:10201 \
+  --backend-host 127.0.0.1 \
+  --backend-port 10200 \
+  --voice en_US-norman-medium \
+  --pitch 0.8
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

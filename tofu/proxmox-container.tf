@@ -22,7 +22,7 @@
 # safe to run on a running guest with a read-only token.
 #
 # Note the bind mount: previously /mnt/sas1/tailscale-gateway-logs on the host,
-# repointed to /archive-pool/ts-ssh-records on 2026-09-09 per SAS-RECLAIM.md.
+# repointed to /archive-pool/ts-ssh-records on 2026-09-09 per homelab/archive/SAS-RECLAIM.md.
 
 import {
   to = proxmox_virtual_environment_container.tailscale_gateway

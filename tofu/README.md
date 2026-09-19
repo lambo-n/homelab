@@ -297,7 +297,7 @@ auditor-only at the time, so this was not a widening.
 > 🔴 **That stopped being safe on 2026-09-16.** `tofu@pve` has to gain write
 > roles on `/vms/105` and the storages for the `!llm` token to work at all — a
 > privsep token's rights are the **intersection** of its own ACLs and its user's,
-> so a token cannot exceed its user ([`../GPU-VM.md`](../GPU-VM.md) §A5). With
+> so a token cannot exceed its user ([`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5). With
 > `--privsep 0`, `!import` would inherit every one of those write roles and stop
 > being read-only. ✅ **Done 2026-09-16** — switched to `--privsep 1` with its own
 > `PVEAuditor` grant at `/`, *before* the user was widened:
@@ -463,7 +463,7 @@ cost this repo a latent broken plan for six days, and it is worth understanding
 before it happens again.
 
 On 2026-09-09 the LXC's bind mount was repointed on the host with `pct set`
-(`SAS-RECLAIM.md` §3), because `mount_point.volume` is ForceNew and changing it
+(`../archive/SAS-RECLAIM.md` §3), because `mount_point.volume` is ForceNew and changing it
 in tofu would plan a destroy/recreate of the tailnet gateway. The config was then
 reconciled and verified with `tofu plan -target=...` — which **refreshed in
 memory, reported `0 to change`, and exited without persisting anything.** The

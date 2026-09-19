@@ -1,7 +1,12 @@
 # Restore drill — CNPG + barman-cloud
 
-Phase 5's last honest step. GITOPS.md states the reason in four words:
-**untested backups aren't backups.** Everything else in Phase 5 produces
+> 🔁 **Standing runbook — meant to be re-run, not a one-time task.** This lives
+> under `runbooks/` because it is a repeatable procedure: run it again whenever
+> the backup/restore path, the schema, or the plugin version changes materially,
+> not just once. Log each run in §7 rather than overwriting the last result.
+
+GITOPS.md's migration history states the reason in four words:
+**untested backups aren't backups.** Everything else in that migration produced
 objects in a bucket; only this file proves those objects reconstruct a database.
 
 Runs entirely against the Kubernetes API from the dev VM. Nothing here touches
@@ -122,7 +127,7 @@ spec:
   # Must match the source cluster's image, or at least not be older than it.
   imageName: ghcr.io/cloudnative-pg/postgresql:16.15@sha256:34cd4159d07b3410a1b29da35072e2e927a0905e717a61afa3814624a2e8859a
   # Same node as the source. local-path is node-local, and on k3s-worker2 it
-  # provisions into the archive-pool zvol (STORAGE.md) -- which is where the
+  # provisions into the archive-pool zvol (../archive/STORAGE.md) -- which is where the
   # free space in step 0 is actually being measured.
   affinity:
     nodeSelector:

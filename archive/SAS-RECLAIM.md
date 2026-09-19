@@ -1,5 +1,12 @@
 # Reclaiming the SAS disks — retiring ext4, and rehoming the SSH recordings
 
+> 📦 **Archived 2026-09-16 — completed runbook.** Every step below ran and was
+> verified on 2026-09-09. The disks it frees are documented as reclaimed in
+> [`../HARDWARE.md`](../HARDWARE.md) and now carry `sas-pool`
+> ([`../SAS-STORAGE.md`](../SAS-STORAGE.md)); the SSH recordings live at
+> `archive-pool/ts-ssh-records`. Kept here as the historical record of how that
+> was done, not as an active procedure.
+
 **Everything here runs on the Proxmox host `192.168.50.101` as root**, except
 §5, which runs on the dev VM. The dev VM has no SSH key on `.101` and no route
 to the pool (`STORAGE.md:4-5`), so none of §1–4 can be run from there.
