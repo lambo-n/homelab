@@ -341,6 +341,10 @@ and end-of-speech silence wait a real satellite adds.
   can only be added after onboarding. Scrape it and add per-stage pipeline
   latency to Grafana.
 - **Custom wake word** "Hey Doofus": done 2026-09-19, below.
+- **Volume on the screen**: done 2026-09-20. Slide a finger up or down
+  anywhere to set the media player's volume; a bar and percentage show while
+  dragging and fade 1.5 s after release. Under 25 px of travel is still a tap,
+  so tap/long-press are unchanged; 260 px covers the full range.
 - **Touch and announcements**: done 2026-09-19. Touch (CST816T): tap to
   talk or stop, hold for 0.8 s or longer to toggle Mic Mute. An announce-only
   `media_player` (WAV, PSRAM buffers; heap about 203 KB free, down about 5 KB)
@@ -349,6 +353,18 @@ and end-of-speech silence wait a real satellite adds.
   speak) use it. The shared I2S bus means each announcement stops the wake
   word and restarts it on idle; the speaker's first start retries once
   ("Parent bus is busy"), adding about 1 s.
+
+  No audio played from announcements until the satellite was reflashed over
+  USB on 2026-09-20 (that recovery is below); the USB image clears the stored
+  preferences, and the working theory is a stale saved volume/mute state from
+  the earlier OTA builds. `amp`, the ES8311 volume and the media player volume
+  all read correct while it was silent, so the evidence went with the wipe.
+
+  **Never flash from a stale checkout.** A flash from a local `main` that
+  predated the Wi-Fi rotation (`2feb374`) put the old password on the device
+  and took it off the network; recovery was `ESPHOME_KEEP_FIRMWARE=~/fw
+  scripts/esphome-run.sh compile`, `scp -3` to the workstation and
+  web.esphome.io. Check `git log` against `origin/main` before every flash.
 - **VAD model** in `micro_wake_word`, only if false accepts show up.
 
 #### Custom wake word — "Hey Doofus"
