@@ -50,9 +50,10 @@ psram:
   speed: 80MHz
 
 logger:
-  # TEMPORARY (2026-09-19): DEBUG to trace the speaker left retrying "Parent
-  # bus is busy" after replies. Back to WARN once understood.
-  level: DEBUG
+  # The speaker retries once ("Parent bus is busy") at the start of every
+  # reply or announcement: the mic has to release the shared I2S bus first.
+  # Expected, costs about a second, logged at ERROR by the driver.
+  level: WARN
 
 api:
   encryption:
@@ -200,11 +201,6 @@ media_player:
     # Mic and speaker share one I2S bus: stop the wake word while anything
     # plays, and restart it after (unless a conversation will do that itself).
     on_announcement:
-      # TEMPORARY (2026-09-19): no audio heard from announcements. Reports the
-      # amp pin and the ES8311's own volume at the moment playback starts.
-      - lambda: |-
-          ESP_LOGI("audiodbg", "amp=%d dac_vol=%.2f mp_vol=%.2f",
-                   id(speaker_amp).state, id(es8311_dac).volume(), id(mp).volume);
       - micro_wake_word.stop:
       - if:
           condition:
@@ -257,6 +253,24 @@ globals:
   - id: touch_at
     type: uint32_t
     initial_value: "0"
+  # Volume drag: where the finger went down, the volume then, and whether the
+  # touch has moved far enough to count as a drag rather than a tap.
+  - id: drag_start_y
+    type: int
+    initial_value: "0"
+  - id: drag_start_vol
+    type: float
+    initial_value: "0"
+  - id: dragging
+    type: bool
+    initial_value: "false"
+  # millis() until which the volume bar stays on screen.
+  - id: vol_until
+    type: uint32_t
+    initial_value: "0"
+  - id: vol_shown
+    type: float
+    initial_value: "0"
   # Mic Mute's real state. The template switch publishes only after its
   # actions run, so they cannot read the switch itself.
   - id: muted
@@ -266,6 +280,13 @@ globals:
 pca9554:
   - id: exio
     address: 0x20
+
+# Digits for the volume bar. Downloaded at compile time and stored in flash.
+font:
+  - file: "gfonts://Roboto"
+    id: ui_font
+    size: 40
+    glyphs: "0123456789%"
 
 spi:
   - id: display_qspi
@@ -303,6 +324,16 @@ display:
       const Color accent(0, 180, 216);
       static float level[48] = {0};
       it.fill(Color::BLACK);
+      // Volume drag overlay wins over everything else while it is up.
+      if (millis() < id(vol_until)) {
+        const int x0 = 248, y0 = 70, w = 36, h = 220;
+        it.filled_rectangle(x0, y0, w, h, Color(45, 45, 45));
+        const int fill = (int) lroundf(h * id(vol_shown));
+        it.filled_rectangle(x0, y0 + h - fill, w, fill, accent);
+        it.printf(150, cy, id(ui_font), accent, TextAlign::CENTER,
+                  "%d%%", (int) lroundf(id(vol_shown) * 100.0f));
+        return;
+      }
       const int state = id(ui_state);
       if (state == 0) {
         if (id(muted)) {
@@ -366,11 +397,56 @@ touchscreen:
     on_touch:
       - lambda: |-
           id(touch_at) = millis();
+          id(drag_start_y) = touch.y;
+          id(drag_start_vol) = id(mp).volume;
+          id(vol_shown) = id(mp).volume;
+          id(dragging) = false;
           ESP_LOGI("touch", "touch x=%d y=%d", touch.x, touch.y);
-    on_release:
+    # Slide up or down anywhere to set the volume. 260 px of travel covers the
+    # whole range; under 25 px of movement is still a tap.
+    on_update:
+      - lambda: |-
+          if (touches.empty()) return;
+          const int y = touches[0].y;
+          if (!id(dragging) && abs(y - id(drag_start_y)) < 25) return;
+          id(dragging) = true;
+          float v = id(drag_start_vol) + (id(drag_start_y) - y) / 260.0f;
+          v = clamp(v, 0.0f, 1.0f);
+          id(vol_until) = millis() + 1500;
+          if (fabsf(v - id(vol_shown)) >= 0.01f) {
+            id(vol_shown) = v;
+            id(mp).make_call().set_volume(v).perform();
+          }
       - if:
           condition:
-            lambda: return millis() - id(touch_at) >= 800;
+            lambda: return id(dragging);
+          then:
+            - light.turn_on:
+                id: backlight
+                brightness: 80%
+    on_release:
+      # A drag set the volume; it is not a tap and not a long press.
+      - if:
+          condition:
+            lambda: return id(dragging);
+          then:
+            - lambda: |-
+                id(dragging) = false;
+                ESP_LOGI("touch", "volume drag -> %.0f%%", id(vol_shown) * 100.0f);
+          else:
+            - script.execute:
+                id: touch_action
+                held: !lambda "return millis() - id(touch_at) >= 800;"
+
+script:
+  # Tap or long press, once a release has ruled out a volume drag.
+  - id: touch_action
+    parameters:
+      held: bool
+    then:
+      - if:
+          condition:
+            lambda: return held;
           then:
             - switch.toggle: mic_mute
           else:
@@ -389,7 +465,6 @@ touchscreen:
                       else:
                         - voice_assistant.start:
 
-script:
   # Restarts the wake word after a conversation or reconnect, unless muted.
   - id: resume_wake_word
     then:
@@ -428,6 +503,11 @@ interval:
   - interval: 50ms
     then:
       - lambda: |-
+          // The volume bar fades on its own; restore whatever was on screen.
+          if (id(vol_until) != 0 && millis() > id(vol_until)) {
+            id(vol_until) = 0;
+            id(set_ui)->execute(id(ui_state));
+          }
           const int state = id(ui_state);
           if (state == 0) return;
           const uint32_t now = millis();
@@ -444,7 +524,7 @@ interval:
           }
       - if:
           condition:
-            lambda: return id(ui_state) >= 2;
+            lambda: return id(ui_state) >= 2 || millis() < id(vol_until);
           then:
             - component.update: screen
 
