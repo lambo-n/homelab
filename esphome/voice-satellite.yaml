@@ -200,6 +200,11 @@ media_player:
     # Mic and speaker share one I2S bus: stop the wake word while anything
     # plays, and restart it after (unless a conversation will do that itself).
     on_announcement:
+      # TEMPORARY (2026-09-19): no audio heard from announcements. Reports the
+      # amp pin and the ES8311's own volume at the moment playback starts.
+      - lambda: |-
+          ESP_LOGI("audiodbg", "amp=%d dac_vol=%.2f mp_vol=%.2f",
+                   id(speaker_amp).state, id(es8311_dac).volume(), id(mp).volume);
       - micro_wake_word.stop:
       - if:
           condition:
