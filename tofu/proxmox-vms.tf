@@ -13,6 +13,11 @@
 #   units     = 0    -> "expected units to be in the range (1 - 262144)"
 #   timeout_* = ...  -> client-side patience, not machine state (see the
 #                       container file for why these produce a phantom diff)
+#   mac_addresses    -> NOT a validator rejection: removed 2026-09-21. It is
+#                       computed from the guest agent, and on a k3s node it
+#                       lists every pod veth, so it is stale on the next pod
+#                       restart. Once a refresh recorded the new ones, the
+#                       plan tried to "restore" the import-day set.
 #
 # Generation and validation disagreeing is a provider bug, not a fact about the
 # hypervisor. Deleting the attribute lets the schema default stand and the plan
@@ -86,7 +91,6 @@ resource "proxmox_virtual_environment_vm" "k3s_worker1" {
   hotplug                              = null
   keyboard_layout                      = "en-us"
   kvm_arguments                        = ""
-  mac_addresses                        = ["00:00:00:00:00:00", "BC:24:11:35:4C:27", "12:86:B5:E1:B0:FA", "7E:54:53:07:F3:07", "82:03:72:35:16:1C", "BE:EF:1A:6C:2D:8A", "7A:07:B7:00:4E:23", "12:94:FA:E6:F3:B7", "2E:05:55:60:1B:6F", "BE:52:01:F7:15:89", "C2:FB:C6:B3:D5:F3", "76:81:AD:EF:C8:AC", "6E:86:14:EE:BB:AA", "6E:AD:D8:36:0C:56", "7A:86:C1:DF:29:BE", "22:93:90:6F:20:73"]
   machine                              = ""
   migrate                              = false
   name                                 = "k3s-worker1"
@@ -114,7 +118,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker1" {
   started             = true
   stop_on_destroy     = false
   tablet_device       = true
-  tags                = []
+  tags                = ["k3s"]
   template            = false
   vm_id               = 103
   agent {
@@ -184,7 +188,6 @@ resource "proxmox_virtual_environment_vm" "k3s_control" {
   hotplug                              = null
   keyboard_layout                      = "en-us"
   kvm_arguments                        = ""
-  mac_addresses                        = ["00:00:00:00:00:00", "BC:24:11:FE:4B:4A", "FE:69:60:C6:79:AB", "1E:37:DB:32:61:3E", "D2:45:94:1E:E0:DA", "2E:3C:15:F6:C0:8B", "EA:06:10:25:DC:E6", "0A:6F:70:A4:10:40", "FE:CE:47:79:2D:A1"]
   machine                              = ""
   migrate                              = false
   name                                 = "k3s-control"
@@ -278,7 +281,6 @@ resource "proxmox_virtual_environment_vm" "dev" {
   hotplug                              = null
   keyboard_layout                      = "en-us"
   kvm_arguments                        = ""
-  mac_addresses                        = ["00:00:00:00:00:00", "BC:24:11:05:C0:79"]
   machine                              = ""
   migrate                              = false
   name                                 = "dev"
@@ -372,7 +374,6 @@ resource "proxmox_virtual_environment_vm" "k3s_worker2" {
   hotplug                              = null
   keyboard_layout                      = "en-us"
   kvm_arguments                        = ""
-  mac_addresses                        = ["00:00:00:00:00:00", "BC:24:11:9E:50:5F", "5E:20:B8:D4:56:C8", "26:16:C2:99:05:02", "5E:1C:95:91:73:63", "C2:99:2C:2A:49:AB", "A2:77:F4:D3:17:85", "16:8F:42:B3:D4:DD", "66:12:0F:FC:6F:F5", "16:68:AF:E2:7F:70"]
   machine                              = ""
   migrate                              = false
   name                                 = "k3s-worker2"

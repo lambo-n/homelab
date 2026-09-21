@@ -1019,7 +1019,15 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 > `nodefs.available<5%` (~0.96 GB), so Prometheus has ~1.4 GB of growth before the node
 > evicts pods, while `retentionSize` would allow ~1.7 GB. Image GC is already above its
 > 85% threshold and failing to free anything, and DiskPressure fired for 5 minutes on
-> 2026-09-18 14:01 UTC. Tracked in [`BACKLOG.md`](BACKLOG.md).
+> 2026-09-18 14:01 UTC.
+>
+> ✅ **Fixed 2026-09-21**, both ways. `retentionSize` went to **3GiB** so Prometheus's own
+> cap sits under the eviction line. Worker1's disk went **20 → 32 GB** (`qm resize`, then
+> `growpart`/`pvresize`/`lvextend -r` online), which left `/` at 30.2 GiB with 14 GB free.
+> The tofu side took a `TofuDisk` grant on the *token* as well as the user (privsep, see
+> `tofu/README.md`) and a `-refresh-only` apply. That refresh also exposed a `k3s` tag
+> added on the host and the generated `mac_addresses` lists, which were pod veths
+> frozen at import. Both are now fixed in `proxmox-vms.tf`, and the plan is clean.
 >
 > ⚠️ **`metricRelabelings` REPLACES the chart's list, it does not extend it.** Helm merges
 > maps and replaces lists, so overriding the key silently discards the chart's own

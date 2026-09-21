@@ -22,54 +22,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       Decide on the data's actual value: `zfs send` to a rotated external disk,
       `syncoid` over Tailscale, or R2 after all. See `GITOPS.md` → CloudNativePG
       → *R2 rejected*.
-- [ ] **Worker1's root disk is nearly full** *(raised 2026-09-21)*. It has
-      ~2.4 GB free of 17.8 GiB (it had 7.3 GiB at Phase 7). Home Assistant's
-      arrival on 09-16/17 took ~2.8 GB. Image GC is above its 85% threshold and
-      failing to free anything, and DiskPressure fired for 5 minutes on 09-18.
-      The next large image bump (HA is 0.65 GB compressed) needs old and new
-      images on disk together. `retentionSize: 4GiB` also allows ~1.7 GB more
-      TSDB growth, which is more than the ~1.4 GB left before eviction.
-      **In progress** (branch `fix/worker1-disk-headroom`): `retentionSize`
-      is now 3GiB, and the disk went from 20 to 32 GB. The resize is manual,
-      because tofu is read-only for VM 103.
-
-      *Done 2026-09-21:* on the Proxmox host, `qm resize 103 scsi0 +12G` and
-      `TofuDisk` granted. On worker1, `growpart /dev/sda 3`, `pvresize`, then
-      `lvextend -l +100%FREE -r`. `/` is now 30G with 14 GB free. The guest
-      saw the new size without a SCSI rescan.
-
-      *Still to do*, in a normal terminal on the dev VM (paste the
-      `tofu@pve!import` token from LastPass at the silent prompt):
-      ```bash
-      cd ~/homelab/tofu
-      read -rs PROXMOX_VE_API_TOKEN
-      export PROXMOX_VE_API_TOKEN
-      # VM 105's creation-time vars. Every run needs them, even a targeted
-      # one (archive/GPU-VM-BUILD.md). Neither is secret.
-      h=612b2c0cc1bc413a6cb8c38fd611794caf0f2b436c50013d8b3794db12ad7354
-      export TF_VAR_ubuntu_noble_image_sha256=$h
-      k=$(jq -Rsc 'split("\n")-[""]' ~/.ssh/authorized_keys)
-      export TF_VAR_llm_ssh_public_keys=$k
-      tofu apply -refresh-only \
-        -target=proxmox_virtual_environment_vm.k3s_worker1
-      # accept only if the diff is disk size 20 -> 32
-      tofu plan -refresh=false   # expect: No changes.
-      ```
-      A plan alone would not persist the refresh (`tofu/README.md` →
-      "State drift"). The token needs `TofuDisk` as well as the user,
-      because `!import` is `--privsep 1`. Grant it before the refresh:
-      ```bash
-      # Proxmox host, as root
-      T='tofu@pve!import'
-      pveum acl modify / --tokens "$T" --roles TofuDisk
-      ```
-      and revoke both afterwards:
-      ```bash
-      pveum acl delete / --tokens "$T" --roles TofuDisk
-      pveum acl delete / --users tofu@pve --roles TofuDisk
-      ```
-      Merge only after the refresh. Before it, the `.tf` says 32 and the
-      state still says 20. See `GITOPS.md` → kube-prometheus-stack.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →
