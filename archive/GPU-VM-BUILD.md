@@ -135,7 +135,7 @@ the GPU install on 2026-09-15 14:20 PDT. `smbd` was serving `/sas-pool` as an
 empty directory and `sanoid` was snapshotting a dataset that did not exist —
 **both dependants reported healthy**. The owner imported the pool (**140 GiB
 intact, nothing lost**) and enabled `zfs-import-scan`. Cause and the durable fix
-are in [`SAS-STORAGE.md`](SAS-STORAGE.md); the short version is that `sas-pool`
+are in [`SAS-STORAGE.md`](../SAS-STORAGE.md); the short version is that `sas-pool`
 is not a PVE storage, so — unlike `archive-pool`, which `pvestatd` activates —
 nothing owned its import, and both import units were unavailable that boot.
 
@@ -324,7 +324,7 @@ returns `role 'X' already exists` — harmless, and confirmation rather than an
 error. Use `pveum role modify` if a set ever needs changing.
 
 > ✅ **`pveum role list` also shows `TofuDisk` (`VM.Config.Disk`), left from the
-> import in [`tofu/README.md`](tofu/README.md) §"The sequence" — and its ACL is
+> import in [`tofu/README.md`](../tofu/README.md) §"The sequence" — and its ACL is
 > confirmed gone.** The role surviving is expected; only the **grant** was meant
 > to be temporary (`tofu/README.md:250`). Checked 2026-09-16:
 >
@@ -658,7 +658,7 @@ lspci -vvv -s 53:00.0 | sed -n '/Resizable BAR/,/^\t[A-Z]/p'
 > ⚠️ **Count the pools in `zpool list`; do not trust `zpool status -x`.** The
 > 2026-09-15 GPU-install reboot left `sas-pool` unimported for a day, and `-x`
 > reported "all pools are healthy" throughout, because an absent pool is not an
-> unhealthy one ([`SAS-STORAGE.md`](SAS-STORAGE.md)). `zfs-import-scan` is now
+> unhealthy one ([`SAS-STORAGE.md`](../SAS-STORAGE.md)). `zfs-import-scan` is now
 > enabled, which is what should make this reboot behave — **this is the boot that
 > tests that fix.** If `sas-pool` is missing again:
 > `zpool import 5068010059978323696`, then find out why before continuing.
@@ -687,7 +687,7 @@ What that settles:
   was not wasted caution — the binding happened in the initramfs as intended.
 - **The `zfs-import-scan` fix is proven, by the same kind of reboot that broke
   it.** All three pools imported on their own, `sas-pool` included. That closes
-  the question [`SAS-STORAGE.md`](SAS-STORAGE.md) left open.
+  the question [`SAS-STORAGE.md`](../SAS-STORAGE.md) left open.
 - **`sas-pool` at `ALLOC 210G` is not 70 GiB of new data** against the ~140 GiB
   seen at recovery. `zpool list` counts raw space *including RAIDZ1 parity*;
   on a 3-disk RAIDZ1 that is ~1.5 × the `zfs list USED` figure, and

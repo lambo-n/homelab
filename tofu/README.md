@@ -27,7 +27,7 @@ local and gitignored; it is backed up with this VM.
 | Ingress routing | Flux, `cloudflared/app/configmap.yaml` | the entire point of the local-management conversion |
 | MinIO CORS Transform Rule | **nobody — delete it** | vestigial; no browser addresses that hostname. See "The CORS rule" below |
 | Proxmox guests | **tofu, read-only** | all five imported 2026-09-04, `0 to change, 0 to destroy`; each carries `prevent_destroy` |
-| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply 2026-09-16 (`proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../GPU-VM.md`](../GPU-VM.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
+| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply 2026-09-16 (`proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
 
 ## The Cloudflare token — kept out of disk, so re-created when needed
 
@@ -415,8 +415,8 @@ exported per shell. They are deliberately not in Infisical and not in SOPS.**
 
 | Credential | Lives in | Used as | Notes |
 |---|---|---|---|
-| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1` since 2026-09-16** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 (`SAS-RECLAIM.md` §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
-| `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | Created 2026-09-16, `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping, the bridge, and `Sys.AccessNetwork` on `/nodes/pve` so the node can download the cloud image (the narrow alternative to `Sys.Modify`). See [`../GPU-VM.md`](../GPU-VM.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
+| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1` since 2026-09-16** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 ([`../archive/SAS-RECLAIM.md`](../archive/SAS-RECLAIM.md) §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
+| `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | Created 2026-09-16, `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping, the bridge, and `Sys.AccessNetwork` on `/nodes/pve` so the node can download the cloud image (the narrow alternative to `Sys.Modify`). See [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
 | Cloudflare API token | **Nowhere, by design** — re-created when needed (see "The Cloudflare token" above); put it in LastPass if you make one | `CLOUDFLARE_API_TOKEN` | Required scopes are above. **Only needed when a plan refreshes or changes the Cloudflare records.** A `-refresh=false` plan that leaves them untouched makes no Cloudflare API calls and runs without it (verified 2026-09-16; the import section below relies on the same fact). |
 | `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
 | Cluster-only secrets | **git**, as `*.sops.yaml` | Flux → k8s Secrets | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token. |

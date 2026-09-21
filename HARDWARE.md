@@ -58,9 +58,11 @@ This file is the one place that records the metal.
 | RAM | **503 GiB total**, 35 GiB used, 467 GiB free | `free -g`, 2026-09-09 |
 | Swap | 8 GiB, on `pve-swap` (LVM, on the boot device) | `lsblk`, 2026-09-09 |
 
-RAM committed to guests today is 1 + 32 + 8 + 128 + 128 = **297 GiB of 503**,
-leaving ~206 GiB unallocated. Compute is not the scarce resource here and never
-has been (`README.md:111-113`); **disk is**, and this file is why.
+RAM committed to guests today is 1 + 32 + 8 + 128 + 128 + 64 = **361 GiB of
+503**, leaving ~142 GiB unallocated. The last 64 is VM 105's, and it is *pinned*
+rather than ballooned, because a passthrough device holds all of a guest's
+memory. Compute is not the scarce resource here and never has been; **disk is**,
+and this file is why.
 
 ---
 
@@ -208,7 +210,8 @@ before ordering a replacement, these are inferences from the part number:
 | `local` (dir, on `pve-root`) | 64.04 GiB total, 7.51 GiB used (11.73%) | `pvesm status`, 2026-09-09 |
 
 Holds every guest root disk: `vm-100` 8 GiB, `vm-101` 32 GiB, `vm-102` 15 GiB,
-`vm-103` 20 GiB, `vm-104` 20 GiB.
+`vm-103` 20 GiB, `vm-104` 20 GiB, `vm-105` 32 GiB. VM 105's *models* disk is
+not here — it is a 1400 GiB zvol on `llm-pool`.
 
 > ⚠️ **`README.md:85` is wrong, twice.** It calls this "LVM-thin on an NVMe
 > RAID1 pair". It is neither NVMe nor an OS-level RAID: it is a **Dell BOSS-S2**
@@ -242,10 +245,14 @@ Holds every guest root disk: `vm-100` 8 GiB, `vm-101` 32 GiB, `vm-102` 15 GiB,
 ```
 archive-pool                               ONLINE
   mirror-0                                 ONLINE
-    ata-HFS1T9G3H2X069N_ADB5N4365I150584Z  ONLINE     sdb
-    ata-HFS1T9G3H2X069N_ADB5N4365I1505855  ONLINE     sdd
-    ata-MTFDDAK1T9TDT_222939CA58D4         ONLINE     sdc
+    ata-HFS1T9G3H2X069N_ADB5N4365I150584Z  ONLINE
+    ata-HFS1T9G3H2X069N_ADB5N4365I1505855  ONLINE
+    ata-MTFDDAK1T9TDT_222939CA58D4         ONLINE
 ```
+
+The pool is built from `by-id` paths, which is why no kernel name appears above:
+the letters have already shifted once without a hardware change (see the note
+under *All three read 2026-09-09*), and the serial is the only stable handle.
 
 | | | Source |
 |---|---|---|
@@ -275,23 +282,23 @@ daily / 6 monthly (`SANOID.md`).
 
 ---
 
-## `sde` and `sdf` — the two free SSDs
+## `sde` and `sdf` — the two SSDs freed by the pool downsize
 
-The leftovers from the downsize. `POOL-DOWNSIZE.md:3-4` records it exactly:
-5-disk raidz2 (5.03 TiB) → 3-way mirror (1.73 TiB), **"two 1.92 TB SSDs
-freed"**. These are those two.
+Both are leftovers from the rebuild that turned a 5-disk raidz2 into the 3-way
+mirror `archive-pool` is today, freeing two 1.92 TB SSDs. They have since
+diverged:
 
-| | |
-|---|---|
-| Devices | `ata-HFS1T9G3H2X069N_ADB5N4365I150584Y` (`sde`), `ata-HFS1T9G3H2X069N_ADB5N4365I1505850` (`sdf`) |
-| Size | 1.75 TiB each (1.92 TB) |
-| State | **not in any pool, not mounted, not in `pvesm status`** |
-| Residue | both still carry `part1` + `part9` — the ZFS data + 8 MiB reserved pair, left from the raidz2 |
+| | `…150584Y` (`sde`) | `…1505850` (`sdf`) |
+|---|---|---|
+| Size | 1.75 TiB (1.92 TB) | 1.75 TiB (1.92 TB) |
+| State | **`llm-pool`** since 2026-09-16 — single-disk ZFS, no redundancy, VM 105's model weights ([`GPU-VM.md`](GPU-VM.md)) | **free** — not in any pool, not mounted, not in `pvesm status` |
+| Residue | partition table wiped 2026-09-16 before `zpool create` | still carries `part1` + `part9` — the ZFS data + 8 MiB reserved pair, left from the raidz2 |
 
-A mirror of the two gives **1.75 TiB usable**, which is the additive,
-non-disruptive capacity available today with no purchase and no migration.
+`sdf` alone is the additive, non-disruptive capacity available today with no
+purchase and no migration: 1.75 TiB with no redundancy, or a replacement member
+for `archive-pool` if one of the mirror's disks fails.
 
-> ⚠️ **They still look like pool members, and the label says `archive-pool`.**
+> ⚠️ **`sdf` still looks like a pool member, and the label says `archive-pool`.**
 > Confirmed 2026-09-16 by `zdb -l` on `sde`: the residue is the old **5-disk
 > raidz2**, `pool_guid 326662858968651967`, and it carries the *same pool name as
 > the live pool*. A matching name is therefore not evidence of anything — the
@@ -316,30 +323,25 @@ non-disruptive capacity available today with no purchase and no migration.
 
 ---
 
-## SAS SSDs (`sdg`, `sdh`, `sdi`) — 10.47 TiB unallocated (reclaimed 2026-09-09)
+## The three SAS SSDs — `sas-pool`, 10.47 TiB raw
 
-The largest pool of capacity in the chassis. Previously mounted at `/mnt/sas1`,
-`/mnt/sas2`, `/mnt/sas3` carrying ext4 filesystems with no redundancy. Reclaimed,
-unmounted, and wiped on 2026-09-09 per [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md).
+Three Samsung PM1633a 3.84 TB SAS SSDs, the largest block of capacity in the
+chassis. They carry **`sas-pool`** (RAIDZ1, 6.85 TiB usable) — see
+[`SAS-STORAGE.md`](SAS-STORAGE.md) for that pool's configuration, snapshots and
+Samba share. How they were freed from the bare ext4 filesystems they used to
+hold is archived at [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md).
 
-| Device | `by-id` | Serial | Size | Previous Mount | Status |
-|---|---|---|---|---|---|
-| `sdg` | `scsi-35002538a48872950` | `S3D9NX0K803377` | 3.49 TiB | `/mnt/sas2` (empty) | **FREE** — wiped (`wipefs -a`) |
-| `sdh` | `scsi-35002538a48872700` | `S3D9NX0K803346` | 3.49 TiB | `/mnt/sas3` (empty) | **FREE** — wiped (`wipefs -a`) |
-| `sdi` | `scsi-35002538a48872be0` | `S3D9NX0K803418` | 3.49 TiB | `/mnt/sas1` (held 2.2 MB) | **FREE** — wiped (`wipefs -a`) |
-
-> ✅ **Reclaimed 2026-09-09:** `/mnt/sas1`'s 2.2 MB of Tailscale session recordings
-> were relocated to `archive-pool/ts-ssh-records` under sanoid, the three fstab
-> lines were removed, and the host was rebooted clean. All three disks were
-> wiped with `wipefs -a` by-id and are ready for PERC passthrough to TrueNAS.
-
-Three Samsung PM1633a 3.84 TB SAS SSDs, **10.47 TiB raw**, ready for a ZFS pool.
+| `by-id` | Serial | Size | Role |
+|---|---|---|---|
+| `scsi-35002538a48872950` | `S3D9NX0K803377` | 3.49 TiB | `sas-pool` `raidz1-0` member |
+| `scsi-35002538a48872700` | `S3D9NX0K803346` | 3.49 TiB | `sas-pool` `raidz1-0` member |
+| `scsi-35002538a48872be0` | `S3D9NX0K803418` | 3.49 TiB | `sas-pool` `raidz1-0` member |
 
 ### ✅ The PERC passes these disks through — confirmed 2026-09-09
 
-`smartctl -a /dev/sdg` returned a **full native SAS SMART page with no
-`-d megaraid,N` needed**, and `/sys/block/sdg/device/vendor` reads `SAMSUNG`,
-not `DELL`:
+`smartctl -a` on one of them returned a **full native SAS SMART page with no
+`-d megaraid,N` needed**, and that disk's `/sys/block/<dev>/device/vendor` reads
+`SAMSUNG`, not `DELL`:
 
 ```
 Vendor:               SAMSUNG            <- the drive, not the controller
@@ -351,21 +353,21 @@ Logical Unit id:      0x5002538a48872950 <- the drive's own WWN
 
 A RAID virtual disk would report the controller as vendor and hide SMART behind
 `-d megaraid`. It does neither. **The H355 is in non-RAID / eHBA passthrough
-mode, and TrueNAS would receive real disks with working SMART and scrubs.**
-That was the last architectural question blocking a TrueNAS guest.
+mode**, so ZFS on the host sees real disks with working SMART and scrubs — which
+is what makes `sas-pool` and G1's scheduled self-tests possible at all.
 
-### All three read 2026-09-09 — every one clean
+### SMART baseline, read 2026-09-09 — every one clean
 
-> ⚠️ **The `sdX` names below are already stale.** On 2026-09-10 `smartd`
-> enumerated `…803377` as `/dev/sdh`, not `sdg` — the whole SAS set moved up a
-> letter, and `archive-pool`'s `…1505855` is `sde`, not `sdd`. One day, no
-> hardware change. **Serials and `by-id` paths in this file are authoritative;
-> the kernel names are a snapshot.** Address disks by `by-id` in any config that
-> outlives a reboot — see [`HOST-MONITORING.md`](HOST-MONITORING.md) A1.
+> ⚠️ **Kernel names move; serials do not.** On 2026-09-10 `smartd` enumerated
+> `…803377` one letter higher than the day before — the whole SAS set shifted,
+> with no hardware change. **Serials and `by-id` paths in this file are
+> authoritative; any `sdX` here is a snapshot of one boot.** Address disks by
+> `by-id` in any config that outlives a reboot — see
+> [`HOST-MONITORING.md`](HOST-MONITORING.md) G1.
 
-| | `sdg` | `sdh` | `sdi` |
+| | `…803377` | `…803346` | `…803418` |
 |---|---|---|---|
-| Serial | `…803377` | `…803346` | `…803418` |
+| Serial | `S3D9NX0K803377` | `S3D9NX0K803346` | `S3D9NX0K803418` |
 | Health | ✅ `OK` | ✅ `OK` | ✅ `OK` |
 | Endurance used | ✅ 0% | ✅ 0% | ✅ 0% |
 | **Grown defect list** | ✅ **0** | ✅ **0** | ✅ **0** |
@@ -378,8 +380,8 @@ That was the last architectural question blocking a TrueNAS guest.
 | Non-medium errors | 10 | 10 | 8 |
 
 **No drive has a single grown defect or uncorrected error.** Endurance is 0% on
-all three — even `sdg`, the most-written, has taken only ~58 drive-writes in its
-life (≈0.03 DWPD). As media, these are effectively new.
+all three — even `…803377`, the most-written, has taken only ~58 drive-writes in
+its life (≈0.03 DWPD). As media, these are effectively new.
 
 **The power-on times are within 11 minutes of each other**, on drives
 manufactured in the same week of 2018. They have been powered together for their
@@ -398,11 +400,10 @@ were not mirrored together in a previous life; they had separate roles before
 landing here. "Matched set" applies to their age and power-on hours, not their
 usage.
 
-> ⚠️ **Last self-test was at lifetime hour 2** on `sdg` — i.e. when it was new,
-> and never since. Whatever owns these disks next should run a scheduled long
-> test; TrueNAS does this natively, which is one of the better arguments for it
-> (see [`archive/TRUENAS.md`](archive/TRUENAS.md)). **With the TrueNAS guest deferred, this is
-> goal G1 in [`HOST-MONITORING.md`](HOST-MONITORING.md) — `smartd` on the host.**
+> ⚠️ **Last self-test was at lifetime hour 2** on `…803377` — i.e. when it was
+> new, and never since. That gap is closed: goal **G1** in
+> [`HOST-MONITORING.md`](HOST-MONITORING.md) schedules `smartd` long tests on
+> this pool every Saturday at 03:00.
 
 **The wear is negligible and the age is not.** 0% endurance used after 222 TB
 written means the NAND has barely been touched; these were enterprise drives
@@ -411,11 +412,8 @@ years of power-loss-protection capacitors ageing, and all three serials
 (`…803346`, `…803377`, `…803418`) are one batch — the same correlated-failure
 argument that applies to the four SK hynix units in `archive-pool`.
 
-Read as a risk for a *new* pool: fine for bulk data with a backup, and **not**
-where the only copy of something should live.
-
-> ✅ **SMART confirmed clean on all three drives 2026-09-09** (see table above).
-> Zero defects, zero uncorrected errors, 0% endurance used across `sdg`, `sdh`, and `sdi`.
+Read as a risk for the pool they now carry: fine for bulk data with a backup,
+and **not** where the only copy of something should live.
 
 ### One number that decides a pool setting
 
@@ -424,25 +422,11 @@ Logical block size:   512 bytes
 Physical block size:  4096 bytes
 ```
 
-512e with 4K physical. Any ZFS pool built on these must be created with
-**`ashift=12`**. ZFS usually infers it, but it is unchangeable after creation —
-the same class of permanent, one-shot decision as the `blocksize 8k` in
-`archive/STORAGE.md` §1, and it is worth stating explicitly rather than trusting
-autodetection on a 512e drive.
-
-> ⚠️ **Prior state (resolved 2026-09-09):** Prior to [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md),
-> the three disks carried bare ext4 filesystems with no redundancy, no snapshots,
-> and no backups. `/mnt/sas1` carried 88 KB of SSH recordings bind-mounted into
-> CTID 100, while `/mnt/sas2` and `/mnt/sas3` were empty. All three were in
-> `/etc/fstab` with `defaults 0 2` and **no `nofail`**, which would have dropped
-> the host into an emergency shell upon controller passthrough.
->
-> All of this was resolved on 2026-09-09:
-> 1. Recordings were moved to `archive-pool/ts-ssh-records` preserving ACL/ownership,
->    and added to sanoid (`archival` template).
-> 2. CTID 100's bind mount was repointed on the host and reconciled in OpenTofu.
-> 3. The three fstab lines were removed (backed up to `/etc/fstab.bak-2026-09-09`).
-> 4. Host was rebooted clean, and all three disks were wiped with `wipefs -a`.
+512e with 4K physical. `sas-pool` was created with **`ashift=12`** accordingly,
+and any future pool on these disks must be too. ZFS usually infers it, but it is
+unchangeable after creation — the same class of permanent, one-shot decision as
+the `blocksize 8k` in `archive/STORAGE.md` §1, and it is worth stating
+explicitly rather than trusting autodetection on a 512e drive.
 
 ---
 
@@ -451,24 +435,10 @@ autodetection on a 512e drive.
 | Where | Amount | Cost to claim it |
 |---|---|---|
 | `sas-pool` free space | **6.85 TiB** less ~140 GiB in use | none — native ZFS RAIDZ1, exported via Samba ([`SAS-STORAGE.md`](SAS-STORAGE.md)). ⚠️ It failed to import on the 2026-09-15 boot and was recovered 2026-09-16; `zfs-import-scan` is now enabled. **Confirm with `zpool list` after any reboot** — `zpool status -x` will not show an absent pool. |
-| `llm-pool` on `sde` | **1.68 TiB usable**, 1400 GiB earmarked for VM 105's models | claimed 2026-09-16 — single disk, **no redundancy and deliberately not snapshotted** ([`SANOID.md`](SANOID.md)); losing it costs a re-download ([`GPU-VM.md`](GPU-VM.md)) |
+| `llm-pool` (`…150584Y`) | **1.68 TiB usable**, 1400 GiB earmarked for VM 105's models | claimed 2026-09-16 — single disk, **no redundancy and deliberately not snapshotted** ([`SANOID.md`](SANOID.md)); losing it costs a re-download ([`GPU-VM.md`](GPU-VM.md)) |
 | `sdf`, unallocated | 1.75 TiB | none — cold spare for `archive-pool`, still carries the old raidz2 label |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
 | `local-lvm` | 82.12 GiB | guest root disks only |
-
----
-
-## How the SAS disks were freed for `sas-pool`
-
-The three SAS disks carried bare ext4 with no redundancy until 2026-09-09: SSH
-session recordings were relocated off `/mnt/sas1` first (order matters — see
-[`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md)), then all three filesystems
-were retired and the disks wiped. PCIe passthrough of the PERC H355 itself was
-then rejected by VFIO (Dell BIOS RMRR, and it carries all 8 front-bay drives
-including `archive-pool`), so the disks were configured natively on the host as
-**`sas-pool`** (RAIDZ1, 6.85 TiB usable) under `sanoid` and exported via Samba —
-see [`SAS-STORAGE.md`](SAS-STORAGE.md) for that pool's current config, and
-[`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md) for the full runbook.
 
 ---
 
@@ -482,15 +452,16 @@ count.
 
 ## Related
 
-- `archive/STORAGE.md` — how the PGDATA zvol was created and guarded; §1 is the PVE-side
-  pool configuration this file is the physical counterpart to
-- `SANOID.md` — which datasets are snapshotted, and which are not
-- `README.md` — logical placement of every piece of data
-- `sunfire/POOL-DOWNSIZE.md` — the raidz2 → 3-way-mirror rebuild that freed
-  `sde` and `sdf`
-- `tofu/README.md:196-322` — the API token, its privileges, and why it is
-  read-only
+- [`SAS-STORAGE.md`](SAS-STORAGE.md) — `sas-pool`'s configuration, snapshots and Samba share
+- [`SANOID.md`](SANOID.md) — which datasets are snapshotted, and which are not
+- [`README.md`](README.md) — logical placement of every piece of data
+- [`GPU-VM.md`](GPU-VM.md) — the GPU and `llm-pool` in use
+- [`HOST-MONITORING.md`](HOST-MONITORING.md) — the SMART/scrub/visibility goals
+  and who owns each one
+- [`tofu/README.md`](tofu/README.md) — the API tokens, their privileges, and why
+  the import token is read-only
+- [`archive/STORAGE.md`](archive/STORAGE.md) — how the PGDATA zvol was created and
+  guarded; §1 is the PVE-side pool configuration this file is the physical
+  counterpart to
 - [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md) — the completed runbook freeing the three SAS disks from ext4
-- [`archive/TRUENAS.md`](archive/TRUENAS.md) — TrueNAS SCALE guest architecture, PCIe passthrough, and pool setup
-- [`HOST-MONITORING.md`](HOST-MONITORING.md) — the SMART/scrub/visibility goals that
-  outlived the TrueNAS guest, and who owns each one
+- [`archive/TRUENAS.md`](archive/TRUENAS.md) — the superseded TrueNAS guest design

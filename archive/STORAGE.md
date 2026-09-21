@@ -23,7 +23,7 @@ to the pool, so none of it can be run from there. See GITOPS.md Phase 5.
 > filesystems are 17.83 GiB. **§7 (sanoid) is also done** — completed 2026-09-04
 > across three datasets (`minio-data`, `postgres-data` and the PGDATA zvol
 > `vm-104-disk-0`), 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active. The
-> rollback drill in `SANOID.md` §4 passed. Every section of this file is now
+> rollback drill in [`../runbooks/SANOID-VERIFY.md`](../runbooks/SANOID-VERIFY.md) passed. Every section of this file is now
 > complete.
 
 Two independent jobs, and they are not the same job:

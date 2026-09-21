@@ -14,7 +14,7 @@ to the pool (`STORAGE.md:4-5`), so none of §1–4 can be run from there.
 The goal is to free `sdg`, `sdh` and `sdi` — three 3.84 TB SAS SSDs, 10.47 TiB
 raw — from the three bare ext4 filesystems they carry today, so the PERC H355
 can be passed through whole to a TrueNAS guest. See
-[`HARDWARE.md`](HARDWARE.md) for what those disks are and why the controller
+[`HARDWARE.md`](../HARDWARE.md) for what those disks are and why the controller
 topology makes this clean.
 
 ---
@@ -302,7 +302,7 @@ stays on.
 > `tofu plan -refresh=false` proposes **destroying this container** and dies on
 > `prevent_destroy`, blocking every other plan. The one-line fix — `tofu apply
 > -refresh-only -target=...` — and why the two commands differ are in
-> [`tofu/README.md`](tofu/README.md#state-drift-a-plan-can-say-0-changes-and-still-leave-the-state-stale).
+> [`tofu/README.md`](../tofu/README.md#state-drift-a-plan-can-say-0-changes-and-still-leave-the-state-stale).
 > **Verifying a host-side change with `plan` alone is not enough; finish with
 > `apply -refresh-only`.**
 
@@ -342,10 +342,10 @@ members, same batch, and that pool holds PGDATA and MinIO.
 
 ## Related
 
-- [`HARDWARE.md`](HARDWARE.md) — what these disks are, the controller topology,
+- [`HARDWARE.md`](../HARDWARE.md) — what these disks are, the controller topology,
   and the SMART readings
 - [`STORAGE.md`](STORAGE.md) — the PGDATA zvol; §5c is the `nofail` lesson this
   runbook inherits, and the appendix is the original note on `/mnt/sas1`
-- [`SANOID.md`](SANOID.md) — snapshot templates
+- [`SANOID.md`](../SANOID.md) — snapshot templates
 - `tofu/proxmox-container.tf` — CTID 100, and the `prevent_destroy` that makes
   §3 a host-side change

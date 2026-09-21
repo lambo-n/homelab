@@ -245,7 +245,7 @@ single object; if it did, section 2's rule was violated somewhere.
 
 ## 7. Record the result
 
-Same discipline as `SANOID.md` §4. Write the date and the outcome into this
+Same discipline as [`SANOID-VERIFY.md`](SANOID-VERIFY.md). Write the date and the outcome into this
 file when the drill passes:
 
 | Date | Base backup restored | WAL replayed | PITR target hit | Roles verified |
