@@ -476,6 +476,7 @@ flowchart LR
   end
   subgraph ns_observability["observability"]
     flux_monitoring["flux-monitoring"]
+    host_monitoring["host-monitoring"]
     kube_prometheus_stack["kube-prometheus-stack"]
     llm_vm["llm-vm"]
   end
@@ -498,6 +499,7 @@ flowchart LR
   end
   kube_prometheus_stack --> flux_monitoring
   voice_db --> home_assistant
+  kube_prometheus_stack --> host_monitoring
   kube_prometheus_stack --> llm_vm
   cert_manager --> plugin_barman_cloud
   cloudnative_pg --> plugin_barman_cloud

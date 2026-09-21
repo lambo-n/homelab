@@ -1,0 +1,141 @@
+#!/bin/bash
+# Host metrics no exporter provides, for the Proxmox host (.101): ZFS pool
+# capacity and health, scrub age, sanoid snapshot age, and the local-lvm thin
+# pool. Writes node_exporter's textfile collector. Run by host-metrics.timer
+# every 5 minutes. Installed to /usr/local/sbin/host-metrics.
+# HOST-MONITORING.md -> G5.
+#
+# Each section reports its own host_metrics_collector_success, so one failing
+# command (a pool mid-import, lvs locked) doesn't blank the rest of the file.
+set -uo pipefail
+
+DIR=/var/lib/prometheus/node-exporter
+OUT="$DIR/host-metrics.prom"
+VG=pve
+THINPOOL=data
+
+tmp=$(mktemp "$DIR/.host-metrics.prom.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+meta() { printf '# HELP %s %s\n# TYPE %s gauge\n' "$1" "$2" "$1"; }
+declare -A ok
+
+# --- pools: capacity, fragmentation, health ---------------------------------
+if pools=$(zpool list -Hp -o name,size,alloc,free,frag,health); then
+  {
+    meta host_zpool_size_bytes "Pool size, from zpool list."
+    awk -F'\t' '{ printf "host_zpool_size_bytes{pool=\"%s\"} %s\n", $1, $2 }' <<<"$pools"
+    meta host_zpool_allocated_bytes "Pool space allocated, from zpool list."
+    awk -F'\t' '{ printf "host_zpool_allocated_bytes{pool=\"%s\"} %s\n", $1, $3 }' <<<"$pools"
+    meta host_zpool_free_bytes "Pool space free, from zpool list."
+    awk -F'\t' '{ printf "host_zpool_free_bytes{pool=\"%s\"} %s\n", $1, $4 }' <<<"$pools"
+    meta host_zpool_fragmentation_percent "Free-space fragmentation, from zpool list."
+    awk -F'\t' '$5 != "-" { printf "host_zpool_fragmentation_percent{pool=\"%s\"} %s\n", $1, $5 }' <<<"$pools"
+    meta host_zpool_health "1 for the pool's current health; alert on health != ONLINE."
+    awk -F'\t' '{ printf "host_zpool_health{pool=\"%s\",health=\"%s\"} 1\n", $1, $6 }' <<<"$pools"
+  } >>"$tmp"
+  ok[zpool]=1
+else
+  ok[zpool]=0
+fi
+
+# --- scrubs: last completion, errors, in progress ---------------------------
+# From the "scan:" line of zpool status. Only "scrub repaired … on <date>" is
+# a completed scrub. Anything else (none yet, canceled, last scan was a
+# resilver) reports a completion time of 0, so the staleness alert fires
+# rather than going quiet. A scrub in progress reports no completion time.
+if names=$(zpool list -H -o name); then
+  end_lines= err_lines= run_lines=
+  for p in $names; do
+    scan=$(zpool status "$p" | sed -n 's/^ *scan: //p' | head -n1)
+    case "$scan" in
+      "scrub repaired "*" on "*)
+        end=$(date -d "${scan##* on }" +%s) || end=0
+        errs=$(sed -n 's/.* with \([0-9]*\) errors on .*/\1/p' <<<"$scan")
+        end_lines+="host_zpool_scrub_end_timestamp_seconds{pool=\"$p\"} $end"$'\n'
+        err_lines+="host_zpool_scrub_errors{pool=\"$p\"} ${errs:-0}"$'\n'
+        run_lines+="host_zpool_scrub_in_progress{pool=\"$p\"} 0"$'\n' ;;
+      "scrub in progress"* | "scrub paused"*)
+        run_lines+="host_zpool_scrub_in_progress{pool=\"$p\"} 1"$'\n' ;;
+      *)
+        end_lines+="host_zpool_scrub_end_timestamp_seconds{pool=\"$p\"} 0"$'\n'
+        run_lines+="host_zpool_scrub_in_progress{pool=\"$p\"} 0"$'\n' ;;
+    esac
+  done
+  {
+    meta host_zpool_scrub_end_timestamp_seconds "When the last completed scrub finished; 0 if zpool status shows none."
+    printf '%s' "$end_lines"
+    meta host_zpool_scrub_errors "Errors found by the last completed scrub."
+    printf '%s' "$err_lines"
+    meta host_zpool_scrub_in_progress "1 while a scrub is running or paused."
+    printf '%s' "$run_lines"
+  } >>"$tmp"
+  ok[scrub]=1
+else
+  ok[scrub]=0
+fi
+
+# --- sanoid snapshots: newest autosnap per dataset --------------------------
+# Only sanoid's autosnap_* count, so a manual snapshot can't mask a stopped
+# sanoid. A dataset dropped from sanoid.conf keeps its old snapshots and goes
+# stale here, which is the point: prune them or it alerts.
+if snaps=$(zfs list -Hp -t snapshot -o name,creation); then
+  awk -F'\t' '
+    { split($1, a, "@") }
+    a[2] ~ /^autosnap_/ {
+      c[a[1]]++
+      if ($2 > n[a[1]]) n[a[1]] = $2
+    }
+    END {
+      print "# HELP host_zfs_autosnap_newest_timestamp_seconds Creation time of the newest sanoid snapshot of the dataset."
+      print "# TYPE host_zfs_autosnap_newest_timestamp_seconds gauge"
+      for (d in n) printf "host_zfs_autosnap_newest_timestamp_seconds{dataset=\"%s\"} %s\n", d, n[d]
+      print "# HELP host_zfs_autosnap_count Number of sanoid snapshots of the dataset."
+      print "# TYPE host_zfs_autosnap_count gauge"
+      for (d in c) printf "host_zfs_autosnap_count{dataset=\"%s\"} %s\n", d, c[d]
+    }' <<<"$snaps" >>"$tmp"
+  ok[snapshot]=1
+else
+  ok[snapshot]=0
+fi
+
+# --- local-lvm thin pool ----------------------------------------------------
+# Data% and Meta% both matter: either reaching 100% breaks every guest disk in
+# the pool at once. Virtual size is the sum of the thin volumes' sizes, so
+# virtual > size means the pool is overcommitted.
+lvs_b() { lvs --noheadings --nosuffix --units b "$@"; }
+if pool=$(lvs_b -o lv_size,data_percent,metadata_percent "$VG/$THINPOOL") &&
+  virt=$(lvs_b -o lv_size -S "vg_name=$VG && pool_lv=$THINPOOL") &&
+  vgfree=$(vgs --noheadings --nosuffix --units b -o vg_free "$VG"); then
+  read -r size data metapct <<<"$pool"
+  virt=$(awk '{ s += $1 } END { printf "%d", s }' <<<"$virt")
+  l="vg=\"$VG\",lv=\"$THINPOOL\""
+  {
+    meta host_lvm_thinpool_size_bytes "Thin pool size."
+    echo "host_lvm_thinpool_size_bytes{$l} $size"
+    meta host_lvm_thinpool_virtual_bytes "Sum of the sizes of the thin volumes in the pool."
+    echo "host_lvm_thinpool_virtual_bytes{$l} $virt"
+    meta host_lvm_thinpool_data_percent "Thin pool data used, lvs Data%."
+    echo "host_lvm_thinpool_data_percent{$l} $data"
+    meta host_lvm_thinpool_metadata_percent "Thin pool metadata used, lvs Meta%."
+    echo "host_lvm_thinpool_metadata_percent{$l} $metapct"
+    meta host_lvm_vg_free_bytes "Unallocated space in the volume group."
+    echo "host_lvm_vg_free_bytes{vg=\"$VG\"} $(tr -d ' ' <<<"$vgfree")"
+  } >>"$tmp"
+  ok[lvm]=1
+else
+  ok[lvm]=0
+fi
+
+{
+  meta host_metrics_collector_success "1 if the section's commands succeeded on the last run."
+  for c in "${!ok[@]}"; do
+    echo "host_metrics_collector_success{collector=\"$c\"} ${ok[$c]}"
+  done
+  meta host_metrics_last_run_timestamp_seconds "When host-metrics last wrote this file."
+  echo "host_metrics_last_run_timestamp_seconds $(date +%s)"
+} >>"$tmp"
+
+chmod 644 "$tmp"
+mv "$tmp" "$OUT"
+trap - EXIT

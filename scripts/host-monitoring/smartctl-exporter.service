@@ -1,0 +1,18 @@
+# Install: HOST-MONITORING.md -> G3-G5. The binary is upstream's release
+# (prometheus-community/smartctl_exporter): Debian doesn't package it.
+[Unit]
+Description=Prometheus smartctl_exporter (per-drive SMART)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# root: smartctl needs raw access to every disk. The rest is locked down.
+ExecStart=/usr/local/bin/smartctl_exporter --web.listen-address=:9633
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

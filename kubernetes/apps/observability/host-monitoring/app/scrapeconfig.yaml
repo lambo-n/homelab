@@ -1,0 +1,38 @@
+---
+# The Proxmox host (192.168.50.101) lives outside the cluster, so it is
+# scraped by static target, not discovered. HOST-MONITORING.md -> G3-G5.
+#
+# host.fw admits :9100 and :9633 from the three k3s nodes only
+# (192.168.50.104-106). Pod egress to the LAN is masqueraded to the node's
+# address, so that is where Prometheus' scrapes appear to come from.
+#
+# Two ScrapeConfigs, not one with two targets: both carry instance="pve", and
+# two targets in one job with identical labels would collide on up{}.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: host-node
+  namespace: observability
+spec:
+  # Debian's prometheus-node-exporter, with the zfs collector (ARC, per-pool
+  # I/O and node_zfs_zpool_state) and the textfile collector, which carries
+  # host-metrics' pool capacity, scrub age, snapshot age and thin-pool usage
+  # (scripts/host-monitoring/host-metrics).
+  staticConfigs:
+    - targets: ["192.168.50.101:9100"]
+      labels:
+        instance: pve
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: host-smartctl
+  namespace: observability
+spec:
+  # smartctl_exporter: per-drive SMART for the SAS and SATA SSDs. It runs
+  # smartctl itself on a timer and serves the cached result, so a scrape
+  # never touches the disks.
+  staticConfigs:
+    - targets: ["192.168.50.101:9633"]
+      labels:
+        instance: pve
