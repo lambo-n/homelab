@@ -71,6 +71,21 @@ Goal G1 (SMART long tests) is live; the rest of the plan in
       scope-split trade this one touches.
 - [ ] **G7** — the `ScrapeConfig` + `PrometheusRule` + dashboard for G3–G6, as
       `kubernetes/apps/observability/host-monitoring/`.
+- [ ] **Monitor the `local-lvm` thin pool (`pve/data`)** *(raised
+      2026-09-21)*. It is now **overcommitted**: guest disks total ~139 GiB
+      against a 130.22 GiB pool, after worker1's 20 → 32 GB grow. Physical
+      use is 51.67% data and 2.87% metadata, with 16 GiB free in the VG. A
+      full thin pool breaks **every guest at once** (`archive/STORAGE.md`
+      §6), and LVM warned that autoextend is off. Nothing watches it today.
+      Alert on both `Data%` and `Meta%`, e.g. warn at 80%. The G3–G5
+      textfile collector can export them from `lvs`; this is host-side, like
+      pool capacity. Also decide whether to set
+      `thin_pool_autoextend_threshold` in `/etc/lvm/lvm.conf`. Check by hand
+      until then:
+      ```bash
+      # Proxmox host
+      lvs -o lv_name,lv_size,data_percent,metadata_percent pve/data
+      ```
 
 ## GPU / LLM VM
 
