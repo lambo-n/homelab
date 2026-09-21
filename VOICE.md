@@ -28,19 +28,33 @@ Settled with the owner on 2026-09-17:
 
 ## Architecture
 
-```
- ESP32-S3 satellite                  k3s (voice ns)            VM 105 llm (.107)
- ────────────────────                ───────────────            ─────────────────
- mic ─► micro_wake_word
-          │ "hey doofus"
-          ▼
- voice_assistant ══ native API ════► Home Assistant ─ Wyoming ► wyoming-whisper :10300
-   (audio stream, :6053;             :8123 (ServiceLB)                │ 127.0.0.1:8910
-    HA dials the device)                  │                     whisper-server (B70)
-                                          │ ─ Wyoming ────────► wyoming-piper  :10200 (CPU)
-                                          │ ─ OpenAI API ─────► llama-fast     :8081 (B70)
- speaker ◄═ TTS PCM over the API ═════════╛
-                                     voice-db (CNPG, recorder)
+```mermaid
+flowchart LR
+  subgraph sat["ESP32-S3 satellite · 192.168.50.70"]
+    mic["mic"]
+    mww["micro_wake_word"]
+    va["voice_assistant"]
+    spk["speaker"]
+  end
+  subgraph k3s["k3s · voice namespace"]
+    ha["Home Assistant<br/>:8123 (ServiceLB)"]
+    db["voice-db<br/>CNPG, recorder"]
+  end
+  subgraph llm["VM 105 llm · 192.168.50.107"]
+    ww["wyoming-whisper :10300"]
+    ws["whisper-server<br/>127.0.0.1:8910 (B70)"]
+    wp["wyoming-piper :10200 (CPU)"]
+    lf["llama-fast :8081 (B70)"]
+  end
+  mic --> mww
+  mww -- "wake word detected" --> va
+  ha <-- "native API :6053<br/>HA dials the device" --> va
+  ha -- "TTS audio over the API" --> spk
+  ha -- "Wyoming" --> ww
+  ww --> ws
+  ha -- "Wyoming" --> wp
+  ha -- "OpenAI API" --> lf
+  ha -- "tcp:5432" --> db
 ```
 
 What each component does when something is down:

@@ -219,13 +219,31 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
 Sunfire is the only workload on the tunnel today, so its path is the worked example;
 anything published later joins the same chain.
 
+```mermaid
+flowchart LR
+  subgraph internet["Internet"]
+    browser["browser"]
+  end
+  subgraph cf["Cloudflare"]
+    worker["Worker<br/>sunosrs.cc"]
+    access["Access<br/>service-token check"]
+  end
+  subgraph k3s["k3s · sunfire namespace"]
+    cfd["cloudflared pod"]
+    minio["minio:9000<br/>guide media"]
+    pgrst["postgrest:3000"]
+    pg["postgres-cnpg-rw"]
+  end
+  browser -- "HTTPS" --> worker
+  worker -- "HTTPS + Access token<br/>minio-api / db.sunosrs.cc" --> access
+  access -- "tunnel, outbound-only" --> cfd
+  cfd -- "http:9000" --> minio
+  cfd -- "http:3000" --> pgrst
+  pgrst -- "tcp:5432" --> pg
 ```
-browser ──▶ Cloudflare edge ──▶ Access ──▶ tunnel ──▶ cloudflared pod
-   │              (sunosrs.cc)   (service                    │
-   │                              token)                     ├─▶ minio:9000      guide media
-   └── the Worker is the ONLY S3 client;                     └─▶ postgrest:3000 ─▶ postgres-cnpg-rw
-       browsers never address minio-api directly
-```
+
+The Worker is the only client of either hostname; browsers never address
+`minio-api` or `db` directly.
 
 Two consequences worth knowing before debugging anything:
 
