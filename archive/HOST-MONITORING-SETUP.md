@@ -182,6 +182,12 @@ counters, so it was installed as the upstream v0.14.0 release binary
   exporter, even though `smartd` logs that most of them lack a health-status
   check.
 
+**`llm-pool` was scrubbed by hand** the same evening (`zpool scrub
+llm-pool`, 0 errors, a few minutes for ~100 GB) so `HostZpoolScrubStale`
+wouldn't fire before the October cron run. Polling the textfile output through
+it showed all three scrub states live: end time `0`, then `in_progress 1`
+with no end time, then a real end time with `errors 0`.
+
 **Verified** from a `curlimages/curl` pod pinned to `k3s-worker1`, which
 exercised the `host.fw` rules: `:9100` served 3,958 series, `:9633` 1,316
 lines before the `bus_` exclusion (~640 series after it). Every metric the

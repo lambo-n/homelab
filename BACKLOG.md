@@ -22,10 +22,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       `pve` VG, and `thin_pool_autoextend_threshold` in `/etc/lvm/lvm.conf` is
       off. `HostThinPoolData*`/`MetadataHigh` alert at 80% (`HOST-MONITORING.md`),
       so this is whether LVM should also grow the pool into the VG by itself.
-- [ ] **Scrub `llm-pool` once by hand** (`zpool scrub llm-pool` on the host).
-      It was created after September's scrub, so it has no completed scrub and
-      `HostZpoolScrubStale` fires for it until the cron's next run on
-      2026-10-11.
 
 ## GPU / LLM VM
 
