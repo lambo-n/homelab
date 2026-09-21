@@ -6,17 +6,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Waiting on a decision
 
-- [ ] **Decide whether this repo should stay public** *(raised 2026-09-21)*.
-      Several documents described it as private until that date, and one real
-      decision rested on the belief — `platformAutomerge` was left off because
-      branch protection was thought unavailable on a private repo, which cost
-      PR #15 nine days (`GITOPS.md` → Renovate). Nothing is *cryptographically*
-      wrong with public: every payload is age-encrypted and `age.key` has never
-      been committed. What is public is the whole topology — IPs, hostnames,
-      ports, firewall rules, credential *locations* — and the ciphertext itself,
-      which is offline-attackable forever by anyone who cloned it. Either
-      confirm public deliberately, or flip it and re-check what was exposed
-      meanwhile.
 - [ ] **Repoint `sunfire-postgrest`'s `dependsOn`** at `sunfire-postgres-cnpg`. It
       still names `sunfire-postgres`, which since 2026-09-04 holds only a Secret.
       Harmless — a secret-only Kustomization is always Ready — but the edge no
