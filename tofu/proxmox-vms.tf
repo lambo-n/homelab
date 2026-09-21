@@ -30,6 +30,10 @@
 #   ... generate, review, import ...
 #   pveum acl delete / --users tofu@pve --roles TofuDisk
 #
+# That was 2026-09-04. Since `!import` went `--privsep 1` (2026-09-16) the
+# token needs the grant too; see tofu/README.md "The privilege that blocked
+# the four VMs" for the current commands.
+#
 # Re-granting is only needed to regenerate a body. Ordinary `tofu plan
 # -refresh=false` needs no Proxmox PRIVILEGES -- it makes no API call -- but it
 # does still need PROXMOX_VE_API_TOKEN to be set to something, because the

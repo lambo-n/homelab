@@ -56,8 +56,16 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       tofu plan -refresh=false   # expect: No changes.
       ```
       A plan alone would not persist the refresh (`tofu/README.md` →
-      "State drift"). Then, on the Proxmox host, as root:
+      "State drift"). The token needs `TofuDisk` as well as the user,
+      because `!import` is `--privsep 1`. Grant it before the refresh:
       ```bash
+      # Proxmox host, as root
+      T='tofu@pve!import'
+      pveum acl modify / --tokens "$T" --roles TofuDisk
+      ```
+      and revoke both afterwards:
+      ```bash
+      pveum acl delete / --tokens "$T" --roles TofuDisk
       pveum acl delete / --users tofu@pve --roles TofuDisk
       ```
       Merge only after the refresh. Before it, the `.tf` says 32 and the
