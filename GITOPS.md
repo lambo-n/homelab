@@ -1481,8 +1481,9 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 
 > **Three steps are yours, not the assistant's** *(was two; the disk grow is
 > new)*. `kubectl exec` against a pod is
-> refused by this environment's tooling, and `.101` has no SSH key for the dev
-> VM. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
+> refused by this environment's tooling *(true when written; no longer true
+> since at least 2026-09-21: see AGENTS.md rule 3)*, and `.101` has no SSH key
+> for the dev VM. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
 > service account scoped to it, and writes the credential into the repo already
 > SOPS-encrypted — the keys are generated in the pod, piped into `sops`, and
 > never printed), and `SANOID.md` in full. The barman account deliberately

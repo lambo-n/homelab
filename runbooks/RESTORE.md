@@ -200,10 +200,10 @@ Expected: `rolcanlogin` true for `authenticator` only, `rolinherit` false for
 into a shell variable — do not paste it into a command line that lands in
 history.
 
-> ⚠️ **`kubectl exec` is refused by the assistant's tooling** (see the memory
-> note and GITOPS.md → "k3s / storage substrate", "Three steps are yours").
-> Every command in this
-> section is yours to run.
+> ℹ️ Earlier revisions said `kubectl exec` was refused by the assistant's
+> tooling and made this section owner-only. That is no longer true (AGENTS.md
+> rule 3): either of you can run it. Keep `$PW` out of shell history and out of
+> any output either way.
 
 ## 5. PITR — the thing base backups alone cannot do
 
