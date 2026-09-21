@@ -2,9 +2,10 @@
 # Create the MinIO bucket and scoped service account that CNPG's barman-cloud
 # plugin backs up into, and write the credential into the repo SOPS-encrypted.
 #
-# YOU run this, not the assistant: it needs `kubectl exec` against the MinIO
-# pod, which the assistant's tooling refuses. The keys are generated inside the
-# pod, piped straight into sops, and never printed or written in plaintext.
+# YOU run this, not the assistant, so the credential never appears in any
+# assistant output (AGENTS.md rule 3). The keys are generated inside the pod,
+# piped straight into sops, and never printed or written in plaintext. (This
+# once also said the assistant could not `kubectl exec`. That is no longer true.)
 #
 #   ./scripts/minio-barman-account.sh            # create (refuses if it exists)
 #   ./scripts/minio-barman-account.sh --rotate   # replace an existing account

@@ -71,10 +71,19 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    `infisical` are pinned by [`mise.toml`](mise.toml) and are on `PATH` via mise
    (activated in `~/.bashrc`). Do not install these system-wide or use the old
    `kubectl` v1.30.
-3. **`kubectl exec` is refused by this environment's tooling**, and the Proxmox
-   host accepts no SSH key from the dev VM. Anything needing either — SQL
-   migrations, MinIO pod work, every `zfs` command — is the owner's to run. Give
-   them the command; do not work around it.
+3. **`kubectl exec` works: use it** for inspection and cluster work, including
+   `psql` in the CNPG pod and `mc` in the MinIO pod. Earlier docs said this
+   environment's tooling refused it. That stopped being true, and the owner
+   confirmed on 2026-09-21 that exec is expected. Two limits remain:
+   - **The Proxmox host accepts no SSH key from the dev VM.** Every `zfs`,
+     `qm`, `pveum` and sanoid command is the owner's to run. Give them the
+     command; do not work around it.
+   - **New credentials come from owner-run scripts** (`scripts/minio-*-account.sh`,
+     `scripts/offsite-backup-secret.sh`), which generate them in the pod or at a
+     silent prompt and pipe them straight into `sops`, so they never appear in
+     assistant output. Exec does not change that. Likewise, list Secret *names*,
+     never `.data`: on 2026-09-21 a `custom-columns` listing printed truncated
+     secret values into the session transcript.
 4. **Verification is behavioural, not status-based.** Several failures recorded
    in `GITOPS.md` reported success: a rotated Secret that never restarted its
    pod, an alert rule over a metric that does not exist, a backup nobody had
@@ -90,7 +99,8 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    "SOPS + age" and "Infisical"):
    - **SOPS + age**, in this repo, for **cluster-only** secrets (MinIO root,
      `POSTGRES_PASSWORD`, `PGRST_DB_URI`, cloudflared tunnel credentials, the
-     LLM API key, ESPHome Wi-Fi secrets). Keeps cold boot self-contained — this
+     LLM API key, ESPHome Wi-Fi secrets, the off-site backup's B2 key and restic
+     password). Keeps cold boot self-contained — this
      cluster is frequently powered off.
    - **Infisical** as system of record for **cross-boundary** secrets that must
      stay byte-identical between the cluster and the Cloudflare Worker's
