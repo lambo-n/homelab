@@ -273,8 +273,8 @@ From the workstation, run `scp -3 dev:fw/firmware.factory.bin .`, open
 contains the Wi-Fi password and API key.** Delete it on both machines after
 flashing (`rm -rf ~/fw` on dev).
 
-**V3d. Adopt in HA — done 2026-09-19** (`192.168.50.70`; DHCP reservation
-still to confirm):
+**V3d. Adopt in HA — done 2026-09-19** (`192.168.50.70`, reserved in the
+router's DHCP):
 
 1. Find the board's IP (router DHCP table) and reserve it (V0).
 2. HA → Add integration → ESPHome → host = that IP, key = `api_encryption_key`.
@@ -322,12 +322,13 @@ Baseline, Hey Doofus + ES7210/ES8311 build (idle = wake word armed; the
 For comparison, the stock build with the broken audio wiring idled at
 216,368 / 204,800 / 7,346,812.
 
-**V4's one remaining item lives here too:** once the device is adopted, record
-the real wake → reply-start latency (HA → Settings → Voice assistants →
-Debug). The 1.3–1.7 s measured in
-[`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md) is the pipeline
-alone, over a websocket test — it excludes the on-device wake-word detection
-and end-of-speech silence wait a real satellite adds.
+**Wake → reply-start latency on the device is comfortably acceptable** in
+real use. No per-stage figure was recorded. The pipeline alone takes
+1.3–1.7 s over a websocket test
+([`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md)); the device
+adds on-device wake detection and the end-of-speech silence wait. HA →
+Settings → Voice assistants → Debug shows per-stage timings when a number
+is needed.
 
 ### V5 — Later, each measured against V3e
 
@@ -473,7 +474,7 @@ micro_wake_word:
   models:
     - model: hey_doofus.json
       id: hey_doofus
-      probability_cutoff: 0.97
+      probability_cutoff: 0.93
       sliding_window_size: 5
 ```
 
@@ -491,9 +492,27 @@ cd ~/homelab
 scripts/esphome-run.sh run --no-logs --device 192.168.50.70
 ```
 
-After the upload, record the three V3e rows again and compare. Retune with
-`probability_cutoff` in the YAML: 0.99 if false wakes annoy (97.5% clean
-recall, 5/4,080 hard-negative false accepts).
+After the upload, record the three V3e rows again and compare.
+
+**The firmware runs `probability_cutoff: 0.93`, because in real use recall
+is the limit, not false wakes.** At the training pick of 0.97, several days of
+testing gave zero false wakes but often missed the correct phrase. The cutoff
+was tuned on synthetic Piper voices, and a real voice across a real room
+scores lower. v2's held-back numbers (clean recall, and false accepts on
+4,080 hard-negative clips) put 0.93 between these rows:
+
+| Cutoff | Recall | False accepts |
+|---:|---:|---:|
+| 0.90 | 99.1% | 46 |
+| 0.95 | 98.8% | 26 |
+| 0.97 | 98.4% | 18 |
+| 0.99 | 97.5% | 5 |
+
+Those recall figures are for clean synthetic speech and overstate real-world
+recall at every cutoff. If false wakes appear, go back up to 0.95. If misses
+persist, the fix is retraining with real recordings of the owner as
+positives (`~/mww-hey-doofus`), not a cutoff far below 0.90, where
+hard-negative false accepts climb.
 
 ## Checklist
 
@@ -505,7 +524,7 @@ recall, 5/4,080 hard-negative false accepts).
 - [x] V3a/V3b — firmware secrets generated, config validated and compiled
       (Wi-Fi password rotated 2026-09-19)
 - [x] V3c/V3d — flashed 2026-09-19, adopted in HA at `192.168.50.70`
-- [ ] V3d leftover — DHCP reservation for `192.168.50.70` confirmed
+- [x] V3d leftover — DHCP reservation for `192.168.50.70` confirmed
 - [x] V3e — memory baseline: idle 216,164 B, conversation trough 206,956 B
 - [x] V0 — audio wiring corrected to Waveshare's official examples (ES7210 +
       ES8311, shared I2S bus, GPIO15 amp enable)
@@ -514,9 +533,12 @@ recall, 5/4,080 hard-negative false accepts).
 - [x] V4 — conversation agent wired to `llama-fast`, tuned, pipeline-tested
       without hardware — full log in
       [`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md)
-- [ ] V4 leftover — end-to-end wake → reply latency on the real device
-- [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.97)
-- [ ] V5 leftover — real-world false-wake notes (HA pipeline debug transcripts)
+- [x] V4 leftover — end-to-end wake → reply latency on the real device:
+      acceptable in real use
+- [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.93)
+- [x] V5 leftover — real-world false wakes: none over several days at 0.97
+- [ ] V5 — wake-word recall on real voices: judge cutoff 0.93 after a few
+      days of use (see *Wiring it in*)
 - [ ] V5 — display, STT fallback, metrics (deferred)
 - [x] V1g — pitched voice `en_US-norman-medium_x0.8`, as a custom Piper
       voice (`.onnx.json` rate + length_scale), is the Doofus assistant's

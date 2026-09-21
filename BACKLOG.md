@@ -39,16 +39,11 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 the satellite is flashed, adopted at `192.168.50.70`, and answering on the
 custom "Hey Doofus" wake word. See [`VOICE.md`](VOICE.md).
 
-- [ ] **V3d leftover** — confirm the DHCP reservation for `192.168.50.70`. HA
-      added the device by IP, because mDNS does not cross the pod network, so a
-      new lease would silently break it.
-- [ ] **V4 leftover** — record real wake → reply-start latency on the device
-      (HA → Settings → Voice assistants → Debug). The 1.3–1.7 s measured so far
-      is the pipeline alone (`scripts/voice/pipeline-test.py`, no hardware); it
-      excludes on-device wake-word detection and the end-of-speech silence wait.
-- [ ] **V5 leftover** — real-world false-wake notes from the HA pipeline debug
-      transcripts, before deciding whether to retune `probability_cutoff` or
-      train again.
+- [ ] **Judge the wake word at `probability_cutoff: 0.93`** after a few days
+      of real use. It runs at 0.93 because 0.97 gave zero false wakes but often
+      missed the correct phrase. If false wakes appear, go back to 0.95. If misses
+      persist, retrain with the owner's own recordings as positives rather than
+      dropping far below 0.90. See [`VOICE.md`](VOICE.md) → *Wiring it in*.
 - [ ] **V1f leftover** — load `chat` and `qwen27-agent` once each with
       `whisper-server` running; both are rare-use presets and weren't checked
       when VRAM headroom was measured.

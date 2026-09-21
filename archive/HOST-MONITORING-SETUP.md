@@ -107,6 +107,9 @@ newaliases
 postqueue -f
 ```
 
+> ⚠️ **The alias line above was wrong for this host**, and the fix it
+> describes was never completed. See *Mail path fixed, 2026-09-21* below.
+
 Then set the target under **Datacenter → Notifications → Add → SMTP**. Verify
 with `status=sent`, not with an empty `mailq` alone:
 
@@ -193,3 +196,45 @@ exercised the `host.fw` rules: `:9100` served 3,958 series, `:9633` 1,316
 lines before the `bus_` exclusion (~640 series after it). Every metric the
 rules and dashboard reference was present. Each expression also parsed
 against the live Prometheus before merge.
+
+**After merge (PR #55, 22:00)**, Prometheus picked up both targets within
+two minutes (`up` 1 for `host-node` and `host-smartctl`). All 15 rules
+loaded with health `ok`. Run without its threshold, every rule returned
+series: 3 pools ONLINE, 0–5% allocated; last scrubs 12 minutes to 8.6 days
+old with 0 errors; each of the four sanoid datasets snapshotted ~1h earlier;
+thin pool 52.2% data and 2.9% metadata; 9 drives passing SMART with every
+media-error counter at 0 and temperatures 33–42°C; host `/` 80% free. With
+the thresholds, none matched, and `ALERTS{alertname=~"Host.*"}` was empty.
+Grafana's sidecar loaded `host.json`, and every panel returned data once
+`rate()` had two samples. The first host CPU reading was ~70% busy, from
+only two samples.
+
+## Mail path fixed, 2026-09-21
+
+The 2026-09-10 fix above had never been finished, and no test email had been
+sent end to end. A check on 2026-09-21 found:
+
+- **No alias in `/etc/aliases`.** Proxmox already hooks the forwarder in
+  through `/root/.forward` (`|/usr/libexec/proxmox-mail-forward`), so none
+  was needed.
+- **An SMTP target existed but was unused.** `smartd-notis` (Gmail, port 587,
+  STARTTLS, to `root@pam`'s email) was configured, but `default-matcher`
+  routed only to the stock `mail-to-root` sendmail target.
+
+Steps taken on the host:
+
+1. `pvesh set /cluster/notifications/matchers/default-matcher --target
+   smartd-notis`. The target's own test email arrived.
+2. Following the 2026-09-10 instructions, `root: |/usr/bin/proxmox-mail-forward`
+   was appended to `/etc/aliases`. A `mail … root` test then deferred:
+   `local: fatal: execvp /usr/bin/proxmox-mail-forward: No such file or
+   directory`, `dsn=4.3.0`. The alias overrode the correct `.forward`, and
+   the binary doesn't exist at that path; on PVE 9 it is
+   `/usr/libexec/proxmox-mail-forward`.
+3. The alias line was deleted, `newaliases` run, and `postqueue -f` flushed
+   the queue: `status=sent`, and the deferred test email arrived.
+
+`mailq` was empty before step 2 even though mail had never reached a
+person. The earlier test messages had gone to `mail-to-root`.
+`HOST-MONITORING.md` → *Mail path* is the current config.
+
