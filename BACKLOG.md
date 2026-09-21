@@ -6,10 +6,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Waiting on a decision
 
-- [ ] **Off-site backup: decided, first run pending** *(2026-09-21)*.
-      Monthly restic to Backblaze B2 (`offsite-backup` CronJob). Open until the
-      first snapshot lands and a test restore of `sunfire.dump` succeeds.
-      See `GITOPS.md` → CloudNativePG → *Off-site backup*.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →

@@ -730,9 +730,20 @@ read -rs AWS_SECRET_ACCESS_KEY; export AWS_SECRET_ACCESS_KEY
 read -rs RESTIC_PASSWORD; export RESTIC_PASSWORD
 restic snapshots --tag monthly
 restic restore latest --tag monthly --target ./restore
-# ./restore/work/data/postgres/sunfire.dump  -> pg_restore -d sunfire
-# ./restore/work/data/media/                 -> mc mirror back into the bucket
+# ./restore/postgres/sunfire.dump  -> pg_restore -d sunfire
+# ./restore/media/                 -> mc mirror back into the bucket
 ```
+
+Paths in the snapshot are **relative** (`/postgres`, `/media`), because the
+job runs `cd /work/data` before `restic backup`, even though `restic
+snapshots` lists them as `/work/data/…`. So `--include /postgres` works, and
+`--include /work/data/postgres` silently restores 0 files.
+
+✅ **Verified 2026-09-21.** First snapshot `cd4a985a`, 84.9 MiB, and `restic
+check` found no errors. A manual run of the CronJob then took the "0d old: not
+due" path. `sunfire.dump` restored **from B2** into a throwaway
+`postgres:16.15`: `pg_restore` exited 0, and all 58 rows hashed identically to
+the live database.
 
 **Force a run** (e.g. to test) with
 `kubectl -n sunfire create job --from=cronjob/offsite-backup offsite-manual`.
