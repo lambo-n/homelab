@@ -21,11 +21,25 @@ under [The stack](#the-stack).
 
 | Workload | What it is for | Namespace | Reached at |
 |---|---|---|---|
+| **Voice assistant** | Home Assistant and its recorder database, orchestrating an ESP32-S3 satellite against the speech and LLM services on VM 105 | `voice` | `:8123` on any node IP (LAN only) |
 | **Sunfire** | Object storage and relational data for the `sunosrs.cc` Cloudflare Worker | `sunfire` | `minio-api.sunosrs.cc`, `db.sunosrs.cc` |
-| **Observability** | Prometheus, Alertmanager and Grafana for the cluster itself | `observability` | `grafana.homelab.lan` (LAN only) |
+| **Observability** | Prometheus, Alertmanager and Grafana for the cluster, the Flux stack and VM 105 | `observability` | `grafana.homelab.lan` (LAN only) |
 
 Adding one means a directory under `kubernetes/apps/`, its own `ks.yaml`, and a row
 above.
+
+Not everything here is a Kubernetes workload. **VM 105** runs the GPU and the
+local inference stack — `llama.cpp` on an Intel Arc Pro B70, plus the
+speech-to-text and text-to-speech services the voice assistant calls — outside
+the cluster entirely. See [`GPU-VM.md`](GPU-VM.md) and [`VOICE.md`](VOICE.md).
+
+### Voice assistant — Home Assistant plus VM 105
+
+A Waveshare ESP32-S3 satellite listens for a wake word on-device and hands
+everything after it to Home Assistant in the `voice` namespace, which calls
+whisper.cpp, Piper and `llama-fast` on VM 105. Nothing in this path leaves the
+LAN: no cloud speech service, no tunnel, no account anywhere.
+→ [`VOICE.md`](VOICE.md)
 
 ### Sunfire — backing a Cloudflare Worker
 
@@ -43,9 +57,13 @@ Both hostnames are Cloudflare Access–gated and reached through an outbound-onl
 tunnel — there is no port forwarding and no inbound firewall rule anywhere.
 
 > **History.** The original consumer was *Sun Clan Bingo*, decommissioned
-> 2026-09-02. MinIO and PostgreSQL were kept for a successor Worker and everything
-> was rebranded `bingo` → `sunfire`. The successor app does not exist yet, which is
-> why write volume is currently near zero.
+> 2026-09-02. MinIO and PostgreSQL were kept for the successor Worker and
+> everything was rebranded `bingo` → `sunfire`. That Worker is live.
+>
+> ⚠️ Several standing decisions here — no off-site backup, one shared Access
+> service token — were sized for the gap between apps, when nothing stored here
+> had value. That premise no longer holds. Both are flagged for re-decision in
+> [`GITOPS.md`](GITOPS.md) and [`BACKLOG.md`](BACKLOG.md).
 
 ---
 
@@ -62,8 +80,9 @@ is why secrets the cluster needs to boot stay in git rather than in a cloud vaul
 and why alerting deliberately pushes nothing anywhere.
 
 **Nothing is exposed inbound.** Public reachability is opt-in per workload, through
-the cloudflared tunnel and behind Cloudflare Access. LAN-only services (Grafana
-today) stay on Traefik and are deliberately kept off the tunnel.
+the cloudflared tunnel and behind Cloudflare Access. Everything else — Grafana,
+Home Assistant, the inference API on VM 105 — is LAN-only and deliberately kept
+off the tunnel.
 
 **The repository is the desired state, and it is also the practice.** The migration
 from hand-applied YAML to a fully reconciled cluster is recorded phase by phase at
@@ -84,7 +103,8 @@ a single failure domain and is the constraint behind most of the architecture.
 | Also runs | the **NFS server** exporting `/archive-pool` |
 | VM disks | `local-lvm` — LVM-thin on a **Dell BOSS-S2** pair of M.2 **SATA** SSDs in *hardware* RAID1, 130.2 GiB, 82.1 GiB free |
 | Bulk storage | `archive-pool` — ZFS **3-way mirror** of 1.92 TB SATA SSDs, 1.68 TiB usable · `sas-pool` — ZFS **RAIDZ1** of 3 × 3.84 TB SAS SSDs, **6.85 TiB usable** |
-| Unallocated | 2 × 1.92 TB SATA SSD, free (`sde`, `sdf` cold spares) |
+| Also on SATA | `llm-pool` — a single 1.92 TB SSD (`sde`), no redundancy, holding VM 105's model weights |
+| Unallocated | 1 × 1.92 TB SATA SSD (`sdf`), cold spare for `archive-pool` |
 
 *Host storage figures read from `pvesm status` on the host console 2026-09-09.
 The dev VM has no route to the pool, but capacities can be re-read over the
@@ -130,8 +150,9 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 > **VMID + 2 = last octet holds for the four VMs by coincidence, not by rule** —
 > the LXC at CTID 100 sits outside that run. Do not rely on it.
 
-All five are in OpenTofu state with `prevent_destroy`, each body generated from
-the live guest rather than hand-written. 256 GiB of worker RAM against ~1% CPU and
+All six are in OpenTofu state with `prevent_destroy`. Five were imported, each
+body generated from the live guest rather than hand-written; `llm` is the one
+authored here and created by `tofu apply`. 256 GiB of worker RAM against ~1% CPU and
 <1% memory utilisation is the reason "we have headroom" never appears as an
 argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 
@@ -310,11 +331,12 @@ not a dashboard setting.
 → `kubernetes/apps/sunfire/cloudflared/`
 
 **Traefik** `3.6.13` and **klipper-lb** — k3s' bundled ingress controller and
-service LoadBalancer. Used today for exactly one thing: serving Grafana on the LAN.
-Any future LAN-only UI goes here rather than on the tunnel.
+service LoadBalancer. Traefik serves Grafana on the LAN; Home Assistant takes a
+klipper LoadBalancer on `:8123` directly. Any future LAN-only UI goes here rather
+than on the tunnel.
 → ships with k3s, not managed here
 
-**OpenTofu** `1.12.6` — declares the two Cloudflare DNS records and all five
+**OpenTofu** `1.12.6` — declares the two Cloudflare DNS records and all six
 Proxmox guests. Runs **by hand from the dev VM, never from inside the cluster** —
 a reconciler that can delete the VMs it runs on is the failure mode this whole
 layer split exists to avoid.
@@ -331,6 +353,11 @@ deliberately.
 **flux-monitoring** — PodMonitors for the Flux controllers and the operator, three
 Flux alert rules, and Flux's own Grafana dashboards committed as JSON.
 → `kubernetes/apps/observability/flux-monitoring/`
+
+**llm-vm** — a `ScrapeConfig` for VM 105's node-exporter and llama.cpp metrics
+collector, its dashboard, and alerts on GPU temperature and the VM being
+unreachable. The guest is outside the cluster; only the scraping lives here.
+→ `kubernetes/apps/observability/llm-vm/`
 
 > **Planned: host monitoring.** Everything above watches the *cluster*. The
 > Proxmox host and every disk in it are unmonitored — see
@@ -394,8 +421,12 @@ kubernetes/apps/
   ├── infisical/          Infisical Operator
   ├── observability/
   │     ├── kube-prometheus-stack/  Prometheus, Alertmanager, Grafana, exporters
-  │     └── flux-monitoring/        PodMonitors, Flux alerts, Flux dashboards
+  │     ├── flux-monitoring/        PodMonitors, Flux alerts, Flux dashboards
+  │     └── llm-vm/                 ScrapeConfig, dashboard and alerts for VM 105
   ├── reloader/           restarts workloads when their Secrets change
+  ├── voice/
+  │     ├── voice-db/       CNPG Cluster — Home Assistant's recorder
+  │     └── home-assistant/ Deployment, Service, config PVC
   └── sunfire/            a workload namespace — one directory per workload
         ├── storage/       NFS PV + PVC          (prune permanently disabled)
         ├── minio/         S3 object storage     → minio-api.sunosrs.cc
@@ -406,7 +437,9 @@ kubernetes/apps/
         └── cloudflared/   tunnel; routing in configmap.yaml
 .github/workflows/        renovate.yaml (dependency PRs) + validate-manifests.yaml (kustomize build + helm template)
 .github/scripts/          render-charts.py — renders every HelmRelease from its pinned chart version
-scripts/                  one-shot bootstrap scripts (tunnel, MinIO accounts, Infisical seed)
+esphome/                  voice-satellite firmware, wake-word model, SOPS-encrypted Wi-Fi secrets
+scripts/                  bootstrap scripts (tunnel, MinIO accounts, Infisical seed) and the
+                          host/guest units for the GPU and voice stacks (`gpu-rebar`, `llm/`, `voice/`)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
 runbooks/                 repeatable procedures, meant to be re-run (restore drill, snapshot verification)
 archive/                  completed one-time runbooks and superseded designs — history, not live docs
@@ -423,14 +456,18 @@ storage ─┬─ minio ──────────────────�
 cert-manager ──────┬─ plugin-barman-cloud
 cloudnative-pg ────┘
 
+cloudnative-pg ── voice-db ── home-assistant
+
 infisical-secrets-operator ── sunfire-infisical
-kube-prometheus-stack ── flux-monitoring
+kube-prometheus-stack ─┬─ flux-monitoring
+                       └─ llm-vm
 ```
 
 `reloader` and `kube-prometheus-stack` deliberately have **no** `dependsOn`:
 nothing in the cluster depends on either, so neither can wedge the sunfire or cnpg
-graphs. `flux-monitoring` depends on the stack only because `PodMonitor` and
-`PrometheusRule` do not exist as kinds until its CRDs are registered.
+graphs. `flux-monitoring` and `llm-vm` depend on the stack only because `PodMonitor`,
+`PrometheusRule` and `ScrapeConfig` do not exist as kinds until its CRDs are
+registered.
 
 > The `postgres` node is no longer a database — since 2026-09-04 that
 > Kustomization holds only the `postgres-credentials` Secret. The two edges into it
@@ -446,7 +483,7 @@ Three trees on the dev VM, deliberately siblings and never nested:
 
 | Path | What it is | Git |
 |---|---|---|
-| `~/homelab/` | **This repo.** Cluster desired state | `lambo-n/homelab` (private) |
+| `~/homelab/` | **This repo.** Cluster desired state | `lambo-n/homelab` (**public**) |
 | `~/sunfire/` | The consuming app, cloned **for model context only** | `Sunfire-Team/sunfire` |
 | `~/archive/` | Decommissioned Sun Clan Bingo assets, read-only | untracked, `chmod 700` |
 
@@ -462,8 +499,14 @@ clone, `~/.ssh` and `~/.claude.json`. Keeping them siblings also means the app r
 and the infra repo can be pushed independently.
 
 `lambo-n` rather than the `Sunfire-Team` org, deliberately: the cluster is personal
-infrastructure, and org members would otherwise inherit access to the encrypted
-tunnel credentials and database passwords.
+infrastructure, and it should not gain or lose readers when an org's membership
+changes.
+
+> ⚠️ **This repo is public**, so every `*.sops.yaml` payload is world-readable
+> ciphertext and `age.key` is the only thing protecting it. Two consequences:
+> the key's handling rules below are load-bearing rather than tidy, and a secret
+> committed in plaintext is compromised the moment it is pushed — not merely
+> exposed to whoever has repo access.
 
 **No plaintext secret may be committed to any of the three.** Only `*.sops.yaml`
 may exist here; `.gitignore` refuses a bare `secret.yaml` outright so it cannot be
@@ -509,6 +552,7 @@ never be `cat`-ed**, including to display it for backup.
 | [`BACKLOG.md`](BACKLOG.md) | Every open item across this repo, in one place |
 | [`HARDWARE.md`](HARDWARE.md) | The physical inventory — devices, controllers, capacity |
 | [`GPU-VM.md`](GPU-VM.md) | VM 105's GPU passthrough and llama.cpp inference stack — current state |
+| [`VOICE.md`](VOICE.md) | The voice assistant — satellite firmware, Home Assistant, speech services |
 | [`SANOID.md`](SANOID.md) | ZFS snapshot policy — which datasets, on what schedule |
 | [`SAS-STORAGE.md`](SAS-STORAGE.md) | `sas-pool` — architecture, snapshots, Samba access |
 | [`HOST-MONITORING.md`](HOST-MONITORING.md) | SMART tests, scrubs and host metrics — what's live and what's still open |

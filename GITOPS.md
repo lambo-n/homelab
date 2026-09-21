@@ -59,12 +59,12 @@ not open:
 |---|---|
 | Flux/Crossplane/tofu-controller for Proxmox | Circular dependency on a single host. Also dissolves a real boundary: the shim needs a Proxmox API token with `VM.Allocate` stored in-cluster, so cluster compromise would become hypervisor compromise — today the cluster cannot touch `.101` at all. **Revisit if** a second Proxmox node appears, *or* if a separate management cluster exists (k3s in an LXC on the host) so the reconciler no longer sits on its own substrate |
 | Flux image automation controllers | Renovate is a strict superset; they'd conflict |
-| R2 for backups | Original reason (shared 10 GB free tier) is void — app decommissioned. Still rejected: nothing here is worth off-siting yet. Revisit per successor app |
+| R2 for backups | Original reason (shared 10 GB free tier) is void — bingo decommissioned. **Due a re-decision:** the rejection rested on no successor app existing, and the Worker is now live on `sunosrs.cc`. See *R2 rejected* under CloudNativePG |
 | CNPG `instances: 3` | False redundancy on one hypervisor |
 | Cilium BGP / Multus | No network gear to peer with |
 | `actions-runner-controller` | Another circular dependency on a single host |
 | `HelmRelease` semver ranges | Runtime drift; git stops describing what's deployed |
-| Per-environment Cloudflare Access service tokens | **Deliberate, decided 2026-09-02.** One `sunfire-worker` token is shared by the prod Worker, the feature Worker and local dev, per `ZEROTRUST.md`. Splitting it would allow revoking a leaked local/laptop token without taking production down — the same reasoning that keeps *two* MinIO service accounts one layer below. Rejected anyway: prod being down costs nothing and all stored data is non-critical, so the blast radius the split protects against is not worth the extra tokens to manage. **The asymmetry with MinIO is intentional — do not "fix" it.** Revisit only if this cluster ever stores something that matters |
+| Per-environment Cloudflare Access service tokens | **Deliberate, decided 2026-09-02.** One `sunfire-worker` token is shared by the prod Worker, the feature Worker and local dev. Splitting it would allow revoking a leaked local/laptop token without taking production down — the same reasoning that keeps *two* MinIO service accounts one layer below. Rejected anyway: prod being down costs nothing and all stored data was non-critical, so the blast radius the split protects against was not worth the extra tokens to manage. **The asymmetry with MinIO is intentional — do not "fix" it.** ⚠️ The revisit condition was "if this cluster ever stores something that matters"; the Worker is now live on `sunosrs.cc`, so this is worth re-reading rather than assuming still-settled |
 
 ---
 
@@ -367,7 +367,7 @@ which class goes where.
 | Runner | self-hosted `renovatebot/github-action`, daily cron `0 10 * * *` UTC (3 am PDT), plus `workflow_dispatch` and push-to-`main` on config changes |
 | Presets | `.renovaterc.json5` extends `home-operations/renovate-presets#8.1.0` |
 | Excluded | `ignorePaths: ["**/*.sops.*"]` — encrypted files are never scanned |
-| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with `platformAutomerge: false`: every update gets a PR and Renovate merges it once checks pass. `rebaseWhen: conflicted` so queued branches keep their green checks; Renovate restarts once after an automerge, so **two PRs merge per run** |
+| Automerge | `.renovate/autoMerge.json5` — **minor/patch/digest automerge for everything; majors never**. Exceptions: `kubectl` (never), 0.x minors (never), GitHub Actions (`minimumReleaseAge: "3 days"`). `automergeType: pr` with **`platformAutomerge: true` since 2026-09-21**: every update gets a PR, Renovate hands it to GitHub's auto-merge, and GitHub merges it when the required checks go green — decoupled from Renovate's run schedule. `rebaseWhen: conflicted` so queued branches keep their green checks |
 | Pre-merge gate | `.github/workflows/validate-manifests.yaml`, two jobs — **kustomize build** (all 21 Kustomizations + a `ks.yaml` `spec.path` check, offline) and **helm template** (all 6 HelmReleases rendered from their pinned chart versions, via `.github/scripts/render-charts.py`). On `pull_request` and pushes to `main`, **no `paths:` filter**, so a check always exists. Renovate waits for both (no `ignoreTests`) |
 | Bounds | `.renovate/allowedVersions.json5` — Postgres `<=17`, kubectl `~1.35` |
 | App | personal GitHub App `homelab-renovate`, **separate from** the org-owned `sunfire-renovate` — org Apps cannot be installed on personal repos, and minutes bill to `lambo-n`'s personal quota |
@@ -451,13 +451,28 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > the Postgres pod it manages.** Reconcile-time `wait: true` plus healthChecks stay
 > the last line of defence.
 >
-> Two mechanical consequences of gating on a check read *during* a Renovate run:
-> an update whose CI is still pending merges on the next run, so a newly opened PR
-> can lag up to a day; and it depends on the App's "Commit statuses" read permission, the
-> one missing from 2026-09-03 to 09-08. Branch protection would let GitHub merge on
-> green instead, but it is not available for a private repo on this plan — which
-> also means a red check does **not** block a human from merging a major by hand.
-> It is information, not enforcement.
+> **GitHub holds the PR, not Renovate** *(since 2026-09-21)*. `platformAutomerge:
+> true` means Renovate marks a PR for auto-merge and GitHub merges it the moment
+> the required checks go green, rather than Renovate reading a check status
+> mid-run and deciding. The ruleset `main-required-checks` on `main` requires
+> **kustomize build**, **helm template** and **GitGuardian Security Checks**, and
+> deliberately leaves *"require branches to be up to date"* **off** — turning it
+> on would stall every PR behind a rebase, which is the failure the `rebaseWhen`
+> note below describes.
+>
+> This still depends on the App's "Commit statuses" read permission, the one
+> missing from 2026-09-03 to 09-08. And a required check that goes red now
+> genuinely blocks the merge, including for a human merging a major by hand —
+> which it did not before the ruleset existed.
+>
+> ⚠️ **The premise this setting sat on for two weeks was wrong.** It was `false`
+> because branch protection was believed unavailable "for a private repo on this
+> plan". **The repo is public**, so the rule was always available. The bill: PR
+> #15, an OpenTofu lockfile update, could not merge for nine days — Renovate's
+> terraform manager regenerates `.terraform.lock.hcl` every run and reports it
+> updated without diffing, which forces `reuseExistingBranch: false`, which
+> force-pushes a byte-identical lock file, which restarts `validate-manifests`,
+> which the same run then reads as pending. Every run, forever.
 
 > **`rebaseWhen: conflicted` since 2026-09-14 — the default capped automerge at one
 > PR per run.** `rebaseWhen` defaults to `auto`, which Renovate resolves to
@@ -470,21 +485,23 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 > queued up by 09-14. Under `conflicted` the branches hold still, keep their green
 > checks, and the post-automerge restart takes the next eligible PR immediately.
 >
-> **That is two automerges per run, not a drained queue.** Renovate restarts the
-> repository job exactly once — `renovateRepository(repoConfig, false)` in
-> `workers/repository/index.ts`, after which the second pass logs "Automerged but
-> already retried once" and stops. It is not configurable. The 09-14 push run that
-> carried this change merged `secrets-operator` and `helm`, then finished with five
-> eligible PRs still open. Clearing a backlog takes ⌈n/2⌉ runs; extra
-> `workflow_dispatch` runs are the lever, and they cost little now that a run
-> rebases nothing.
+> **It capped at two automerges per run while Renovate did the merging.** Renovate
+> restarts the repository job exactly once — `renovateRepository(repoConfig,
+> false)` in `workers/repository/index.ts`, after which the second pass logs
+> "Automerged but already retried once" and stops. It is not configurable. The
+> 09-14 push run that carried this change merged `secrets-operator` and `helm`,
+> then finished with five eligible PRs still open. **`platformAutomerge: true`
+> removed that ceiling** — GitHub merges each PR as its own checks pass, so the
+> per-run limit no longer decides anything. `rebaseWhen: conflicted` still earns
+> its keep by keeping green checks green and saving ~16 pointless
+> `validate-manifests` jobs per run.
 >
 > The trade Renovate's docs name for `conflicted` — updates merging one after
 > another without having been tested together, checks that ran against an older
 > `main` — is the reconcile-time bet this repo already makes everywhere else. The
 > docs' other objection, that automerge stalls once a PR is out of date, applies
-> only where branch protection requires up-to-date PRs, which this plan does not
-> offer here.
+> only where the branch rule requires up-to-date PRs, which `main-required-checks`
+> deliberately does not.
 
 > **Pinned to what was running, not to latest.** Digests were read off the live
 > pods (`.status.containerStatuses[].imageID`) and mapped back to version tags,
@@ -576,13 +593,14 @@ checks Flux can gate on — not only backups. Note barman-cloud is now a **separ
 > live Cluster is unaffected either way — verified `healthy` with the dangling
 > reference in place.
 >
-> ⚠️ **The rollback value decays, so this is a soft deadline rather than none.**
-> The legacy data is frozen at the 2026-09-04 cutover. Every write CNPG takes
-> since makes rolling back to it a data-loss event rather than a recovery, and at
-> some point the honest recovery path is the backups, not this. Near-zero today
-> only because the new Worker does not exist yet. This is the clock the PV/PVC
-> item above is waiting on — when rolling back would lose more than it saves,
-> there is nothing left to keep them for.
+> ⚠️ **The rollback value decays, and the clock is now running.** The legacy data
+> is frozen at the 2026-09-04 cutover. Every write CNPG takes since makes rolling
+> back to it a data-loss event rather than a recovery, and at some point the
+> honest recovery path is the backups, not this. That was theoretical while no
+> successor Worker existed; **the Worker is live on `sunosrs.cc`**, so every write
+> it takes moves this further past the point of being a recovery at all. This is
+> the clock the PV/PVC item above was waiting on — it has arrived, and the
+> retirement is now a decision to make rather than one to defer.
 >
 > **Loose end, not urgent:** `sunfire-postgrest` still `dependsOn:
 > sunfire-postgres`, which now resolves to a Kustomization holding one Secret.
@@ -592,12 +610,19 @@ checks Flux can gate on — not only backups. Note barman-cloud is now a **separ
 
 **R2 rejected** — but note the original reasoning is now void. It was: the 10 GB free tier is
 shared with the production bingo app's buckets, so backups would push it toward billing. **That app
-is decommissioned (2026-09-02)**; there is no shared budget and no gallery data to protect. Any
-claim in this file that gallery pictures/videos live in MinIO is obsolete — MinIO has zero buckets.
+is decommissioned (2026-09-02)**; there is no shared budget and no bingo-era gallery data to
+protect. MinIO's two buckets today are `sunfire-guide-media` and
+`sunfire-postgres-backups`, both created after that decision.
 
-The conclusion still stands, for a simpler reason: **there is currently nothing here worth backing
-up off-site.** Revisit this properly when a successor app defines real data — at that point the
-decision should be made on that data's value, not inherited from the bingo-era constraint.
+**The condition for revisiting this has now been met.** The standing reason to skip off-site backup
+was that no successor app existed, so nothing here had value worth protecting beyond the host. The
+successor Worker is live on `sunosrs.cc` and writing to both the bucket and the database, so that
+premise is spent. The decision should now be made on what that data is actually worth — the one
+thing it must not be is inherited from the bingo-era constraint, or from the gap between apps.
+
+Until it is made, the honest statement is that guide media and the database exist **only on `.101`**:
+sanoid snapshots and barman backups both land on pools in the same chassis. That is a deliberate
+accepted risk, not coverage.
 
 ZFS redundancy + SMART already solve **drive failure**. They do not solve accidental deletion,
 a bad Flux prune, or logical corruption — RAIDZ replicates a `DELETE` to every disk instantly and
@@ -637,9 +662,10 @@ that changes: `zfs send` to an external USB drive rotated quarterly, or `syncoid
 >
 > What VolSync would genuinely add is a copy on *different media* in restic's
 > file-level, verifiable format. That only becomes real when a destination exists
-> that is not `.101` — which is the same condition already written into "Backups:
-> local only": revisit when a successor app defines data whose value justifies
-> going off-host. Until then this is machinery guarding a copy against nothing.
+> that is not `.101` — the same condition as the off-site question above, which
+> the live Worker has now put back on the table. Deferring VolSync and deferring
+> off-site backup are one decision, not two: pick the destination first, and
+> VolSync either becomes the mechanism or stays unnecessary.
 > `archive-pool/minio-data` gets sanoid, and after the CNPG cutover it holds the
 > Postgres backups too — that is the dataset that matters, and `SANOID.md`
 > already says so.
@@ -1202,20 +1228,20 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 
 ## k3s / storage substrate
 
-> Figures refreshed 2026-09-03 from `pvesm status` on `.101`. The pool rebuild in
-> `POOL-DOWNSIZE.md` is **complete**: 5 × 1.92 TB raidz2 (5.03 TiB) became a
-> 3-way mirror (1.68 TiB), freeing two drives. Earlier revisions of this table
-> read "~14 TB, ZFS w/ redundancy", then "8.72 TiB raw / 5.03 TiB usable" — both
-> are now historical.
+> Figures refreshed 2026-09-03 from `pvesm status` on `.101`. The pool rebuild is
+> **complete**: 5 × 1.92 TB raidz2 (5.03 TiB) became a 3-way mirror (1.68 TiB),
+> freeing two drives — one of which is now `llm-pool`, the other a cold spare
+> ([`HARDWARE.md`](HARDWARE.md)). Earlier revisions of this table read "~14 TB,
+> ZFS w/ redundancy", then "8.72 TiB raw / 5.03 TiB usable" — both are now
+> historical.
 >
-> ⚠️ **The "no VM disk is on ZFS" invariant is being retired deliberately.**
-> It appears in this file, `HOMELAB.md`, `POOL-DOWNSIZE.md` §1 and the
-> assistant's stored memory, always as the reason `archive-pool` could be
-> destroyed without touching a VM. Phase 5 puts PGDATA on a **zvol** on that
-> pool, so from that point on: destroying, exporting or rebuilding
-> `archive-pool` takes `k3s-worker2`'s data disk with it, and pool work requires
-> the VM stopped first. Nothing else changes — the other four guests stay on
-> `local-lvm`.
+> ⚠️ **The "no VM disk is on ZFS" invariant is retired, deliberately.** It was
+> repeated across older revisions of these documents as the reason
+> `archive-pool` could be destroyed without touching a VM. PGDATA now sits on a
+> **zvol** on that pool, so: destroying, exporting or rebuilding `archive-pool`
+> takes `k3s-worker2`'s data disk with it, and pool work requires the VM stopped
+> first. The other guests stay on `local-lvm`, except VM 105's models disk on
+> `llm-pool`.
 
 > ✅ **Blocker found and cleared 2026-09-03: the worker root disks were 9.75 GiB.**
 > Phase 5's original decision — move PGDATA onto `local-path` — quietly assumed

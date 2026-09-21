@@ -1,10 +1,13 @@
-# Host monitoring — A1 (SMART long tests) setup log
+# Host monitoring — G1 (SMART long tests) setup log
 
-> 📦 **Archived 2026-09-16.** A1 (SMART long tests) is the one goal in
+> 📦 **Archived 2026-09-16.** G1 (SMART long tests) is the one goal in
 > [`../HOST-MONITORING.md`](../HOST-MONITORING.md) that's fully built and
 > verified; this is the debugging record from doing it. The current
-> configuration is summarized in that file; the remaining goals (A2–A6, Part B)
-> are tracked in [`../BACKLOG.md`](../BACKLOG.md).
+> configuration is summarized in that file; the remaining goals (G2–G7) are
+> tracked in [`../BACKLOG.md`](../BACKLOG.md).
+>
+> *This file originally numbered the goals `A1`–`A6` + "Part B"; they were
+> renumbered `G1`–`G7` in `HOST-MONITORING.md`. Same goals, one scheme.*
 
 `smartmontools` is already installed on PVE and `smartmontools.service` is
 enabled by the package.

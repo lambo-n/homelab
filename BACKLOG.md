@@ -9,14 +9,25 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 - [ ] **Retire the legacy NFS PV/PVC** (`postgres-pvc` → `postgres-pv`, 100 GiB,
       `Retain`). Still bound, still holding the pre-cutover Postgres data. They
       live in `sunfire-storage` where prune is permanently disabled, so removing
-      them is a manual act a git edit cannot do by accident. The clock is a decay
-      note in `GITOPS.md` → CloudNativePG: when rolling back would lose more than
-      it saves, there is nothing left to keep them for.
-- [ ] **Verify the 15-day Prometheus retention projection** — due around
-      **2026-09-19**. The figure is derived from 65,810 active series, not
-      measured. Check that `retention: 15d` is what is actually happening rather
-      than `retentionSize: 4GiB` truncating it silently. See `GITOPS.md` →
-      kube-prometheus-stack.
+      them is a manual act a git edit cannot do by accident. **The clock they
+      were waiting on has run out:** the successor Worker is live on
+      `sunosrs.cc`, so rolling back to data frozen at the 2026-09-04 cutover
+      would now lose writes rather than recover them. The backups are the
+      recovery path. See `GITOPS.md` → CloudNativePG.
+- [ ] **Re-decide off-site backup, now that the data is real** *(raised
+      2026-09-21)*. Both the R2 rejection and the VolSync deferral rested on "no
+      successor app exists, so nothing here is worth off-siting." The Worker is
+      live. Today guide media, the database, its barman backups and every sanoid
+      snapshot are all on pools in the same chassis — host loss takes all of it.
+      Decide on the data's actual value: `zfs send` to a rotated external disk,
+      `syncoid` over Tailscale, or R2 after all. See `GITOPS.md` → CloudNativePG
+      → *R2 rejected*.
+- [ ] **Verify the 15-day Prometheus retention projection** — **was due
+      2026-09-19; now overdue.** The figure is derived from 65,810 active series,
+      not measured. Check that `retention: 15d` is what is actually happening
+      rather than `retentionSize: 4GiB` truncating it silently. The TSDB has now
+      run long enough for the oldest sample's age to answer this directly. See
+      `GITOPS.md` → kube-prometheus-stack.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →
@@ -25,6 +36,17 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       (costs reaching `:8006` and Grafana without a jump host). **Not urgent** —
       same "100% uptime isn't guaranteed, nothing here is worth much" calculus as
       the rest of `README.md`'s operating assumptions.
+- [ ] **Decide whether this repo should stay public** *(raised 2026-09-21)*.
+      Several documents described it as private until that date, and one real
+      decision rested on the belief — `platformAutomerge` was left off because
+      branch protection was thought unavailable on a private repo, which cost
+      PR #15 nine days (`GITOPS.md` → Renovate). Nothing is *cryptographically*
+      wrong with public: every payload is age-encrypted and `age.key` has never
+      been committed. What is public is the whole topology — IPs, hostnames,
+      ports, firewall rules, credential *locations* — and the ciphertext itself,
+      which is offline-attackable forever by anyone who cloned it. Either
+      confirm public deliberately, or flip it and re-check what was exposed
+      meanwhile.
 - [ ] **Repoint `sunfire-postgrest`'s `dependsOn`** at `sunfire-postgres-cnpg`. It
       still names `sunfire-postgres`, which since 2026-09-04 holds only a Secret.
       Harmless — a secret-only Kustomization is always Ready — but the edge no
@@ -68,42 +90,50 @@ Goal G1 (SMART long tests) is live; the rest of the plan in
 - [ ] **GuC firmware on the LLM guest is older than the kernel wants**
       (`70.44.1` loaded, `70.54.0` recommended). Works today; try
       `apt install --only-upgrade linux-firmware` when convenient. Not blocking.
-- [ ] Check whether the tailscale gateway's `192.168.50.0/24` route exposes the
-      LLM VM's `:8080`/`:8081` to tailnet devices beyond what F6a's firewall rules
-      intend (the same route this file's "subnet route" item above is about).
+- [ ] **Confirm the LLM API is actually unreachable over the tailnet.** The
+      guest's `ufw` denies `:8080`/`:8081` to `192.168.50.102` specifically, so a
+      routed tailnet device — which arrives as the gateway's address — should be
+      refused while LAN hosts are not ([`GPU-VM.md`](GPU-VM.md)). That is the
+      intent; it has not been tested *from* a tailnet device. Same route as the
+      "subnet route" item above.
 
-## Voice assistant — hardware, and everything after it
+## Voice assistant — leftovers
 
-V1 (speech services), V2 (Home Assistant + `voice-db`) and V4 (the
-conversation agent) are done — see [`VOICE.md`](VOICE.md). What's left:
+**Working end to end since 2026-09-19.** V0–V5 are done except the items below;
+the satellite is flashed, adopted at `192.168.50.70`, and answering on the
+custom "Hey Doofus" wake word. See [`VOICE.md`](VOICE.md).
 
-- [ ] **V0** — check the firmware pin map against the Waveshare schematic
-      before flashing anything.
+- [ ] **V3d leftover** — confirm the DHCP reservation for `192.168.50.70`. HA
+      added the device by IP, because mDNS does not cross the pod network, so a
+      new lease would silently break it.
+- [ ] **V4 leftover** — record real wake → reply-start latency on the device
+      (HA → Settings → Voice assistants → Debug). The 1.3–1.7 s measured so far
+      is the pipeline alone (`scripts/voice/pipeline-test.py`, no hardware); it
+      excludes on-device wake-word detection and the end-of-speech silence wait.
+- [ ] **V5 leftover** — real-world false-wake notes from the HA pipeline debug
+      transcripts, before deciding whether to retune `probability_cutoff` or
+      train again.
 - [ ] **V1f leftover** — load `chat` and `qwen27-agent` once each with
       `whisper-server` running; both are rare-use presets and weren't checked
       when VRAM headroom was measured.
-- [ ] **V3c/d/e** — flash the ESP32-S3 firmware from the workstation (the dev
-      VM has no USB; board expected 2026-09-18), adopt it in Home Assistant,
-      and record the idle/listening/speaking memory baseline before adding
-      anything else to the device.
-- [ ] **V4 leftover** — record real wake → reply-start latency once the device
-      is adopted. The 1.3–1.7 s measured so far is the pipeline alone
-      (`scripts/voice/pipeline-test.py`, no hardware); it excludes on-device
-      wake-word detection and the end-of-speech silence wait.
 - [ ] **Re-enable Home Assistant device control (Assist)** for the
       conversation agent once real entities exist — off today because the 4B
       model burns through HA's tool-iteration cap calling `GetLiveContext`
       with nothing exposed yet.
-- [ ] **V5** — later ideas, each measured against V3e's baseline: an LVGL
-      status display, a CPU-only STT fallback for when VM 105 is off,
-      Prometheus metrics on the pipeline, a custom wake word.
+- [ ] **V5, deferred** — an LVGL status display, a CPU-only STT fallback for
+      when VM 105 is off, and Prometheus metrics on the pipeline. Each measured
+      against the V3e heap baseline.
 
 ## Hardware — still unknown
 
 From [`HARDWARE.md`](HARDWARE.md) → "Still unknown":
 
-- [ ] SMART baseline on the 6 SATA disks (`archive-pool` members + `llm-pool`) —
-      all 3 SAS disks are already done. `smartctl -a /dev/sdX`.
+- [ ] SMART baseline on the SATA disks — the 3 `archive-pool` members, the
+      `llm-pool` disk, the `sdf` cold spare and the BOSS virtual disk. All 3 SAS
+      disks are already done. G1 schedules long *tests* on four of them, but the
+      baseline attribute read has never been recorded, and the `archive-pool`
+      trio have degraded SMART support (no health bit) so the attributes are the
+      only signal there. Address by `by-id`, not `sdX`.
 - [ ] BOSS-S2 boot mirror health — invisible to every monitor in this repo; a
       failed M.2 surfaces only in iDRAC or the BOSS CLI.
 - [ ] Total front-bay count and how many are physically empty — decides whether
