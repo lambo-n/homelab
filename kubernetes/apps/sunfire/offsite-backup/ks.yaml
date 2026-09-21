@@ -1,0 +1,25 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sunfire-offsite-backup
+  namespace: flux-system
+spec:
+  interval: 30m
+  timeout: 5m
+  path: ./kubernetes/apps/sunfire/offsite-backup/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  wait: true
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  dependsOn:
+    # What it reads from. Neither is needed for the CronJob object to exist,
+    # but a first run against a missing database or bucket would fail loudly
+    # and look like a backup problem.
+    - name: sunfire-postgres-cnpg
+    - name: sunfire-minio

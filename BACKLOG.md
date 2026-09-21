@@ -6,14 +6,10 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Waiting on a decision
 
-- [ ] **Re-decide off-site backup, now that the data is real** *(raised
-      2026-09-21)*. Both the R2 rejection and the VolSync deferral rested on "no
-      successor app exists, so nothing here is worth off-siting." The Worker is
-      live. Today guide media, the database, its barman backups and every sanoid
-      snapshot are all on pools in the same chassis — host loss takes all of it.
-      Decide on the data's actual value: `zfs send` to a rotated external disk,
-      `syncoid` over Tailscale, or R2 after all. See `GITOPS.md` → CloudNativePG
-      → *R2 rejected*.
+- [ ] **Off-site backup: decided, first run pending** *(2026-09-21)*.
+      Monthly restic to Backblaze B2 (`offsite-backup` CronJob). Open until the
+      first snapshot lands and a test restore of `sunfire.dump` succeeds.
+      See `GITOPS.md` → CloudNativePG → *Off-site backup*.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →

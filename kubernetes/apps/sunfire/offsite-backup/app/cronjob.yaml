@@ -1,0 +1,164 @@
+---
+# Monthly off-site copy to Backblaze B2, with restic. See GITOPS.md "Off-site
+# backup" and scripts/offsite-backup-secret.sh.
+#
+# WHY IT RUNS EVERY 6 HOURS FOR A MONTHLY BACKUP. This cluster is often powered
+# off (AGENTS.md), and a CronJob pinned to the 1st would silently skip any
+# month the cluster was down that day. Instead it checks often and does real
+# work only when the newest `monthly` snapshot in the repository is 30+ days
+# old, or there is none. The repository is the source of truth for "when did
+# this last run". No state is kept in the cluster, so a rebuild cannot reset
+# the clock.
+#
+# WHAT IS COPIED, and why not the barman bucket:
+#   - `pg_dump -Fc` of the `sunfire` database. Restorable with plain
+#     pg_restore into any Postgres 16+, with no barman tooling and no MinIO,
+#     which is the point of an off-site copy. Roles are NOT in it: they are
+#     declared in postgres-cnpg/app/cluster.yaml (managed.roles) and the
+#     grants in sunfire/homelab/postgres/0002_grants.sql.
+#   - every object in `sunfire-guide-media`, mirrored to plain files. No
+#     Postgres backup covers these.
+# Local recovery (point in time, 30 days) stays with barman on MinIO. This is
+# the "the chassis is gone" copy.
+#
+# Each container gates on /work/skip, written by the first one, so a not-due
+# run costs one small B2 listing and no database or MinIO reads.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: offsite-backup
+  namespace: sunfire
+spec:
+  schedule: "23 */6 * * *"
+  concurrencyPolicy: Forbid
+  # A run missed while the cluster was off is not worth catching up on: the
+  # next 6-hourly tick does the same check.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            fsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: due
+              image: docker.io/restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  mkdir -p /work/data/postgres /work/data/media
+                  if ! restic cat config >/dev/null 2>&1; then
+                    # Either no repository yet, or B2/the password is wrong.
+                    # `init` fails loudly on the second case, which is wanted.
+                    echo "no repository yet: initialising"
+                    restic init
+                  fi
+                  last=$(restic snapshots --tag monthly --latest 1 --json \
+                    | tr ',' '\n' | grep '"time"' | head -1 | cut -d'"' -f4)
+                  if [ -n "$last" ]; then
+                    ts=$(echo "$last" | cut -c1-19 | tr T ' ')
+                    age=$(( ($(date -u +%s) - $(date -u -d "$ts" +%s)) / 86400 ))
+                    if [ "$age" -lt "$MAX_AGE_DAYS" ]; then
+                      echo "newest monthly snapshot $last is ${age}d old: not due"
+                      touch /work/skip
+                      exit 0
+                    fi
+                    echo "newest monthly snapshot $last is ${age}d old: due"
+                  else
+                    echo "no monthly snapshot yet: due"
+                  fi
+              env:
+                - { name: MAX_AGE_DAYS, value: "30" }
+                - { name: RESTIC_CACHE_DIR, value: /work/cache }
+                - name: RESTIC_REPOSITORY
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: RESTIC_REPOSITORY } }
+                - name: RESTIC_PASSWORD
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: RESTIC_PASSWORD } }
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: B2_KEY_ID } }
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: B2_APP_KEY } }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+            - name: pg-dump
+              image: docker.io/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  [ -f /work/skip ] && exit 0
+                  pg_dump -h postgres-cnpg-rw -d sunfire -Fc \
+                    -f /work/data/postgres/sunfire.dump
+                  ls -l /work/data/postgres
+              env:
+                # CNPG's generated app credential: the `sunfire` owner role,
+                # which can read every table in its own database.
+                - name: PGUSER
+                  valueFrom: { secretKeyRef: { name: postgres-cnpg-app, key: username } }
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: postgres-cnpg-app, key: password } }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+            - name: media
+              image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  [ -f /work/skip ] && exit 0
+                  mc alias set m http://minio:9000 \
+                    "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" >/dev/null
+                  mc mirror --quiet m/sunfire-guide-media /work/data/media
+              env:
+                - { name: MC_CONFIG_DIR, value: /work/mc }
+                # Read-only on sunfire-guide-media (scripts/minio-offsite-policy.json).
+                - name: MINIO_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: MINIO_ACCESS_KEY } }
+                - name: MINIO_SECRET_KEY
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: MINIO_SECRET_KEY } }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+          containers:
+            - name: backup
+              image: docker.io/restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  if [ -f /work/skip ]; then echo "not due"; exit 0; fi
+                  cd /work/data
+                  # Fixed --host: pod names change every run, and restic groups
+                  # snapshots by host for `forget`.
+                  restic backup --tag monthly --host sunfire-offsite postgres media
+                  restic forget --tag monthly --host sunfire-offsite \
+                    --keep-monthly 12 --prune
+                  restic check
+                  restic snapshots --tag monthly
+              env:
+                - { name: MAX_AGE_DAYS, value: "30" }
+                - { name: RESTIC_CACHE_DIR, value: /work/cache }
+                - name: RESTIC_REPOSITORY
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: RESTIC_REPOSITORY } }
+                - name: RESTIC_PASSWORD
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: RESTIC_PASSWORD } }
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: B2_KEY_ID } }
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom: { secretKeyRef: { name: offsite-backup, key: B2_APP_KEY } }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+          volumes:
+            - name: work
+              emptyDir:
+                sizeLimit: 1Gi
