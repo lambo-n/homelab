@@ -39,7 +39,7 @@ Open items and remaining backlog live in [`BACKLOG.md`](BACKLOG.md), not here.
 | PostgREST | [↓](#postgrest) | `401` on anonymous is correct, not a fault |
 | kube-prometheus-stack | [↓](#kube-prometheus-stack) | The Flux alert every guide gives you queries a metric that no longer exists |
 | sanoid (host) | [↓](#sanoid-host) | A snapshot of a live Postgres is crash-consistent, not a backup |
-| Tailscale (host) | [↓](#tailscale-host) | The approved subnet route reaches the whole LAN, and nothing records it |
+| Tailscale (host) | [↓](#tailscale-host) | The policy file is a record, not applied by anything — edit it, then paste it into the console |
 | OpenTofu | [↓](#opentofu) | `PVEAuditor` cannot import a QEMU guest, and the error lies about why |
 | mise | [↓](#mise) | Shims must sit above the interactivity guard in `.bashrc` |
 | k3s / storage substrate | [↓](#k3s--storage-substrate) | `local-path` provisions a directory, not a quota |
@@ -1177,62 +1177,71 @@ Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 ## Tailscale (host)
 
 **Config at a glance** — the `tailscale-gateway` LXC (CTID 100, `192.168.50.102`)
-is the **only** tailnet member. It is host-level: neither Flux nor OpenTofu
-configures it, and `tofu/proxmox-container.tf` describes the container, not its
-Tailscale state. It provides two things:
+is the only homelab node on the tailnet; the other members are the owner's
+laptop and home PC. It is host-level: neither Flux nor OpenTofu configures it,
+and `tofu/proxmox-container.tf` describes the container, not its Tailscale
+state.
 
 | | |
 |---|---|
 | Exit node | offered, `AllowedIPs` includes `0.0.0.0/0` and `::/0` |
 | Subnet router | advertises **and has approved** `192.168.50.0/24` — `PrimaryRoutes: ["192.168.50.0/24"]` |
-| SSH session recording | `/var/log/ts-ssh-records`, on the `/archive-pool/ts-ssh-records` bind mount (`archive/STORAGE.md:416-448`, `archive/SAS-RECLAIM.md`) |
+| Tailnet policy | [`tailscale/policy.hujson`](tailscale/policy.hujson) — grants below, default deny |
+| SSH session logs | written by a daemon on the gateway, **not** Tailscale's recorder (the policy has no `recorder`), to `/var/log/ts-ssh-records` on the `/archive-pool/ts-ssh-records` bind mount (`archive/STORAGE.md:416-448`, `archive/SAS-RECLAIM.md`) |
 
-> ⚠️ **The subnet route is a second way in, and it is not the recorded one**
-> *(found 2026-09-09)*. `README.md` asserted that administrative access "is
-> SSH-mediated and recorded to `/var/log/ts-ssh-records`". That describes the
-> `ProxyJump` path and nothing else. With `192.168.50.0/24` approved, any device
-> on this tailnet running `tailscale set --accept-routes` gets **layer-3 reach to
-> every port on every host on the LAN** — Proxmox `:8006`, the k3s API server,
-> Traefik, NFS on `.101` — without opening an SSH session, and therefore without
-> producing a session recording.
->
-> Two things follow, and only the second is a real gap:
->
-> 1. **The recordings are not weakened.** They still capture every SSH session
->    that happens. They were simply never a complete record of *access*, because
->    an L3 route is not an SSH session. The control does what it says; the
->    sentence in `README.md` claimed more than the control delivers.
-> 2. **Nothing enforces the boundary at the network layer.** The route was
->    approved in the admin console; approval is per-route, and Tailscale ACLs —
->    which *could* restrict who may use it — are not in this repo and their
->    contents are unverified from here. So the honest statement is: reachability
->    is governed by tailnet membership, and tailnet membership is currently the
->    whole security model for LAN access.
->
-> **How it was found.** Not by reading the docs — by a client failing to reach
-> `.101` and `tailscale status` reporting *"Some peers are advertising routes but
-> --accept-routes is false"*. The route had been approved for an unknown length
-> of time and no document mentioned it. `tailscale status --json` is the check;
-> `PrimaryRoutes` on a peer is the field that matters.
+**What the subnet route reaches.** Only what the policy grants, from
+`autogroup:member`:
 
-**The upside, which is real.** The route is why hardware enumeration for
-[`HARDWARE.md`](HARDWARE.md) does not require sitting on the dev VM: with
-`--accept-routes` on, the Proxmox API on `192.168.50.101:8006` answers from any
-tailnet device. That does not widen anything — it uses a path that was already
-open — but it is worth knowing before anyone plans a trip to a different machine.
+| Grant | For |
+|---|---|
+| gateway `100.75.44.72` `tcp:22` | the `ProxyJump` hop |
+| `192.168.50.101` `tcp:8006` | Proxmox UI/API |
+| `192.168.50.104` `tcp:80`, `tcp:8123` | Traefik (Grafana) and Home Assistant |
+| `autogroup:internet` | the exit node |
 
-**Verified 2026-09-09** from a laptop on the tailnet, off the LAN. The test is
-the *shape* of the failure, not success: before `--accept-routes`, an
-unauthenticated `GET /api2/json/version` returned HTTP `000` — no connection at
-all. After, the same call returned **`401`**. A `401` means TLS completed and PVE
-declined the credentials, so the route is up and the remaining problem is a
-token. Treat `000` as routing and `401` as auth; they are diagnosed in different
-places.
+Everything else through the route is denied: NFS, the k3s API, the LLM API,
+SSH straight to a guest, and traffic between the laptop and the home PC.
+`ProxyJump` to every host in `ssh-config` works, because the second hop is the
+gateway's *own* LAN traffic, which grants do not govern. The `ssh` block is the
+console default (check mode, `autogroup:self`).
 
-**What is not affected.** `.101` still accepts no SSH key from the dev VM or from
-a laptop (`tofu/README.md:200`), and the dev VM still has no route to the *pool*
-— NFS `2049`/`111` are not reachable from it (`variables.tf`). Those are separate
-facts from the subnet route and remain true.
+> ⚠️ **The granted ports are a second way in, and they produce no session
+> log.** The logs cover SSH through the gateway. A routed request to `:8006`
+> or Traefik never opens an SSH session, so it is not recorded. The policy
+> limits *where* a routed device can go, not whether that is logged.
+
+> ⚠️ **The file is the record, not the source.** Nothing applies it. Edit
+> `tailscale/policy.hujson` first, then paste the whole file into admin console
+> → Access controls, and keep them identical. If a paste locks you out, paste
+> `{"src": ["*"], "dst": ["*"], "ip": ["*"]}` back in as the only grant.
+
+**Checking it**, from a tailnet device off the LAN with `--accept-routes`, as
+fish-safe one-liners:
+
+| Test | Expect |
+|---|---|
+| `ssh dev 'hostname'` | `dev` |
+| `curl -skI https://192.168.50.101:8006/api2/json/version \| head -1` | any HTTP status (`501` — PVE refuses `HEAD`) |
+| `curl -sI -H 'Host: grafana.homelab.lan' 192.168.50.104 \| head -1` | `302 Found` |
+| `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8080/v1/models` | `000` |
+| `curl -sk -m5 -o /dev/null -w '%{http_code}' https://192.168.50.104:6443/version` | `000` |
+
+Read `000` as routing or policy and any HTTP status as reachable. A `401` or
+`501` means TLS completed and PVE answered, so they are diagnosed in different
+places. `tailscale status --json` → `PrimaryRoutes` on the gateway peer shows
+whether the route itself is up.
+
+**Handy consequence.** With `--accept-routes` on, the Proxmox API answers from
+the laptop, so hardware enumeration for [`HARDWARE.md`](HARDWARE.md) does not
+need the dev VM.
+
+**What this does not cover.** `.101` accepts no SSH key from the dev VM or from
+a laptop (`tofu/README.md:200`), and the dev VM has no route to the *pool* —
+NFS `2049`/`111` are not reachable from it (`variables.tf`). Those facts don't
+depend on the tailnet.
+
+History (how the route was found, the allow-all policy it replaced, the
+verification runs): [`archive/TAILSCALE-SUBNET-ROUTE.md`](archive/TAILSCALE-SUBNET-ROUTE.md).
 
 ---
 

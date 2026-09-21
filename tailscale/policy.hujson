@@ -1,0 +1,45 @@
+// Tailscale policy file — the record of what is pasted into
+// admin console → Access controls. Not applied by anything; edit here first,
+// then paste. See GITOPS.md → Tailscale (host).
+//
+// Replaces the default allow-all grant (2026-09-21). The 192.168.50.0/24
+// subnet route stays approved, but only the ports below are reachable
+// through it. Everything not granted is denied.
+//
+// ProxyJump SSH (ssh-config) is unaffected beyond the first grant: the hop
+// from the gateway to a LAN guest is the gateway's own LAN traffic, not
+// routed tailnet traffic, so grants do not apply to it.
+{
+	"hosts": {
+		"tailscale-gateway": "100.75.44.72",
+		"proxmox":           "192.168.50.101",
+		"k3s-control":       "192.168.50.104",
+	},
+
+	"grants": [
+		// SSH to the gateway itself — the ProxyJump hop.
+		{"src": ["autogroup:member"], "dst": ["tailscale-gateway"], "ip": ["tcp:22"]},
+
+		// Proxmox web UI / API.
+		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006"]},
+
+		// Traefik (Grafana at grafana.homelab.lan) and Home Assistant.
+		// One node IP is enough; klipper answers on all three.
+		{"src": ["autogroup:member"], "dst": ["k3s-control"], "ip": ["tcp:80", "tcp:8123"]},
+
+		// Exit node. Delete if unused.
+		{"src": ["autogroup:member"], "dst": ["autogroup:internet"], "ip": ["*"]},
+	],
+
+	// Tailscale SSH. Unchanged from the console default: each member may SSH
+	// into their own devices, in check mode. No "recorder": session logs in
+	// /var/log/ts-ssh-records come from a daemon on the gateway, not Tailscale.
+	"ssh": [
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+}
