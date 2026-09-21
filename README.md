@@ -143,7 +143,7 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 | `tailscale-gateway` | LXC | 100 | `.102` | 1 GiB RAM, 8 GiB disk, unprivileged |
 | `dev` | VM | 101 | `.103` | the workstation this repo lives on |
 | `k3s-control` | VM | 102 | `.104` | 2 vCPU, 8 GiB RAM, 9.75 GiB root |
-| `k3s-worker1` | VM | 103 | `.105` | 4 vCPU, 128 GiB RAM, 17.83 GiB root |
+| `k3s-worker1` | VM | 103 | `.105` | 4 vCPU, 128 GiB RAM, 30.2 GiB root |
 | `k3s-worker2` | VM | 104 | `.106` | 4 vCPU, 128 GiB RAM, 17.83 GiB root |
 | `llm` | VM | 105 | `.107` | 8 vCPU (`host`), 64 GiB RAM (pinned — passthrough), 32 GiB root, 1400 GiB models disk on `llm-pool`, **Intel Arc Pro B70 passed through whole**. The only guest authored in tofu rather than imported. See [`GPU-VM.md`](GPU-VM.md) |
 

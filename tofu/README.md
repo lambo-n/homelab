@@ -249,11 +249,20 @@ privilege, stacked on `PVEAuditor` and removed straight after:
 
 ```bash
 # on 192.168.50.101, as root
-pveum role add TofuDisk --privs VM.Config.Disk
-pveum acl modify / --users tofu@pve --roles PVEAuditor,TofuDisk
-#   ...generate, review, import from this VM...
+T='tofu@pve!import'
+pveum role add TofuDisk --privs VM.Config.Disk   # once; it persists
+pveum acl modify / --users tofu@pve --roles TofuDisk
+pveum acl modify / --tokens "$T" --roles TofuDisk
+#   ...generate, review, import or refresh from this VM...
+pveum acl delete / --tokens "$T" --roles TofuDisk
 pveum acl delete / --users tofu@pve --roles TofuDisk
 ```
+
+⚠️ **Grant it to the token as well as the user** *(since 2026-09-16)*. `!import`
+has been `--privsep 1` since then (below), so its rights are the *intersection*
+of its own ACL and the user's. A grant on the user alone still fails with
+`403 Permission check failed (/vms/103, VM.Config.Disk)`, which is exactly what
+the first attempt at the 2026-09-21 worker1 refresh hit.
 
 Stacking beats editing the base role: the revoke removes one narrow grant rather
 than re-asserting a broad one, and it is checkable from here without SSH —

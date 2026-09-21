@@ -22,8 +22,9 @@
 #     data on NFS. Worst case here is DiskPressure on worker1, not a dead
 #     database.
 #
-#  3. WORKER1'S ROOT DISK IS 17.83 GiB WITH ~9.8 GiB FREE, and it also holds
-#     the container image store. Hence retentionSize below, a 60s scrape
+#  3. WORKER1'S ROOT DISK IS SMALL AND SHARED: 30.2 GiB since 2026-09-21
+#     (was 17.83), holding the container image store and Home Assistant's
+#     config as well as this. Hence retentionSize below, a 60s scrape
 #     interval, and no Thanos.
 #
 # ALERTING IS IN-CLUSTER ONLY, DELIBERATELY. Alertmanager keeps the chart's
@@ -297,10 +298,18 @@ spec:
         # active series -- roughly 5.5 GiB over 15 days, so `retention: 15d`
         # would have been quietly truncated to about 10 by retentionSize, and
         # nothing would have said so. The metricRelabelings above cut that to
-        # ~66,000, which is ~2.4 GiB at 15 days. 4GiB is now headroom rather
-        # than a ceiling being leaned on, and leaves ~5.8 GiB of worker1's root
-        # disk for the OS and the image store.
-        retentionSize: 4GiB
+        # ~66,000, which is ~2.4 GiB at 15 days -- MEASURED 2026-09-21 at a
+        # steady 2.56 GB, with 0 size-based retentions, so `retention: 15d` is
+        # what binds.
+        #
+        # 3GiB rather than 4GiB since Home Assistant moved onto this disk
+        # (2026-09-17) and left ~2.4 GB free. Kubelet evicts at 5% free
+        # (~0.96 GB), so a 4GiB cap was ~1.7 GB of permitted growth against
+        # ~1.4 GB of room: the node would have evicted pods before Prometheus
+        # reached its own limit. 3GiB keeps ~25% headroom over the 15-day
+        # steady state and stays under the eviction line even before the disk
+        # grow in BACKLOG.md.
+        retentionSize: 3GiB
         walCompression: true
         nodeSelector:
           # See the header. This is the one placement decision in this file that

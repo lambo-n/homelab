@@ -22,12 +22,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       Decide on the data's actual value: `zfs send` to a rotated external disk,
       `syncoid` over Tailscale, or R2 after all. See `GITOPS.md` → CloudNativePG
       → *R2 rejected*.
-- [ ] **Verify the 15-day Prometheus retention projection** — **was due
-      2026-09-19; now overdue.** The figure is derived from 65,810 active series,
-      not measured. Check that `retention: 15d` is what is actually happening
-      rather than `retentionSize: 4GiB` truncating it silently. The TSDB has now
-      run long enough for the oldest sample's age to answer this directly. See
-      `GITOPS.md` → kube-prometheus-stack.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →
@@ -77,6 +71,21 @@ Goal G1 (SMART long tests) is live; the rest of the plan in
       scope-split trade this one touches.
 - [ ] **G7** — the `ScrapeConfig` + `PrometheusRule` + dashboard for G3–G6, as
       `kubernetes/apps/observability/host-monitoring/`.
+- [ ] **Monitor the `local-lvm` thin pool (`pve/data`)** *(raised
+      2026-09-21)*. It is now **overcommitted**: guest disks total ~139 GiB
+      against a 130.22 GiB pool, after worker1's 20 → 32 GB grow. Physical
+      use is 51.67% data and 2.87% metadata, with 16 GiB free in the VG. A
+      full thin pool breaks **every guest at once** (`archive/STORAGE.md`
+      §6), and LVM warned that autoextend is off. Nothing watches it today.
+      Alert on both `Data%` and `Meta%`, e.g. warn at 80%. The G3–G5
+      textfile collector can export them from `lvs`; this is host-side, like
+      pool capacity. Also decide whether to set
+      `thin_pool_autoextend_threshold` in `/etc/lvm/lvm.conf`. Check by hand
+      until then:
+      ```bash
+      # Proxmox host
+      lvs -o lv_name,lv_size,data_percent,metadata_percent pve/data
+      ```
 
 ## GPU / LLM VM
 
