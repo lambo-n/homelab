@@ -458,10 +458,10 @@ Each app is `ks.yaml` (a Flux `Kustomization`) plus `app/` (plain manifests).
 Ordering is expressed with `dependsOn`:
 
 ```
-storage ─┬─ minio ────────────────────┬─ cloudflared
-         └─ postgres ── postgrest ────┘
-                     └─ postgres-cnpg ─┬─ (also minio, plugin-barman-cloud)
-                                       └─ offsite-backup (also minio)
+storage ─┬─ minio ────────────────────────────────────┬─ cloudflared
+         └─ postgres ── postgres-cnpg ─┬─ postgrest ──┘
+                                       ├─ offsite-backup (also minio)
+                                       └─ (also minio, plugin-barman-cloud)
 cert-manager ──────┬─ plugin-barman-cloud
 cloudnative-pg ────┘
 

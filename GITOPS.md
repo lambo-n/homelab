@@ -618,12 +618,6 @@ checks Flux can gate on — not only backups. Note barman-cloud is now a **separ
 > afterwards, because both "live" signals looked healthy throughout.**
 > The ZFS dataset `archive-pool/postgres-data` is destroyed on the host
 > separately (see `SANOID.md`).
->
-> **Loose end, not urgent:** `sunfire-postgrest` still `dependsOn:
-> sunfire-postgres`, which now resolves to a Kustomization holding one Secret.
-> Harmless — it is always Ready — but the edge no longer means what it says.
-> PostgREST's real dependency is `sunfire-postgres-cnpg`. Worth correcting the
-> next time that file is touched, not on its own.
 
 **R2 rejected** — but note the original reasoning is now void. It was: the 10 GB free tier is
 shared with the production bingo app's buckets, so backups would push it toward billing. **That app

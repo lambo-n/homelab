@@ -22,7 +22,8 @@ spec:
     secretRef:
       name: sops-age
   dependsOn:
-    - name: sunfire-postgres
+    # PostgREST connects to postgres-cnpg-rw, so the CNPG Cluster must be up.
+    - name: sunfire-postgres-cnpg
   healthChecks:
     - apiVersion: apps/v1
       kind: Deployment

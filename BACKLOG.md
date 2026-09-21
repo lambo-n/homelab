@@ -4,13 +4,6 @@ Every open item across this repo, in one place, so nothing is tracked only in
 a runbook nobody re-reads. Each entry says what it's waiting on and where the
 fuller context lives. Nothing here is blocking day-to-day operation.
 
-## Waiting on a decision
-
-- [ ] **Repoint `sunfire-postgrest`'s `dependsOn`** at `sunfire-postgres-cnpg`. It
-      still names `sunfire-postgres`, which since 2026-09-04 holds only a Secret.
-      Harmless — a secret-only Kustomization is always Ready — but the edge no
-      longer means what it says.
-
 ## Blocked on a layer that does not exist yet
 
 - [ ] **Pin `sanoid` in Ansible/host config.** It is host-level, not a
