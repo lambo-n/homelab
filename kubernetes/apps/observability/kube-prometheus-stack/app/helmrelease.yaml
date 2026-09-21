@@ -22,8 +22,9 @@
 #     data on NFS. Worst case here is DiskPressure on worker1, not a dead
 #     database.
 #
-#  3. WORKER1'S ROOT DISK IS 17.83 GiB WITH ~9.8 GiB FREE, and it also holds
-#     the container image store. Hence retentionSize below, a 60s scrape
+#  3. WORKER1'S ROOT DISK IS SMALL AND SHARED: 30.2 GiB since 2026-09-21
+#     (was 17.83), holding the container image store and Home Assistant's
+#     config as well as this. Hence retentionSize below, a 60s scrape
 #     interval, and no Thanos.
 #
 # ALERTING IS IN-CLUSTER ONLY, DELIBERATELY. Alertmanager keeps the chart's

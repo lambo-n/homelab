@@ -1042,7 +1042,8 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 >    DiskPressure on one node rather than a dead database.
 > 3. **Worker1's root disk is 17.83 GiB and also holds the image store.** 9.65 GiB used /
 >    7.31 GiB free after this phase. Hence `retentionSize`, the 60s scrape interval, and no
->    Thanos.
+>    Thanos. *Grown to 30.2 GiB on 2026-09-21* after Home Assistant's arrival left
+>    ~2.4 GB free. It had 14 GB free after the grow. See the retention note above.
 >
 > Note that per-PVC usage figures from the kubelet are meaningless here: `local-path` is a
 > bind mount of a directory on the root filesystem, so every PVC on the node reports the

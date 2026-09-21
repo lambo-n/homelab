@@ -22,7 +22,7 @@ spec:
       labels:
         app: home-assistant
     spec:
-      # Worker1's root filesystem (17.83 GiB since STORAGE.md §6), NOT worker2,
+      # Worker1's root filesystem (30.2 GiB since 2026-09-21), NOT worker2,
       # where local-path writes onto the archive-pool zvol. The owner keeps that
       # pool for databases and object storage; HA's config is neither. local-path
       # is node-local, so this selector is what keeps the volume findable.
