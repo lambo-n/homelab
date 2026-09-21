@@ -71,10 +71,42 @@ self-test at once:
 Temperature warn/crit at 45°C/55°C on every line. The `archive-pool` SATA
 drives have degraded SMART logs through the PERC (no self-test or error log
 on most of them), so they are watched through temperature and attributes as
-well as the pass/fail bit. `smartd` mails through PVE's own notification
-system (`proxmox-mail-forward`), not plain postfix, which doesn't deliver
-from this host. This is the one alert path that doesn't depend on the
-cluster. History: [`archive/HOST-MONITORING-SETUP.md`](archive/HOST-MONITORING-SETUP.md).
+well as the pass/fail bit. This is the one alert path that doesn't depend on
+the cluster. History: [`archive/HOST-MONITORING-SETUP.md`](archive/HOST-MONITORING-SETUP.md).
+
+### Mail path
+
+`smartd` (and cron, and anything else) mails local `root`. Postfix delivers
+that through Proxmox's own notification system, which holds the SMTP
+credential, instead of relaying it itself:
+
+| Step | Config |
+|---|---|
+| Postfix hands root's mail to PVE | `/root/.forward` = `\|/usr/libexec/proxmox-mail-forward` (shipped by Proxmox) |
+| PVE routes every notification | matcher `default-matcher`, `mode all` → target `smartd-notis` |
+| PVE sends it | SMTP target `smartd-notis`: Gmail, `smtp.gmail.com:587` STARTTLS, to `root@pam`'s email; the password is in `/etc/pve/priv/notifications.cfg` |
+
+PVE's own events (backups, ZFS/ZED, package updates) use the same matcher
+and target. The stock `mail-to-root` sendmail target still exists, but
+nothing routes to it.
+
+> ⚠️ **Don't add a `root:` line to `/etc/aliases`.** An alias takes
+> precedence over `/root/.forward`, and the forwarder is at
+> `/usr/libexec/proxmox-mail-forward`, not `/usr/bin/`. A wrong alias defers
+> every message to root with `execvp … No such file or directory`, while
+> postfix reports itself healthy.
+
+> ⚠️ **An empty `mailq` doesn't mean mail was delivered.** Check for
+> `status=sent`.
+
+Checking it (on the host):
+
+| Command | Healthy |
+|---|---|
+| `pvesh create /cluster/notifications/targets/smartd-notis/test` | a test email arrives |
+| `echo test \| mail -s "pve mail test" root`, then `journalctl -u postfix --since -1min \| grep -o 'status=[a-z]*'` | `status=sent`, and the email arrives |
+| `grep -c proxmox-mail-forward /etc/aliases` | `0` |
+| `mailq` | `Mail queue is empty` |
 
 ## G2 — scrubs
 
