@@ -4,12 +4,31 @@
   // human. packageRules are applied in order and later rules win, so the
   // exceptions at the bottom override the blanket rules at the top.
 
-  // Renovate merges its own PRs rather than handing them to GitHub's auto-merge.
-  // GitHub's would need `allow_auto_merge` on the repo AND branch protection to
-  // hold the PR until checks pass, and branch protection is not available for a
-  // private repo on this plan -- so platform automerge would attempt, fail, and
-  // fall back here anyway. Stated explicitly to skip the failed attempt.
-  platformAutomerge: false,
+  // Merging is GitHub's job, not Renovate's: Renovate sets auto-merge on the PR
+  // and GitHub merges it the moment the required checks go green. That decouples
+  // merging from Renovate's run schedule, which is the whole point.
+  //
+  // This was `false` until 2026-09-21, on the stated premise that branch
+  // protection is "not available for a private repo on this plan". The repo is
+  // public, so the premise was simply wrong. What it cost: PR #15, an OpenTofu
+  // lockfile update, could not merge for nine days. Renovate's terraform manager
+  // regenerates .terraform.lock.hcl on every run and reports it as updated
+  // without diffing it against the branch, so `updatedArtifacts` is never empty,
+  // and that forces `reuseExistingBranch: false` ("Existing branch needs
+  // updating. Restarting processBranch() with a clean branch") no matter what
+  // rebaseWhen says. So the branch was force-pushed with a byte-identical lock
+  // file -- same blob sha across all eleven pushes -- validate-manifests
+  // restarted, and seven seconds later the same run read the status as pending
+  // and skipped the merge. Every run, forever. With GitHub holding the PR the
+  // rebase churn stops deciding anything.
+  //
+  // Needs `allow_auto_merge` on the repo AND a rule requiring the checks, or
+  // GitHub rejects the auto-merge request and Renovate falls back to merging
+  // here. Both are in place: ruleset "main-required-checks" on main requires
+  // kustomize build, helm template and GitGuardian Security Checks. It leaves
+  // "require branches to be up to date" OFF on purpose -- turning it on would
+  // stall every PR behind a rebase, which is the failure above all over again.
+  platformAutomerge: true,
 
   // The default `rebaseWhen: auto` resolves to `behind-base-branch` whenever
   // automerge is enabled, and that capped this repo at ONE automerge per run.
@@ -38,8 +57,8 @@
   // run against an older main. That is the same reconcile-time bet the rest of
   // this file already makes -- `wait: true` plus healthChecks catch what
   // merge-time cannot. The docs' other objection (automerge stalls once a PR is
-  // out of date) applies only where branch protection requires up-to-date PRs,
-  // which is not available for a private repo on this plan.
+  // out of date) applies only where the branch rule requires up-to-date PRs,
+  // which the main ruleset deliberately does not -- see platformAutomerge above.
   rebaseWhen: "conflicted",
 
   packageRules: [
@@ -69,14 +88,14 @@
       //      the permission that was missing from 2026-09-03 to 09-08 and made
       //      every run silently do nothing. If automerge stops happening, check
       //      that first.
-      //   2. The check is read during a Renovate run, so an update whose CI is
-      //      still pending merges on the NEXT run -- a newly opened PR can lag
-      //      up to a day. It used to be worse than that: until 2026-09-14 the
-      //      default rebaseWhen re-pended every queued branch on every run, so
-      //      only one PR could merge per run regardless of how many were green.
-      //      See the rebaseWhen note at the top of this file.
-      //      Letting GitHub merge on green instead needs branch protection,
-      //      which this plan does not offer for a private repo.
+      //   2. Renovate no longer merges these itself -- it hands the PR to
+      //      GitHub's auto-merge (see platformAutomerge at the top of this
+      //      file), so a PR merges minutes after its checks go green rather
+      //      than on the next Renovate run. Before 2026-09-21 the check was
+      //      read during a run, so a newly opened PR could lag up to a day,
+      //      and until 2026-09-14 the default rebaseWhen re-pended every
+      //      queued branch on every run, so only one PR could merge per run
+      //      regardless of how many were green. See the rebaseWhen note above.
       description: "Automerge minor, patch and digest updates",
       matchUpdateTypes: ["minor", "patch", "digest"],
       automerge: true,
