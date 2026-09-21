@@ -30,25 +30,32 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       images on disk together. `retentionSize: 4GiB` also allows ~1.7 GB more
       TSDB growth, which is more than the ~1.4 GB left before eviction.
       **In progress** (branch `fix/worker1-disk-headroom`): `retentionSize`
-      is now 3GiB, and the disk goes from 20 to 32 GB. The resize is manual,
-      because tofu is read-only for VM 103:
+      is now 3GiB, and the disk went from 20 to 32 GB. The resize is manual,
+      because tofu is read-only for VM 103.
+
+      *Done 2026-09-21:* on the Proxmox host, `qm resize 103 scsi0 +12G` and
+      `TofuDisk` granted. On worker1, `growpart /dev/sda 3`, `pvresize`, then
+      `lvextend -l +100%FREE -r`. `/` is now 30G with 14 GB free. The guest
+      saw the new size without a SCSI rescan.
+
+      *Still to do*, in a normal terminal on the dev VM (paste the
+      `tofu@pve!import` token from LastPass at the silent prompt):
       ```bash
-      # 1. Proxmox host, as root: check local-lvm Data% first. The thin pool is shared by every guest
-      lvs; qm resize 103 scsi0 +12G
-      pveum acl modify / --users tofu@pve --roles PVEAuditor,TofuDisk   # for step 3
-      # 2. k3s-worker1: online, no reboot
-      echo 1 | sudo tee /sys/class/block/sda/device/rescan
-      sudo growpart /dev/sda 3 && sudo pvresize /dev/sda3
-      sudo lvextend -l +100%FREE -r /dev/ubuntu-vg/ubuntu-lv
-      # 3. dev VM: persist the new size into state. A plan alone would not
-      #    (tofu/README.md → "State drift"). The diff should be disk size only.
-      tofu apply -refresh-only -target=proxmox_virtual_environment_vm.k3s_worker1
-      tofu plan -refresh=false        # expect: No changes.
-      # 4. Proxmox host: revoke
+      cd ~/homelab/tofu
+      read -rs PROXMOX_VE_API_TOKEN
+      export PROXMOX_VE_API_TOKEN
+      tofu apply -refresh-only \
+        -target=proxmox_virtual_environment_vm.k3s_worker1
+      # accept only if the diff is disk size 20 -> 32
+      tofu plan -refresh=false   # expect: No changes.
+      ```
+      A plan alone would not persist the refresh (`tofu/README.md` →
+      "State drift"). Then, on the Proxmox host, as root:
+      ```bash
       pveum acl delete / --users tofu@pve --roles TofuDisk
       ```
-      Merge only after step 3; before that, the `.tf` says 32 while the state
-      says 20. See `GITOPS.md` → kube-prometheus-stack.
+      Merge only after the refresh. Before it, the `.tf` says 32 and the
+      state still says 20. See `GITOPS.md` → kube-prometheus-stack.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →
