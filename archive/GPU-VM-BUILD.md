@@ -2200,6 +2200,39 @@ lspci -vv -s 53:00.0 | grep 'Region 2'     # 32G -> skip Phase D. 256M -> Phase 
 Then start the guests as usual. **Next:** merge PR #20, export the three
 variables from C1, and `tofu apply -refresh=false` from the dev VM.
 
+## GuC firmware override (2026-09-21)
+
+The C3 follow-up. The guest had loaded GuC `70.44.1` since the HWE install,
+while kernel 7.0 recommended `70.54.0`.
+
+- **Ubuntu wasn't going to fix it soon.** `apt install --only-upgrade
+  linux-firmware` did nothing. The newest noble package,
+  `linux-firmware-intel-graphics 20240318.git3b128b60-0ubuntu3.1`
+  (noble-updates, published 2026-09-03), still ships `70.44.1`. That was read
+  from the CSS header of its `xe/bmg_guc_70.bin.zst` (`sw_version` at offset
+  `0x40`), and it matched dmesg. noble-proposed had nothing newer.
+- **Upstream had it.** `linux-firmware` commit `4291fa65d305` (2026-08-05,
+  "xe: Update GUC to v70.72.1 for BMG, LNL, PTL, NVL-S") ships `70.72.1`. That
+  is the same major version with a newer minor, which `xe` accepts.
+- **Installed by the owner on the guest**, pinned to that commit and checked
+  against its sha256:
+
+  ```bash
+  C=4291fa65d305
+  U=https://gitlab.com/kernel-firmware/linux-firmware
+  curl -fLo /tmp/g.bin $U/-/raw/$C/xe/bmg_guc_70.bin
+  sha256sum /tmp/g.bin
+  sudo install -Dm644 /tmp/g.bin \
+    /lib/firmware/updates/xe/bmg_guc_70.bin
+  sudo update-initramfs -u
+  sudo reboot
+  ```
+
+- **Result after the reboot:** dmesg showed `Using GuC firmware from
+  xe/bmg_guc_70.bin version 70.72.1` on GT0 and GT1, with no "recommended"
+  line. The `chat` preset on `:8080/v1` answered `17*23` correctly (`391`),
+  at 84.8 tok/s prompt and 55.6 tok/s generation.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
