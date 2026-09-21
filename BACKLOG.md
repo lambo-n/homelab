@@ -44,6 +44,12 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       cd ~/homelab/tofu
       read -rs PROXMOX_VE_API_TOKEN
       export PROXMOX_VE_API_TOKEN
+      # VM 105's creation-time vars. Every run needs them, even a targeted
+      # one (archive/GPU-VM-BUILD.md). Neither is secret.
+      h=612b2c0cc1bc413a6cb8c38fd611794caf0f2b436c50013d8b3794db12ad7354
+      export TF_VAR_ubuntu_noble_image_sha256=$h
+      k=$(jq -Rsc 'split("\n")-[""]' ~/.ssh/authorized_keys)
+      export TF_VAR_llm_ssh_public_keys=$k
       tofu apply -refresh-only \
         -target=proxmox_virtual_environment_vm.k3s_worker1
       # accept only if the diff is disk size 20 -> 32
