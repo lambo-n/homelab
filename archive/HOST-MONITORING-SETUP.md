@@ -193,3 +193,15 @@ exercised the `host.fw` rules: `:9100` served 3,958 series, `:9633` 1,316
 lines before the `bus_` exclusion (~640 series after it). Every metric the
 rules and dashboard reference was present. Each expression also parsed
 against the live Prometheus before merge.
+
+**After merge (PR #55, 22:00)**, Prometheus picked up both targets within
+two minutes (`up` 1 for `host-node` and `host-smartctl`). All 15 rules
+loaded with health `ok`. Run without its threshold, every rule returned
+series: 3 pools ONLINE, 0–5% allocated; last scrubs 12 minutes to 8.6 days
+old with 0 errors; each of the four sanoid datasets snapshotted ~1h earlier;
+thin pool 52.2% data and 2.9% metadata; 9 drives passing SMART with every
+media-error counter at 0 and temperatures 33–42°C; host `/` 80% free. With
+the thresholds, none matched, and `ALERTS{alertname=~"Host.*"}` was empty.
+Grafana's sidecar loaded `host.json`, and every panel returned data once
+`rate()` had two samples. The first host CPU reading was ~70% busy, from
+only two samples.
