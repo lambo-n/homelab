@@ -474,7 +474,7 @@ micro_wake_word:
   models:
     - model: hey_doofus.json
       id: hey_doofus
-      probability_cutoff: 0.97
+      probability_cutoff: 0.93
       sliding_window_size: 5
 ```
 
@@ -494,11 +494,12 @@ scripts/esphome-run.sh run --no-logs --device 192.168.50.70
 
 After the upload, record the three V3e rows again and compare.
 
-**In real use at 0.97 the limit is recall, not false wakes.** Several days of
-testing gave zero false wakes, while the correct phrase is often missed. The
-cutoff was tuned on synthetic Piper voices; a real voice across a real room
-scores lower. Retune by lowering `probability_cutoff` in the YAML. v2's
-held-back numbers (clean recall / hard-negative false accepts of 4,080):
+**The firmware runs `probability_cutoff: 0.93`, because in real use recall
+is the limit, not false wakes.** At the training pick of 0.97, several days of
+testing gave zero false wakes but often missed the correct phrase. The cutoff
+was tuned on synthetic Piper voices, and a real voice across a real room
+scores lower. v2's held-back numbers (clean recall, and false accepts on
+4,080 hard-negative clips) put 0.93 between these rows:
 
 | Cutoff | Recall | False accepts |
 |---:|---:|---:|
@@ -508,9 +509,10 @@ held-back numbers (clean recall / hard-negative false accepts of 4,080):
 | 0.99 | 97.5% | 5 |
 
 Those recall figures are for clean synthetic speech and overstate real-world
-recall at every cutoff. Retraining with real recordings of the owner as
-positives is the fix if lowering the cutoff isn't enough
-(`~/mww-hey-doofus`).
+recall at every cutoff. If false wakes appear, go back up to 0.95. If misses
+persist, the fix is retraining with real recordings of the owner as
+positives (`~/mww-hey-doofus`), not a cutoff far below 0.90, where
+hard-negative false accepts climb.
 
 ## Checklist
 
@@ -533,10 +535,10 @@ positives is the fix if lowering the cutoff isn't enough
       [`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md)
 - [x] V4 leftover — end-to-end wake → reply latency on the real device:
       acceptable in real use
-- [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.97)
+- [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.93)
 - [x] V5 leftover — real-world false wakes: none over several days at 0.97
-- [ ] V5 — wake-word recall on real voices (cutoff 0.97 misses the phrase;
-      see *Wiring it in*)
+- [ ] V5 — wake-word recall on real voices: judge cutoff 0.93 after a few
+      days of use (see *Wiring it in*)
 - [ ] V5 — display, STT fallback, metrics (deferred)
 - [x] V1g — pitched voice `en_US-norman-medium_x0.8`, as a custom Piper
       voice (`.onnx.json` rate + length_scale), is the Doofus assistant's
