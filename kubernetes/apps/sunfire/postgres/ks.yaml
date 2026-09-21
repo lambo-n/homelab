@@ -41,7 +41,7 @@ spec:
   # No healthChecks. There is no workload here any more -- the Deployment and
   # Service were deleted 2026-09-04 once PostgREST had been serving from
   # postgres-cnpg-rw for a day with zero restarts. A healthCheck naming an
-  # object that no longer exists FAILS the Kustomization, and both
-  # sunfire-postgrest and sunfire-postgres-cnpg dependOn this one, so leaving
-  # the old block in place would have wedged them rather than erroring locally.
+  # object that no longer exists FAILS the Kustomization, and
+  # sunfire-postgres-cnpg dependsOn this one, so a stale healthCheck here
+  # would wedge it rather than erroring locally.
   # `wait: true` still applies; a Secret is Current the moment it is applied.
