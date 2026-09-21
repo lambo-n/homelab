@@ -58,6 +58,7 @@ not open:
 | Option | Why |
 |---|---|
 | Flux/Crossplane/tofu-controller for Proxmox | Circular dependency on a single host. Also dissolves a real boundary: the shim needs a Proxmox API token with `VM.Allocate` stored in-cluster, so cluster compromise would become hypervisor compromise — today the cluster cannot touch `.101` at all. **Revisit if** a second Proxmox node appears, *or* if a separate management cluster exists (k3s in an LXC on the host) so the reconciler no longer sits on its own substrate |
+| `prometheus-pve-exporter` in-cluster | Needs a Proxmox API token in the cluster, the credential the scope split below keeps out, even read-only (`PVEAuditor`). `host-metrics` on the host exports the thin pool (including `Meta%`, which pve-exporter lacks) and pool capacity instead; every guest that matters runs its own node-exporter. **Revisit if** per-guest metrics from the Proxmox API are ever needed. See [`HOST-MONITORING.md`](HOST-MONITORING.md) |
 | Flux image automation controllers | Renovate is a strict superset; they'd conflict |
 | R2 for backups | Still rejected, for a different reason: the owner chose not to keep backups on Cloudflare. Off-site went to **Backblaze B2** instead (2026-09-21). See *Off-site backup* under CloudNativePG |
 | CNPG `instances: 3` | False redundancy on one hypervisor |

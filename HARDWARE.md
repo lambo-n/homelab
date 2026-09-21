@@ -222,15 +222,9 @@ not here — it is a 1400 GiB zvol on `llm-pool`.
 > This matters operationally, not pedantically: **the OS cannot see the member
 > disks.** There is no `/proc/mdstat` entry, no `zpool status`, and `smartctl`
 > on `/dev/sda` reads the *virtual* disk. Health lives in iDRAC or the BOSS CLI,
-> and **nothing checks either today**.
->
-> Worth being precise about why, because it is a wider gap than this one disk:
-> the observability stack runs *inside* the cluster and node-exporter is a
-> DaemonSet on the three k3s **nodes** (`kube-prometheus-stack/ks.yaml`). The
-> Proxmox host is not a scrape target at all, so no host disk — this mirror,
-> `archive-pool`, or the SAS SSDs — is monitored by anything in this repo.
-> **Goals and runbook for closing that: [`HOST-MONITORING.md`](HOST-MONITORING.md)**
-> (the BOSS mirror stays out of reach even then — it is iDRAC or nothing).
+> and **nothing checks either**. Every other host disk is watched
+> ([`HOST-MONITORING.md`](HOST-MONITORING.md): `smartd` long tests, SMART
+> metrics and alerts); this mirror is iDRAC or nothing.
 
 > ⚠️ **Thin-pool free space is falling.** 90.5 GiB free on 2026-09-03, **82.12
 > GiB on 2026-09-09** — the `lvextend`/`resize2fs` work in `archive/STORAGE.md` §6 wrote

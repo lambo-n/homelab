@@ -365,11 +365,12 @@ collector, its dashboard, and alerts on GPU temperature and the VM being
 unreachable. The guest is outside the cluster; only the scraping lives here.
 → `kubernetes/apps/observability/llm-vm/`
 
-> **Planned: host monitoring.** Everything above watches the *cluster*. The
-> Proxmox host and every disk in it are unmonitored — see
-> [`HOST-MONITORING.md`](HOST-MONITORING.md) for the seven goals inherited from
-> the deferred TrueNAS guest, which host-side steps come first, and the
-> `host-monitoring/` app directory they land in.
+**host-monitoring** — `ScrapeConfig`s for the Proxmox host's node-exporter and
+smartctl_exporter, alerts on pools, scrubs, sanoid snapshots, the `local-lvm`
+thin pool and drive SMART, and a dashboard. The exporters and the script
+behind the pool metrics run on the host, installed by hand; only the scraping
+lives here ([`HOST-MONITORING.md`](HOST-MONITORING.md)).
+→ `kubernetes/apps/observability/host-monitoring/`
 
 > **Reaching Grafana.** Nothing resolves `homelab.lan` — add to `/etc/hosts` on any machine
 > that browses it:
@@ -429,7 +430,8 @@ kubernetes/apps/
   ├── observability/
   │     ├── kube-prometheus-stack/  Prometheus, Alertmanager, Grafana, exporters
   │     ├── flux-monitoring/        PodMonitors, Flux alerts, Flux dashboards
-  │     └── llm-vm/                 ScrapeConfig, dashboard and alerts for VM 105
+  │     ├── llm-vm/                 ScrapeConfig, dashboard and alerts for VM 105
+  │     └── host-monitoring/        ScrapeConfigs, dashboard and alerts for the Proxmox host
   ├── reloader/           restarts workloads when their Secrets change
   ├── voice/
   │     ├── voice-db/       CNPG Cluster — Home Assistant's recorder
@@ -520,7 +522,7 @@ flowchart LR
 
 `reloader` and `kube-prometheus-stack` deliberately have **no** `dependsOn`
 of their own, so a stuck sunfire or cnpg Kustomization can never hold back
-restarts or monitoring. `flux-monitoring` and `llm-vm` depend on the stack only because `PodMonitor`,
+restarts or monitoring. `flux-monitoring`, `llm-vm` and `host-monitoring` depend on the stack only because `PodMonitor`,
 `PrometheusRule` and `ScrapeConfig` do not exist as kinds until its CRDs are
 registered.
 

@@ -91,14 +91,15 @@ run of [`runbooks/SANOID-VERIFY.md`](runbooks/SANOID-VERIFY.md) before trusting 
 
 ## Leave a note where the next person will look
 
-Because none of this is reconciled, nothing will tell you when it stops
-working, short of the habits below:
+None of this is reconciled, so the check is a metric:
 
-- `zfs list -t snapshot -r archive-pool | wc -l` in whatever you use to poke at
-  the host — a number that stops growing is the failure mode.
-- Snapshot age is scraped as goal G5 in [`HOST-MONITORING.md`](HOST-MONITORING.md),
-  via node-exporter's textfile collector — the first metric worth having if this
-  file's own checks ever lapse.
+- `host_zfs_autosnap_newest_timestamp_seconds{dataset}` is the newest
+  `autosnap_*` snapshot per dataset, from `host-metrics` on the host.
+  `HostSnapshotStale` fires when one is more than 2 hours old
+  ([`HOST-MONITORING.md`](HOST-MONITORING.md)). It only runs while the
+  cluster is up.
+- By hand: `zfs list -t snapshot -r archive-pool | wc -l`. A number that
+  stops growing is the failure mode.
 
 Pinning `sanoid` itself in a host-config layer (Ansible or equivalent) is
 tracked in [`BACKLOG.md`](BACKLOG.md) — until that layer exists, this file *is*
