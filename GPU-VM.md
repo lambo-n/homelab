@@ -64,8 +64,10 @@ key. Three keys exist in `/etc/llama/api-keys` (owner, cluster, agents), each a
 **Firewall (`ufw` on the guest):** LAN-only. Port 22 open from anywhere
 (ProxyJump SSH arrives via the tailscale gateway); ports 8080/8081 open to
 `192.168.50.0/24` but explicitly denied to the gateway's own address
-(`192.168.50.102`), since the approved tailnet subnet route would otherwise
-expose the API to any tailnet device with `--accept-routes`. Port 9100
+(`192.168.50.102`), because routed tailnet traffic arrives as that address.
+The tailnet policy also grants nothing on `.107`
+([`GITOPS.md`](GITOPS.md#tailscale-host)), so a routed device is refused
+twice. Port 9100
 (node-exporter) is open to the three k3s node IPs only.
 
 ### Consumers

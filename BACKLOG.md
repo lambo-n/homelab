@@ -6,14 +6,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Waiting on a decision
 
-- [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
-      *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
-      grants layer-3 access to every port on the LAN — see `GITOPS.md` →
-      Tailscale (host). Three options: leave it; restrict it with a Tailscale
-      ACL to named devices; or drop the route and go back to `ProxyJump` only
-      (costs reaching `:8006` and Grafana without a jump host). **Not urgent** —
-      same "100% uptime isn't guaranteed, nothing here is worth much" calculus as
-      the rest of `README.md`'s operating assumptions.
 - [ ] **Decide whether this repo should stay public** *(raised 2026-09-21)*.
       Several documents described it as private until that date, and one real
       decision rested on the belief — `platformAutomerge` was left off because
@@ -81,14 +73,15 @@ Goal G1 (SMART long tests) is live; the rest of the plan in
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
 - [ ] **GuC firmware on the LLM guest is older than the kernel wants**
-      (`70.44.1` loaded, `70.54.0` recommended). Works today; try
-      `apt install --only-upgrade linux-firmware` when convenient. Not blocking.
-- [ ] **Confirm the LLM API is actually unreachable over the tailnet.** The
-      guest's `ufw` denies `:8080`/`:8081` to `192.168.50.102` specifically, so a
-      routed tailnet device — which arrives as the gateway's address — should be
-      refused while LAN hosts are not ([`GPU-VM.md`](GPU-VM.md)). That is the
-      intent; it has not been tested *from* a tailnet device. Same route as the
-      "subnet route" item above.
+      (`70.44.1` loaded, `70.54.0` recommended). Works today. **Blocked
+      upstream** *(checked 2026-09-21)*: `apt install --only-upgrade
+      linux-firmware` is a no-op — installed and candidate are both
+      `20240318.git3b128b60-0ubuntu3.1`, and the blob
+      (`/lib/firmware/xe/bmg_guc_70.bin.zst`) ships in
+      `linux-firmware-intel-graphics` at that same version. Re-check
+      `apt-cache policy linux-firmware-intel-graphics` after noble updates;
+      the alternative is dropping upstream's blob into
+      `/lib/firmware/updates/xe/`. Needs a guest reboot either way.
 
 ## Voice assistant — leftovers
 

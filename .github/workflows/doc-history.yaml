@@ -1,0 +1,30 @@
+name: Doc history check
+
+# Root *.md files describe the homelab as it is now; history goes in archive/
+# (AGENTS.md rule 8). This flags added lines that read like history --
+# "closed <date>", "earlier revisions said", "no longer" -- as warnings on the
+# PR or push. Warn-only: the patterns are a heuristic, and a red check on a
+# docs push would block nothing useful. The same script runs as a Claude Code
+# PostToolUse hook (.claude/settings.json), which is where it does most good.
+
+on:
+  pull_request:
+    paths: ["*.md"]
+  push:
+    branches: [main]
+    paths: ["*.md"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Flag history in current-state docs
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 .github/scripts/doc-history-check.py --base "$BASE"

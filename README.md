@@ -166,7 +166,7 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 | **Off-site copy** | **Backblaze B2** | monthly restic snapshot of the database (`pg_dump`) and guide media, client-side encrypted. The only copy that survives losing the host |
 | Prometheus TSDB | `k3s-worker1` root disk | `local-path`, capped by `retentionSize` |
 | LLM model weights | `llm-pool` (single disk, `sde`) | 1400 GiB zvol attached to VM 105 as `/models` (ext4, `largefile4`). **No redundancy, no snapshots** — weights are re-downloadable |
-| Tailscale SSH recordings | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
+| SSH session logs (a daemon on the gateway, not Tailscale's recorder) | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
 | Personal storage / media | `sas-pool` | `/sas-pool/data`, native host RAIDZ1 under sanoid, exported via Samba (`[data]`) |
 
 > ⚠️ **Destroying or rebuilding `archive-pool` now takes `k3s-worker2`'s database
@@ -183,21 +183,18 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
 - **Inbound on the LAN:** Traefik on `:80`/`:443` via k3s' klipper LoadBalancer,
   which answers on **all three** node IPs.
 - **Remote administration:** Tailscale. The `tailscale-gateway` LXC is the only
-  tailnet member. It does **two** things, and the second one is easy to miss:
-  it offers an exit node, and it advertises an **approved subnet route for
-  `192.168.50.0/24`**. So there are two distinct ways in, with different
-  properties:
+  homelab node on the tailnet (the other members are the owner's laptop and home
+  PC). It offers an exit node and advertises an **approved subnet route for
+  `192.168.50.0/24`**, so there are two ways in, with different properties:
 
-  | Path | What it reaches | Recorded? |
+  | Path | What it reaches | Logged? |
   |---|---|---|
   | `ProxyJump` SSH through the gateway | a shell on a guest | yes — `/var/log/ts-ssh-records` |
-  | The subnet route, from any tailnet device running `--accept-routes` | **every port on every host on the LAN** — PVE `:8006`, the k3s API, Traefik | no |
+  | The subnet route, from a tailnet device running `--accept-routes` | only what [`tailscale/policy.hujson`](tailscale/policy.hujson) grants: PVE `:8006`, and Traefik `:80` and HA `:8123` on `.104`. Everything else is denied | no |
 
-  > ⚠️ **The subnet route bypasses the recorded-SSH path entirely.** An earlier
-  > revision of this file said administrative access "is SSH-mediated and
-  > recorded", which was never true while this route was approved — it is a
-  > property of the SSH path, not of the tailnet. Nothing enforces it at the
-  > network layer. Corrected 2026-09-09; see
+  > ⚠️ **Session logs cover the SSH path only.** A routed request to a granted
+  > port opens no SSH session and leaves no log. The policy limits where the
+  > route goes; it does not make that access recorded. See
   > [`GITOPS.md`](GITOPS.md#tailscale-host).
 
 - **The dev VM (`.103`) accepts SSH from the gateway only** (2026-09-17). `ufw`:
@@ -206,7 +203,9 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
   outbound traffic (kubectl, GitHub, SSH to guests, HA, llama) still works. Tailnet
   traffic through the subnet route *also* arrives as `.102`, so this rule cannot
   tell ProxyJump from a routed tailnet device; the key check (only the owner's two
-  GitHub keys) is what separates them. Rescue if locked out: the PVE console,
+  GitHub keys) is what separates them. The tailnet policy grants no routed
+  access to `.103`, so only the ProxyJump hop reaches it. Rescue if locked out:
+  the PVE console,
   `sudo ufw disable`.
 - **SSH from the dev VM to guests is one-way** (2026-09-17). Its own key,
   `~/.ssh/id_ed25519_homelab`, is in `authorized_keys` on `llm` and the three k3s
