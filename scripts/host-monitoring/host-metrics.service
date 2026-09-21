@@ -1,0 +1,11 @@
+# Install: HOST-MONITORING.md -> G3-G5. Triggered by host-metrics.timer.
+[Unit]
+Description=Write ZFS, sanoid and thin-pool metrics to the node_exporter textfile collector
+After=zfs-import.target
+
+[Service]
+Type=oneshot
+# root: zpool, zfs and lvs all need it, and it writes node_exporter's
+# textfile directory.
+ExecStart=/usr/local/sbin/host-metrics
+Nice=10

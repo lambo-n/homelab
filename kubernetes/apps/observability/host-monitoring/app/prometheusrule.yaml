@@ -1,0 +1,212 @@
+---
+# Alerts for the Proxmox host: pools, scrubs, snapshots, drives, the
+# local-lvm thin pool, and the exporters themselves. HOST-MONITORING.md -> G7.
+#
+# The host-metrics series (host_zpool_*, host_zfs_*, host_lvm_*) come from
+# scripts/host-monitoring/host-metrics via node_exporter's textfile collector.
+# Every expression here was run against the live Prometheus and returned
+# series before this was merged; a rule over a metric that returns nothing is
+# silently "inactive", not healthy.
+#
+# SMART media errors are split in two because the drives report differently:
+# the SAS SSDs (sas-pool) have a grown-defect list and uncorrected-error
+# counters, and the SATA SSDs have ATA attributes. The ATA rule reads attribute
+# IDs, which are standard across vendors, not names, which aren't. These SATA
+# drives report 5 and 198, not 197.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: host-monitoring
+  namespace: observability
+spec:
+  groups:
+    - name: host-zfs
+      rules:
+        - alert: HostZpoolUnhealthy
+          expr: host_zpool_health{instance="pve", health!="ONLINE"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ZFS pool {{ $labels.pool }} is {{ $labels.health }}"
+            description: >-
+              Run `zpool status -v {{ $labels.pool }}` on the host.
+              sas-pool is raidz1 and archive-pool a three-way mirror;
+              llm-pool is a single disk with no redundancy (HARDWARE.md).
+        - alert: HostZpoolScrubStale
+          expr: |
+            time() - host_zpool_scrub_end_timestamp_seconds{instance="pve"} > 35 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "No completed scrub of {{ $labels.pool }} in 35 days"
+            description: >-
+              The monthly scrub is the zfsutils-linux cron (second Sunday).
+              A value of 0 means zpool status shows no completed scrub at all:
+              never run, canceled, or the last scan was a resilver.
+              HOST-MONITORING.md -> G2.
+        - alert: HostZpoolScrubErrors
+          expr: host_zpool_scrub_errors{instance="pve"} > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "Last scrub of {{ $labels.pool }} found {{ $value }} errors"
+            description: Run `zpool status -v {{ $labels.pool }}` on the host.
+        - alert: HostZpoolFilling
+          expr: |
+            host_zpool_allocated_bytes{instance="pve"}
+              / host_zpool_size_bytes{instance="pve"} > 0.8
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ZFS pool {{ $labels.pool }} is {{ $value | humanizePercentage }} full"
+            description: >-
+              ZFS performance falls off past ~80% allocated, and a full pool
+              stops every writer on it.
+        - alert: HostSnapshotStale
+          expr: |
+            time() - host_zfs_autosnap_newest_timestamp_seconds{instance="pve"} > 2 * 3600
+          # Covers a host boot: sanoid catches up within one timer run.
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No sanoid snapshot of {{ $labels.dataset }} for over 2 hours"
+            description: >-
+              sanoid takes hourly snapshots. Check `systemctl status
+              sanoid.timer` and `journalctl -u sanoid` on the host. A dataset
+              removed from sanoid.conf keeps alerting until its old snapshots
+              are pruned (SANOID.md).
+    - name: host-lvm
+      rules:
+        - alert: HostThinPoolDataHigh
+          expr: host_lvm_thinpool_data_percent{instance="pve"} > 80
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "local-lvm thin pool data at {{ $value }}%"
+            description: >-
+              At 100% every guest disk in the pool fails at once, and the
+              pool is overcommitted. Check `lvs pve/data` on the host.
+        - alert: HostThinPoolDataCritical
+          expr: host_lvm_thinpool_data_percent{instance="pve"} > 90
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "local-lvm thin pool data at {{ $value }}%"
+            description: >-
+              At 100% every guest disk in the pool fails at once. Free space
+              in a guest, or grow the pool from the VG's free space.
+        - alert: HostThinPoolMetadataHigh
+          expr: host_lvm_thinpool_metadata_percent{instance="pve"} > 80
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "local-lvm thin pool metadata at {{ $value }}%"
+            description: >-
+              Full metadata breaks the pool the same way full data does.
+              `lvextend --poolmetadatasize` grows it from the VG's free space.
+    - name: host-smart
+      rules:
+        - alert: HostDriveSmartFailed
+          expr: |
+            (smartctl_device_smart_status{instance="pve"} == 0)
+            * on (instance, device) group_left (model_name, serial_number)
+              smartctl_device{instance="pve"}
+          labels:
+            severity: critical
+          annotations:
+            summary: "SMART health check failed on {{ $labels.serial_number }}"
+            description: >-
+              {{ $labels.model_name }} {{ $labels.serial_number }}
+              ({{ $labels.device }} now; kernel names move, serials don't).
+              Find it in HARDWARE.md by serial.
+        - alert: HostDriveSasDefects
+          expr: |
+            (
+                smartctl_scsi_grown_defect_list{instance="pve"}
+              + on (instance, device) smartctl_read_total_uncorrected_errors{instance="pve"}
+              + on (instance, device) smartctl_write_total_uncorrected_errors{instance="pve"}
+              > 0
+            )
+            * on (instance, device) group_left (model_name, serial_number)
+              smartctl_device{instance="pve"}
+          labels:
+            severity: warning
+          annotations:
+            summary: "SAS drive {{ $labels.serial_number }} has grown defects or uncorrected errors"
+            description: >-
+              All three SAS SSDs have had 0 of both for their whole life, and
+              they are one batch: check the other two as well (HARDWARE.md).
+        - alert: HostDriveAtaMediaErrors
+          # 5 reallocated, 197 pending, 198 offline uncorrectable.
+          expr: |
+            (
+              smartctl_device_attribute{instance="pve", attribute_id=~"5|197|198",
+                                        attribute_value_type="raw"} > 0
+            )
+            * on (instance, device) group_left (model_name, serial_number)
+              smartctl_device{instance="pve"}
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.attribute_name }} = {{ $value }} on {{ $labels.serial_number }}"
+            description: >-
+              {{ $labels.model_name }} {{ $labels.serial_number }}. Media
+              errors on a SATA SSD. Find it in HARDWARE.md by serial.
+        - alert: HostDriveHot
+          expr: |
+            (smartctl_device_temperature{instance="pve", temperature_type="current"} > 55)
+            * on (instance, device) group_left (model_name, serial_number)
+              smartctl_device{instance="pve"}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} at {{ $value }} C"
+            description: >-
+              Above smartd's 55 C critical line for 10 minutes. The SSDs idle
+              around 35-41 C (HARDWARE.md).
+    - name: host-exporters
+      rules:
+        - alert: HostExporterDown
+          expr: |
+            up{job=~"scrapeConfig/observability/host-(node|smartctl)"} == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.job }} on the Proxmox host is unreachable"
+            description: >-
+              The service stopped, or host.fw no longer admits the k3s nodes
+              on its port. Every other host alert is blind until it's back.
+        - alert: HostMetricsStale
+          expr: |
+            time() - host_metrics_last_run_timestamp_seconds{instance="pve"} > 900
+            or host_metrics_collector_success{instance="pve"} == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "host-metrics on the Proxmox host is stale or failing"
+            description: >-
+              Pool, scrub, snapshot and thin-pool alerts read its output.
+              Check `systemctl status host-metrics.timer` and
+              `journalctl -u host-metrics` on the host.
+        - alert: HostRootFilesystemLow
+          expr: |
+            node_filesystem_avail_bytes{instance="pve", mountpoint="/"}
+              / node_filesystem_size_bytes{instance="pve", mountpoint="/"} < 0.1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Proxmox host root filesystem {{ $value | humanizePercentage }} free"
+            description: >-
+              kube-prometheus-stack's node alerts only cover the cluster's own
+              node-exporter job, so this is the host's only disk-space alert.

@@ -1,0 +1,11 @@
+# Install: HOST-MONITORING.md -> G3-G5. Snapshots are hourly and scrubs
+# monthly, so 5 minutes is plenty.
+[Unit]
+Description=Collect ZFS, sanoid and thin-pool metrics every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

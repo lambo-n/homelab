@@ -1,56 +1,66 @@
-# Host Monitoring — replacing the TrueNAS GUI with Grafana + systemd
+# Host Monitoring — SMART tests, scrubs and metrics for the Proxmox host
 
-**Status: partially built.** Goal G1 (SMART long tests) is live and verified;
-G2–G7 are still open — see [`BACKLOG.md`](BACKLOG.md) for what's left and why
-it isn't urgent. [`TRUENAS.md`](archive/TRUENAS.md) was superseded on 2026-09-09
-by the native `sas-pool` ([`SAS-STORAGE.md`](SAS-STORAGE.md)) after the PERC
-H355 turned out to be un-passable, which closed the storage question but left
-the TrueNAS *checklist* unclaimed: the appliance was also going to schedule
-SMART tests and scrubs, and give a health UI. This file records those goals
-and who owns each one now.
+The observability stack runs inside the cluster, and its node-exporter
+DaemonSet covers the three k3s **nodes**. The Proxmox host (`pve`,
+`192.168.50.101`) and every disk in it are covered here instead: two
+scheduled **jobs** on the host (SMART long tests and scrubs), three **metric
+sources** on the host, and the **scrape config, alert rules and dashboard**
+in the cluster.
 
-## The gap this closes
+These goals come from the TrueNAS guest that was designed and never built
+([`archive/TRUENAS.md`](archive/TRUENAS.md)): the appliance would have run
+SMART tests and scrubs and shown a health UI. With `sas-pool` native on the
+host ([`SAS-STORAGE.md`](SAS-STORAGE.md)), each goal has a home of its own.
 
+```mermaid
+flowchart LR
+  subgraph host["pve · 192.168.50.101"]
+    smartd["smartd<br/>long tests"]
+    cron["zfsutils-linux cron<br/>monthly scrub"]
+    hm["host-metrics.timer<br/>every 5 min"]
+    ne["node_exporter :9100<br/>zfs + textfile"]
+    se["smartctl_exporter :9633"]
+    hm -- ".prom file" --> ne
+  end
+  subgraph k3s["cluster · observability"]
+    prom["Prometheus<br/>(k3s-worker1)"]
+    graf["Grafana<br/>host-pve dashboard"]
+  end
+  prom -- "tcp:9100, host.fw: .104–.106 only" --> ne
+  prom -- "tcp:9633, host.fw: .104–.106 only" --> se
+  prom --> graf
+  smartd -- "mail via PVE notifications" --> owner(["owner"])
 ```
-node-exporter DaemonSet  ->  k3s-control, k3s-worker1, k3s-worker2   (3/3 Running)
-192.168.50.101 (pve)     ->  not a scrape target at all
-```
-
-**No host disk is monitored by anything in this repo** except via G1 below.
-Not `sas-pool`, not `archive-pool`, not the BOSS-S2 boot mirror. `SANOID.md`
-makes the same point from the snapshot side.
-
-Two numbers give that urgency:
-
-- **The SAS SSDs went ~50,000 hours between self-tests** before G1 closed the
-  gap. All three are one batch, powered together within 11 minutes of each
-  other for their whole life — a correlated failure is the shape to expect.
-- **`local-lvm` thin-pool free space is falling** (90.5 GiB → 82.12 GiB between
-  2026-09-03 and 2026-09-09). A full thin pool breaks all five guests at once.
 
 ## The goals
 
-Everything the TrueNAS web GUI would have given us, and where it lands instead.
+| # | Goal | Mechanism | Runs on |
+|---|---|---|---|
+| **G1** | Scheduled **SMART long tests** on the SAS and SATA SSDs | `smartd` (`/etc/smartd.conf`) | host |
+| **G2** | Scheduled **scrubs** of every pool | Proxmox's `/etc/cron.d/zfsutils-linux` | host |
+| **G3** | **Pool state**, ARC, dataset I/O, host CPU/memory/disk as metrics | `prometheus-node-exporter` (Debian), `zfs` collector | host |
+| **G4** | **Per-drive SMART** as metrics | `smartctl_exporter` (upstream binary) | host |
+| **G5** | **Pool capacity and health, scrub age, sanoid snapshot age, `local-lvm` thin pool** as metrics | `host-metrics` → node-exporter's textfile collector | host |
+| **G6** | *Folded into G5* — see below | — | — |
+| **G7** | **Alert rules + dashboard** over G3–G5 | `kubernetes/apps/observability/host-monitoring/` | cluster |
 
-| # | Goal | Mechanism | Owner | Status |
-|---|---|---|---|---|
-| **G1** | Scheduled **SMART long tests** on the SAS + SATA SSDs | `smartd` (`/etc/smartd.conf`) | host `.101` | ✅ **live** |
-| **G2** | Scheduled **scrubs** on `sas-pool` and `archive-pool` | `zfs-scrub-monthly@<pool>.timer`, or the existing PVE cron if intact | host `.101` | open |
-| **G3** | **Pool state**, ARC and per-pool I/O as metrics | `prometheus-node-exporter`, `zfs` collector | host `.101` | open |
-| **G4** | **Per-drive SMART** as metrics | `smartctl_exporter` | host `.101` | open |
-| **G5** | **Pool capacity, scrub age, sanoid snapshot age** as metrics | node-exporter textfile collector + a script on a timer | host `.101` | open |
-| **G6** | **`local-lvm` thin-pool `Data%`** and per-storage capacity | `prometheus-pve-exporter` against `:8006`, in-cluster | cluster | open |
-| **G7** | **Dashboards + alert rules** over G3–G6 | `ScrapeConfig` + `PrometheusRule` + dashboard JSON | cluster | open |
+G1 and G2 are *jobs*, not dashboards. They keep running when the cluster is
+off, which is often.
 
-G1 and G2 are *jobs*, not dashboards — Grafana cannot do them and never could.
-`smartd` and a systemd timer are a better home for them than an appliance UI
-regardless, because they keep running when the cluster does not.
+**G6 is folded into G5.** The thin pool and per-storage capacity come from
+`host-metrics` on the host, not from `prometheus-pve-exporter` in the
+cluster. The exporter needs a Proxmox API token in-cluster, the one kind of
+credential the [scope split](GITOPS.md#scope-flux-manages-the-cluster-not-the-hypervisor)
+keeps out. It also doesn't report the thin pool's `Meta%`, so the script
+was needed anyway. What that gives up is per-guest metrics from the Proxmox
+API; every guest that matters runs its own node-exporter. See `GITOPS.md` →
+*Explicitly rejected*.
 
-## G1 — SMART long tests (live)
+## G1 — SMART long tests
 
-Devices are addressed by `by-id` (a `sdX` shuffle is expected — see
-[`HARDWARE.md`](HARDWARE.md)), each pool on its own day so two don't self-test
-at once:
+Devices are addressed by `by-id` (kernel names move between boots — see
+[`HARDWARE.md`](HARDWARE.md)), each pool on its own day so two don't
+self-test at once:
 
 | Pool | Schedule | Devices |
 |---|---|---|
@@ -58,111 +68,189 @@ at once:
 | `archive-pool` | Sundays 03:00 (live MinIO + Postgres data) | the 3 SATA SSDs |
 | `llm-pool` | Fridays 03:00 (no redundancy) | 1 SATA SSD |
 
-Temperature warn/crit at 45°C/55°C on every line. The `archive-pool` SATA trio
-has degraded SMART support (no health-status bit, two of three with no
-self-test or error log) — checked with `smartctl`, watched via temperature and
-attribute thresholds rather than the pass/fail bit. Mail alerting is wired
-through PVE's own notification system (`proxmox-mail-forward`), after a
-2026-09-10 incident found the host's plain postfix mail had never delivered
-anything, ever (full record: [`archive/HOST-MONITORING-SETUP.md`](archive/HOST-MONITORING-SETUP.md)).
+Temperature warn/crit at 45°C/55°C on every line. The `archive-pool` SATA
+drives have degraded SMART logs through the PERC (no self-test or error log
+on most of them), so they are watched through temperature and attributes as
+well as the pass/fail bit. `smartd` mails through PVE's own notification
+system (`proxmox-mail-forward`), not plain postfix, which doesn't deliver
+from this host. This is the one alert path that doesn't depend on the
+cluster. History: [`archive/HOST-MONITORING-SETUP.md`](archive/HOST-MONITORING-SETUP.md).
 
 ## G2 — scrubs
 
-Proxmox ships `/etc/cron.d/zfsutils-linux`, which scrubs **every imported
-pool** on the second Sunday of each month. If it is intact, G2 is met and only
-needs a metric (G5). Check before adding a second mechanism:
+Proxmox's `/etc/cron.d/zfsutils-linux` scrubs **every imported pool** at
+00:24 on the second Sunday of each month (and TRIMs on the first). That is
+the only scrub mechanism. Don't add `zfs-scrub-monthly@<pool>.timer` on top:
+two scrubs of the same pool is wasted I/O, not twice the safety.
+
+A pool created after the month's scrub has no completed scrub until the next
+one, and `HostZpoolScrubStale` fires for it. Scrub it by hand once
+(`zpool scrub <pool>`).
+
+## G3–G5 — on the host
+
+| Piece | What | Where |
+|---|---|---|
+| `prometheus-node-exporter` | Debian's package, defaults. Serves `:9100`; its `zfs` collector gives `node_zfs_zpool_state`, ARC and per-dataset I/O; its textfile collector reads `/var/lib/prometheus/node-exporter/*.prom` | apt |
+| `smartctl_exporter` v0.14.0 | Runs `smartctl` itself on a timer and serves the cached result on `:9633`, so a scrape never touches a disk. Debian doesn't package it | `/usr/local/bin/`, unit [`scripts/host-monitoring/smartctl-exporter.service`](scripts/host-monitoring/smartctl-exporter.service) |
+| `host-metrics` | Writes `host-metrics.prom` every 5 minutes, atomically | `/usr/local/sbin/`, [`scripts/host-monitoring/`](scripts/host-monitoring/) (script, `.service`, `.timer`) |
+
+What `host-metrics` exports (all labelled `instance="pve"` once scraped):
+
+| Metric | From | Notes |
+|---|---|---|
+| `host_zpool_{size,allocated,free}_bytes`, `host_zpool_fragmentation_percent` | `zpool list -Hp` | per `pool` |
+| `host_zpool_health{pool,health}` | `zpool list` | always 1; alert on `health!="ONLINE"` |
+| `host_zpool_scrub_end_timestamp_seconds` | `scan:` line of `zpool status` | **0** when there is no completed scrub (none yet, canceled, or the last scan was a resilver); absent while a scrub runs |
+| `host_zpool_scrub_errors`, `host_zpool_scrub_in_progress` | same | |
+| `host_zfs_autosnap_newest_timestamp_seconds`, `host_zfs_autosnap_count` | `zfs list -t snapshot` | per `dataset`; **`autosnap_*` only**, so a manual snapshot can't hide a stopped sanoid |
+| `host_lvm_thinpool_{data,metadata}_percent` | `lvs pve/data` | Data% and Meta%; either at 100% breaks every guest disk in the pool |
+| `host_lvm_thinpool_{size,virtual}_bytes` | `lvs` | virtual = sum of the thin volumes' sizes; above size means overcommitted |
+| `host_lvm_vg_free_bytes` | `vgs pve` | room to grow the pool |
+| `host_metrics_collector_success{collector}`, `host_metrics_last_run_timestamp_seconds` | the script | one section failing doesn't blank the others |
+
+> ⚠️ **The PERC exposes every disk twice.** `smartctl --scan` finds each
+> drive as `sdX` *and* through the controller (`bus_2_megaraid_N`,
+> `bus_2_sat+megaraid_N`). The exporter runs with
+> `--smartctl.device-exclude=^bus_` to keep only `sdX`, the view `smartd` and
+> ZFS use. Without it every drive, and every SMART alert, appears twice.
+
+> ⚠️ **`device="sdX"` labels move between boots**, as kernel names do. The
+> rules and dashboard join `smartctl_device` to name each drive by
+> `serial_number`, which is what `HARDWARE.md` lists.
+
+> ⚠️ **This ZFS version has no per-pool I/O kstat**, so `node_zfs_zpool_nread`
+> doesn't exist. Pool I/O on the dashboard is the sum of the per-dataset
+> counters (`node_zfs_zpool_dataset_nread`): logical I/O, before parity and
+> mirroring.
+
+> ⚠️ **`smartctl_exporter` doesn't update itself.** It's a release binary,
+> not a package, and Renovate doesn't see the host. Upgrade by hand with the
+> install steps below.
+
+### Installing it
+
+On the workstation:
 
 ```bash
-cat /etc/cron.d/zfsutils-linux
-zpool status sas-pool archive-pool | grep -E 'scan:|scrub'
+scp -3 dev:homelab/scripts/host-monitoring/host-metrics \
+  proxmox-host:/usr/local/sbin/
+scp -3 'dev:homelab/scripts/host-monitoring/*.service' \
+  proxmox-host:/etc/systemd/system/
+scp -3 dev:homelab/scripts/host-monitoring/host-metrics.timer \
+  proxmox-host:/etc/systemd/system/
 ```
 
-Only if that cron is absent or disabled, enable `zfs-scrub-monthly@<pool>.timer`
-per pool. Do not run both — two scrubs of the same pool is wasted I/O, not
-twice the safety.
-
-## G3–G5 — host-side metrics
+On the host. `--no-install-recommends` leaves out Debian's `smartmon`
+collector, which would duplicate `smartctl_exporter`:
 
 ```bash
-apt update && apt install -y prometheus-node-exporter
+apt update
+apt install --no-install-recommends prometheus-node-exporter
+cd /tmp
+V=0.14.0
+U=https://github.com/prometheus-community/smartctl_exporter
+F=smartctl_exporter-$V.linux-amd64
+curl -fLO $U/releases/download/v$V/$F.tar.gz
+curl -fLO $U/releases/download/v$V/sha256sums.txt
+sha256sum -c --ignore-missing sha256sums.txt
+tar xzf $F.tar.gz
+install -m755 $F/smartctl_exporter /usr/local/bin/
+chmod 755 /usr/local/sbin/host-metrics
+systemctl daemon-reload
+systemctl enable --now smartctl-exporter.service
+systemctl enable --now host-metrics.timer
 ```
 
-`node_zfs_zpool_state` (from `/proc/spl/kstat/zfs/<pool>/state`) covers pool
-state if this ZFS build exports it; otherwise it moves into the G5 script.
-`smartctl_exporter` (or the upstream release binary if no package exists)
-covers G4, needs root, listens on `:9633`. G5 has no off-the-shelf exporter — a
-short script on a 5-minute systemd timer writing `.prom` files (pool capacity,
-scrub completion age, newest snapshot age per dataset — the metric `SANOID.md`
-calls the first one worth having) into node-exporter's textfile directory,
-written atomically (`> file.tmp && mv`).
+### Firewall
 
-Firewall (`host.fw` is default-drop, same precedent as `SAS-STORAGE.md`'s
-Samba rules):
+`host.fw` is default-drop. Only the three k3s nodes may scrape, because pod
+egress to the LAN is masqueraded to the node's address. A routed tailnet
+device arrives as `192.168.50.102` and is refused (same reasoning as VM
+105's `ufw`, [`GPU-VM.md`](GPU-VM.md)). In `/etc/pve/nodes/pve/host.fw`:
 
 ```ini
 [RULES]
-IN ACCEPT -source 192.168.50.0/24 -p tcp -dport 9100 -log nolog # node-exporter
-IN ACCEPT -source 192.168.50.0/24 -p tcp -dport 9633 -log nolog # smartctl-exporter
+IN ACCEPT -source 192.168.50.104-192.168.50.106 -p tcp -dport 9100 -log nolog # node-exporter
+IN ACCEPT -source 192.168.50.104-192.168.50.106 -p tcp -dport 9633 -log nolog # smartctl-exporter
 ```
 
-## G6–G7 — cluster-side
+Reload with `pve-firewall compile >/dev/null && pve-firewall restart`.
 
-The stack can already take these; nothing needs installing. `scrapeconfigs.monitoring.coreos.com`
-is registered, and `scrapeConfigSelectorNilUsesHelmValues: false` means a
-`ScrapeConfig` in any namespace is selected without a `release:` label.
+## G7 — in the cluster
 
-Planned as `kubernetes/apps/observability/host-monitoring/`: a `ScrapeConfig`
-with a static target list (`192.168.50.101:9100` and `:9633`); a
-`PrometheusRule` — pool not `ONLINE`, scrub older than 35 days, any grown
-defect/uncorrected error, drive temp over 55°C, newest snapshot older than 2h,
-`local-lvm` `Data%` over 85, node-exporter absent for 15m — split into two rule
-sets, since the `archive-pool` SATA drives expose no SMART health bit and need
-reallocated/pending-sector attributes instead; and a dashboard JSON, following
-the `flux-monitoring` precedent.
+`kubernetes/apps/observability/host-monitoring/`: two `ScrapeConfig`s
+(`host-node` for `:9100`, `host-smartctl` for `:9633`), a `PrometheusRule`
+and the `host-pve` Grafana dashboard. There are two scrape configs because
+both targets carry `instance="pve"`, and two targets with identical labels in
+one job would collide on `up`.
 
-**G6's `prometheus-pve-exporter` needs a hypervisor-scoped credential
-in-cluster** (`PVEAuditor` is sufficient), which is the one thing `GITOPS.md`'s
-scope split otherwise keeps out of the cluster entirely. Judged defensible
-because it's read-only — an attacker gains inventory visibility, not
-write — but it must be a **separate `monitor@pve` token**, never `tofu@pve`,
-so it stays revocable without touching OpenTofu. If that trade is unwanted, G6
-degrades gracefully: thin-pool `Data%` comes from the G5 script instead, and
-the in-cluster exporter is dropped.
+| Alert | Fires when | Severity |
+|---|---|---|
+| `HostZpoolUnhealthy` | any pool not `ONLINE`, 5m | critical |
+| `HostZpoolScrubStale` | no completed scrub in 35 days, 1h | warning |
+| `HostZpoolScrubErrors` | last scrub found errors | critical |
+| `HostZpoolFilling` | pool > 80% allocated, 30m | warning |
+| `HostSnapshotStale` | newest sanoid snapshot of a dataset > 2h old, 30m (covers a host boot) | warning |
+| `HostThinPoolDataHigh` / `Critical` | thin pool Data% > 80 (15m) / > 90 (5m) | warning / critical |
+| `HostThinPoolMetadataHigh` | thin pool Meta% > 80, 15m | warning |
+| `HostDriveSmartFailed` | `smartctl_device_smart_status == 0` | critical |
+| `HostDriveSasDefects` | SAS grown defects or uncorrected read/write errors > 0 | warning |
+| `HostDriveAtaMediaErrors` | SATA attribute 5, 197 or 198 raw > 0 (these drives report 5 and 198) | warning |
+| `HostDriveHot` | drive > 55°C, 10m | warning |
+| `HostExporterDown` | either scrape target down, 15m | warning |
+| `HostMetricsStale` | `host-metrics` output > 15m old, or a section failing | warning |
+| `HostRootFilesystemLow` | host `/` < 10% free, 30m | warning |
+
+`HostRootFilesystemLow` is needed because kube-prometheus-stack's node alerts
+select only the cluster's own node-exporter job. Every media-error counter
+the SMART rules read is 0 on every drive, so any non-zero value is new.
+
+## Checking it
+
+| Check | Healthy |
+|---|---|
+| On the host: `systemctl is-active smartctl-exporter host-metrics.timer prometheus-node-exporter` | `active` ×3 |
+| On the host: `cat /var/lib/prometheus/node-exporter/host-metrics.prom` | every `host_metrics_collector_success` 1; three pools `ONLINE`; four datasets with a recent `autosnap` time |
+| On the host: `curl -s localhost:9633/metrics \| grep -c '^smartctl_device{'` | `9`: 3 SAS + 5 SATA + the BOSS virtual disk, and no `bus_` devices |
+| Prometheus: `up{job=~"scrapeConfig/observability/host-.*"}` | two series, both 1 |
+| Prometheus: `count(host_zpool_health{instance="pve"})` | 3 |
+| Prometheus: `ALERTS{alertname=~"Host.*"}` | empty |
+
+A failed scrape from the cluster that works from the host itself means
+`host.fw`.
 
 ## What this does not cover
 
-- **The BOSS-S2 boot mirror stays invisible** either way — the OS cannot see
-  its member disks; a failed half surfaces only in iDRAC or the BOSS CLI.
-- **The monitor sits on what it monitors.** Prometheus runs on `k3s-worker1`, a
-  VM on `.101`. Host dies → monitoring dies with it, and the `absent()` alert
-  dies with it too. Only `smartd`'s own mail escapes this.
+- **The BOSS-S2 boot mirror stays invisible.** The OS can't see its member
+  disks; `smartctl` on `sda` reads the virtual disk. A failed half surfaces
+  only in iDRAC or the BOSS CLI.
+- **The monitor sits on what it monitors.** Prometheus runs on `k3s-worker1`,
+  a VM on this host. Host down means monitoring down, and `HostExporterDown`
+  goes with it. Only `smartd`'s mail escapes this.
 - **The cluster is frequently powered off** (`README.md` operating
-  assumptions). A drive degrading overnight with k3s down is seen at next
+  assumptions). A drive degrading overnight with k3s down is seen at the next
   boot, not at 03:00.
 - **Alertmanager is on the chart's `null` receiver** (`GITOPS.md` →
-  kube-prometheus-stack). Every alert here is a *pull* notification until that
-  changes.
+  kube-prometheus-stack). Every alert here is visible in Prometheus and
+  Grafana, and pushed nowhere.
 
 ## Series budget
 
-Prometheus is at ~65,810 active series, `retention: 15d` guarded by
-`retentionSize: 4GiB`. node-exporter adds roughly 1–2k series for one host,
-smartctl_exporter a few dozen per drive, the textfile script a handful — call
-it 3k, under 5%. `retention: 15d` was verified as the binding limit on
-2026-09-21 (TSDB steady at 2.56 GB). **Check worker1's free disk before landing
-G3–G7**, not just the series count: the node is at ~2.4 GB free since Home
-Assistant moved there, and eviction starts at ~0.96 GB (`GITOPS.md` →
-kube-prometheus-stack).
+The host adds about 4,600 series (node-exporter ~3,960, smartctl_exporter
+~640) to Prometheus' ~62,000, about 7%. `retention: 15d` with
+`retentionSize: 4GiB` (`GITOPS.md` → kube-prometheus-stack) absorbs that;
+check `k3s-worker1`'s free disk, not just the series count, before adding
+more.
 
 ## Related
 
-- [`archive/HOST-MONITORING-SETUP.md`](archive/HOST-MONITORING-SETUP.md) — the
-  G1 debugging record: the DEVICESCAN trap and the mail-delivery incident
-- [`archive/TRUENAS.md`](archive/TRUENAS.md) — the superseded appliance design
-  these goals came from
-- [`SAS-STORAGE.md`](SAS-STORAGE.md) — `sas-pool`, the pool being watched, and
-  the import incident this design would have caught sooner
-- [`HARDWARE.md`](HARDWARE.md) — per-disk SMART baselines and the BOSS-S2 blind spot
-- [`SANOID.md`](SANOID.md) — snapshot age as the first host metric worth having
-- [`GITOPS.md`](GITOPS.md) — the hypervisor/cluster scope split G6's token touches
-- [`BACKLOG.md`](BACKLOG.md) — G2–G7 tracked as open work
+- [`archive/HOST-MONITORING-SETUP.md`](archive/HOST-MONITORING-SETUP.md) — how
+  G1–G7 were built: the DEVICESCAN trap, the mail-delivery incident, the G6
+  decision
+- [`archive/TRUENAS.md`](archive/TRUENAS.md) — the unbuilt appliance these
+  goals came from
+- [`SAS-STORAGE.md`](SAS-STORAGE.md) — `sas-pool`, and the host firewall
+- [`HARDWARE.md`](HARDWARE.md) — disks by serial, SMART baselines, the BOSS-S2
+  blind spot
+- [`SANOID.md`](SANOID.md) — the snapshots `HostSnapshotStale` watches

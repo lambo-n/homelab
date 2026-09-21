@@ -1,4 +1,4 @@
-# Host monitoring — G1 (SMART long tests) setup log
+# Host monitoring — setup log (G1–G7)
 
 > 📦 **Archived 2026-09-16.** G1 (SMART long tests) is the one goal in
 > [`../HOST-MONITORING.md`](../HOST-MONITORING.md) that's fully built and
@@ -142,3 +142,54 @@ addressing is why this was a non-event.
 
 **The hour-2 self-test gap was retired by hand**, staggered rather than all
 three at once, since the drives had not self-tested in ~50,000 hours.
+
+## G2–G7, 2026-09-21
+
+**G2 needed nothing.** `/etc/cron.d/zfsutils-linux` was intact (scrub on the
+second Sunday, TRIM on the first). `sas-pool` and `archive-pool` had both
+scrubbed clean on Sun 2026-09-13. `llm-pool`, created 2026-09-16, had never
+been scrubbed (`scan: none requested`).
+
+**G6 was folded into G5, by the owner's choice.** `prometheus-pve-exporter`
+would have needed a `monitor@pve` `PVEAuditor` token in SOPS, the first
+Proxmox credential in the cluster. `lvs` on the host gives the thin pool's
+`Data%` and `Meta%` (pve-exporter has no `Meta%`), so the textfile script
+took it over. Recorded under `GITOPS.md` → *Explicitly rejected*.
+
+**`smartctl_exporter` over Debian's `smartmon` collector.** trixie packages
+node-exporter 1.9.0 and `prometheus-node-exporter-collectors`, whose
+`smartmon.sh` parses `smartctl` text output. It covers SAS grown defects, but
+not the uncorrected-error counters, and it exits on any device type it
+doesn't recognise. `smartctl_exporter` reads `smartctl -j` and exports both
+counters, so it was installed as the upstream v0.14.0 release binary
+(sha256-checked). node-exporter went in with `--no-install-recommends` so
+`smartmon` didn't come along.
+
+**Found on the first scrape:**
+
+- **Every disk appeared twice.** `smartctl --scan` found each drive as `sdX`
+  and again through the PERC as `bus_2_megaraid_N` (SAS) /
+  `bus_2_sat+megaraid_N` (SATA), with the same serials. Fixed with
+  `--smartctl.device-exclude=^bus_`. The exporter's filter matches its
+  device label, not the raw path (`main.go`, `scanDevices`).
+- **No per-pool I/O.** `node_zfs_zpool_nread` doesn't exist on this ZFS
+  version; only `node_zfs_zpool_dataset_*` does. The dashboard sums those by
+  pool.
+- **Every media-error baseline was 0**: SAS grown defects and uncorrected
+  read/write errors on all three, and SATA attributes 5 and 198 on all five.
+  None of these drives report 197. So the `> 0` thresholds hold from day one.
+- The SATA drives all reported `smartctl_device_smart_status` 1 through the
+  exporter, even though `smartd` logs that most of them lack a health-status
+  check.
+
+**`llm-pool` was scrubbed by hand** the same evening (`zpool scrub
+llm-pool`, 0 errors, a few minutes for ~100 GB) so `HostZpoolScrubStale`
+wouldn't fire before the October cron run. Polling the textfile output through
+it showed all three scrub states live: end time `0`, then `in_progress 1`
+with no end time, then a real end time with `errors 0`.
+
+**Verified** from a `curlimages/curl` pod pinned to `k3s-worker1`, which
+exercised the `host.fw` rules: `:9100` served 3,958 series, `:9633` 1,316
+lines before the `bus_` exclusion (~640 series after it). Every metric the
+rules and dashboard reference was present. Each expression also parsed
+against the live Prometheus before merge.

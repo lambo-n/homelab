@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - scrapeconfig.yaml
+  - prometheusrule.yaml
+configMapGenerator:
+  # Committed JSON, same pattern as llm-vm. Every panel query was run against
+  # the live Prometheus before merge and returned series.
+  - name: host-monitoring-grafana-dashboards
+    namespace: observability
+    files:
+      - dashboards/host.json
+    options:
+      labels:
+        # What the kube-prometheus-stack Grafana sidecar watches for.
+        grafana_dashboard: "1"
+      annotations:
+        # Grafana ${...} expressions; keep Flux substitution off them.
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+generatorOptions:
+  disableNameSuffixHash: true
