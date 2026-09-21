@@ -378,13 +378,13 @@
     },
     {
       "type": "timeseries",
-      "title": "Pool I/O",
+      "title": "Pool I/O (logical)",
       "id": 7,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "node_exporter zfs collector, reads and writes per pool.",
+      "description": "Sum of the per-dataset read/write counters from node_exporter's zfs collector: what the datasets asked for, before RAID-Z parity and mirroring. This ZFS version has no per-pool I/O kstat.",
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -397,7 +397,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "rate(node_zfs_zpool_nread{instance=\"pve\"}[5m])",
+          "expr": "sum by (zpool) (rate(node_zfs_zpool_dataset_nread{instance=\"pve\"}[5m]))",
           "legendFormat": "{{zpool}} read",
           "refId": "A"
         },
@@ -406,7 +406,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "-rate(node_zfs_zpool_nwritten{instance=\"pve\"}[5m])",
+          "expr": "-sum by (zpool) (rate(node_zfs_zpool_dataset_nwritten{instance=\"pve\"}[5m]))",
           "legendFormat": "{{zpool}} write",
           "refId": "B"
         }
@@ -835,7 +835,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "smartctl_device_smart_status: 1 passed, 0 failed. SATA drives with no health bit have no series here (HARDWARE.md).",
+      "description": "smartctl_device_smart_status: 1 passed, 0 failed. HostDriveSmartFailed fires on 0.",
       "gridPos": {
         "h": 6,
         "w": 8,

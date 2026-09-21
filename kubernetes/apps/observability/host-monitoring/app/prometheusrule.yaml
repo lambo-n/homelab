@@ -8,11 +8,11 @@
 # series before this was merged; a rule over a metric that returns nothing is
 # silently "inactive", not healthy.
 #
-# SMART is split in two because the drives report differently: the SAS SSDs
-# (sas-pool) have a health bit, a grown-defect list and uncorrected-error
-# counters; the SATA SSDs on the PERC have ATA attributes, and most of them no
-# health bit at all (HARDWARE.md). The ATA rule reads attribute IDs, which are
-# standard across vendors, not names, which aren't.
+# SMART media errors are split in two because the drives report differently:
+# the SAS SSDs (sas-pool) have a grown-defect list and uncorrected-error
+# counters, and the SATA SSDs have ATA attributes. The ATA rule reads attribute
+# IDs, which are standard across vendors, not names, which aren't. These SATA
+# drives report 5 and 198, not 197.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

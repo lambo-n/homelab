@@ -7,7 +7,11 @@ After=network-online.target
 
 [Service]
 # root: smartctl needs raw access to every disk. The rest is locked down.
-ExecStart=/usr/local/bin/smartctl_exporter --web.listen-address=:9633
+# The PERC exposes every disk twice: as sdX and through the controller
+# (bus_2_megaraid_N, bus_2_sat+megaraid_N). Keep sdX, the view smartd and
+# ZFS use; otherwise every drive, and every alert, appears twice.
+ExecStart=/usr/local/bin/smartctl_exporter --web.listen-address=:9633 \
+    --smartctl.device-exclude=^bus_
 Restart=on-failure
 NoNewPrivileges=yes
 ProtectSystem=strict
