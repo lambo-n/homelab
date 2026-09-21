@@ -114,6 +114,27 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    Cloudflare API tokens live in LastPass and are exported per shell; putting
    them behind a service that runs on the VMs they manage is a bootstrap loop.
    See [`tofu/README.md`](tofu/README.md) → *Where each credential lives*.
+8. **Root docs describe the present; history goes in [`archive/`](archive/).**
+   Every `*.md` at the repo root (`README.md`, `GITOPS.md`, `BACKLOG.md`,
+   `GPU-VM.md`, …) says how the homelab *is*, as if it had always been that
+   way. When something changes, rewrite the affected text to the new state —
+   don't append to it. The story of the change goes in `archive/` (see
+   [`archive/README.md`](archive/README.md)), and the root doc links to it in
+   one line.
+   - **Does not belong at the root:** "closed / corrected / fixed / found /
+     verified *\<date\>*", "an earlier revision said…", "used to", "no longer", <!-- doc-history:ignore -->
+     "since *\<date\>*", how-it-was-found narratives, before/after test
+     tables, strike-throughs or ✅ markers on finished work.
+   - **Does belong:** the current config, why it is that way, the gotchas,
+     and how to check it *now* (a repeatable test and its expected result).
+   - **`BACKLOG.md`** holds open items only. When one is done, delete it
+     (the history, if worth keeping, goes to `archive/`). Don't tick it.
+   - **Enforced, loosely:** `.github/scripts/doc-history-check.py` flags
+     history-style wording in added lines. It runs as a Claude Code
+     PostToolUse hook (`.claude/settings.json`) and as a warn-only CI check.
+     It is a heuristic, so read what it flags and use judgement. Existing
+     violations get fixed when you touch the section anyway, not in drive-by
+     sweeps.
 
 ---
 
