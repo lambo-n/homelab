@@ -22,12 +22,33 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       Decide on the data's actual value: `zfs send` to a rotated external disk,
       `syncoid` over Tailscale, or R2 after all. See `GITOPS.md` → CloudNativePG
       → *R2 rejected*.
-- [ ] **Verify the 15-day Prometheus retention projection** — **was due
-      2026-09-19; now overdue.** The figure is derived from 65,810 active series,
-      not measured. Check that `retention: 15d` is what is actually happening
-      rather than `retentionSize: 4GiB` truncating it silently. The TSDB has now
-      run long enough for the oldest sample's age to answer this directly. See
-      `GITOPS.md` → kube-prometheus-stack.
+- [ ] **Worker1's root disk is nearly full** *(raised 2026-09-21)*. It has
+      ~2.4 GB free of 17.8 GiB (it had 7.3 GiB at Phase 7). Home Assistant's
+      arrival on 09-16/17 took ~2.8 GB. Image GC is above its 85% threshold and
+      failing to free anything, and DiskPressure fired for 5 minutes on 09-18.
+      The next large image bump (HA is 0.65 GB compressed) needs old and new
+      images on disk together. `retentionSize: 4GiB` also allows ~1.7 GB more
+      TSDB growth, which is more than the ~1.4 GB left before eviction.
+      **In progress** (branch `fix/worker1-disk-headroom`): `retentionSize`
+      is now 3GiB, and the disk goes from 20 to 32 GB. The resize is manual,
+      because tofu is read-only for VM 103:
+      ```bash
+      # 1. Proxmox host, as root: check local-lvm Data% first. The thin pool is shared by every guest
+      lvs; qm resize 103 scsi0 +12G
+      pveum acl modify / --users tofu@pve --roles PVEAuditor,TofuDisk   # for step 3
+      # 2. k3s-worker1: online, no reboot
+      echo 1 | sudo tee /sys/class/block/sda/device/rescan
+      sudo growpart /dev/sda 3 && sudo pvresize /dev/sda3
+      sudo lvextend -l +100%FREE -r /dev/ubuntu-vg/ubuntu-lv
+      # 3. dev VM: persist the new size into state. A plan alone would not
+      #    (tofu/README.md → "State drift"). The diff should be disk size only.
+      tofu apply -refresh-only -target=proxmox_virtual_environment_vm.k3s_worker1
+      tofu plan -refresh=false        # expect: No changes.
+      # 4. Proxmox host: revoke
+      pveum acl delete / --users tofu@pve --roles TofuDisk
+      ```
+      Merge only after step 3; before that, the `.tf` says 32 while the state
+      says 20. See `GITOPS.md` → kube-prometheus-stack.
 - [ ] **Decide what the `192.168.50.0/24` subnet route is allowed to reach**
       *(raised 2026-09-09)*. It is approved today, so tailnet membership alone
       grants layer-3 access to every port on the LAN — see `GITOPS.md` →

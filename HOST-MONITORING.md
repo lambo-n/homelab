@@ -148,9 +148,11 @@ the in-cluster exporter is dropped.
 Prometheus is at ~65,810 active series, `retention: 15d` guarded by
 `retentionSize: 4GiB`. node-exporter adds roughly 1–2k series for one host,
 smartctl_exporter a few dozen per drive, the textfile script a handful — call
-it 3k, under 5%. `GITOPS.md`'s open item to verify which of `retention`/
-`retentionSize` is actually binding (due 2026-09-19) should be checked first if
-G3–G7 land before then.
+it 3k, under 5%. `retention: 15d` was verified as the binding limit on
+2026-09-21 (TSDB steady at 2.56 GB). **Check worker1's free disk before landing
+G3–G7**, not just the series count: the node is at ~2.4 GB free since Home
+Assistant moved there, and eviction starts at ~0.96 GB (`GITOPS.md` →
+kube-prometheus-stack).
 
 ## Related
 

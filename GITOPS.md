@@ -1003,6 +1003,24 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 > duration_seconds_bucket` and its `_sli` twin are deliberately kept — the
 > `kubeApiserverBurnrate`/`Histogram`/`Slos` groups are built on them.
 >
+> ✅ **Verified 2026-09-21: `retention: 15d` is the binding limit, not `retentionSize`.**
+> Oldest sample 2026-09-06 06:00 UTC (15.4 days, which is expected, because time retention
+> drops whole blocks); `prometheus_tsdb_time_retentions_total` 3 and
+> `prometheus_tsdb_size_retentions_total` **0**. The TSDB grew ~0.15 GB/day, then
+> levelled off at **2.56 GB** (2.33 blocks + 0.23 WAL) from 09-19, when the first blocks
+> aged out. The projection was ~2.4 GiB (2.58 GB), close enough to call it confirmed. Head
+> series is 60–78k depending on pod churn. Six pod restarts from host reboots did not
+> reset anything. Measured through the apiserver service proxy, because the image is
+> distroless (no `wget`, no `sh`).
+>
+> ⚠️ **But the 4 GiB guard no longer fits the disk it guards.** Worker1's free space
+> dropped from 5.67 GB to 2.91 GB overnight on 09-16/17 when Home Assistant landed there
+> (see [`VOICE.md`](VOICE.md)), and it now sits at ~2.4 GB. Kubelet's hard eviction is
+> `nodefs.available<5%` (~0.96 GB), so Prometheus has ~1.4 GB of growth before the node
+> evicts pods, while `retentionSize` would allow ~1.7 GB. Image GC is already above its
+> 85% threshold and failing to free anything, and DiskPressure fired for 5 minutes on
+> 2026-09-18 14:01 UTC. Tracked in [`BACKLOG.md`](BACKLOG.md).
+>
 > ⚠️ **`metricRelabelings` REPLACES the chart's list, it does not extend it.** Helm merges
 > maps and replaces lists, so overriding the key silently discards the chart's own
 > bucket-thinning rule. Both overrides repeat that first entry verbatim, and it has to be

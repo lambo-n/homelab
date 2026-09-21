@@ -130,6 +130,10 @@ resource "proxmox_virtual_environment_vm" "k3s_worker1" {
     type         = "x86-64-v2-AES"
   }
   disk {
+    # 20 -> 32 on 2026-09-21 by hand (`qm resize 103 scsi0 +12G`): this token
+    # cannot write to VM 103, so the file follows the host, not the reverse.
+    # Worker1 holds the TSDB, Grafana, Alertmanager and Home Assistant's config
+    # on its root disk and had ~2.4 GB left. See BACKLOG.md.
     aio               = "io_uring"
     backup            = true
     cache             = "none"
@@ -144,7 +148,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker1" {
     queues            = 0
     replicate         = true
     serial            = ""
-    size              = 20
+    size              = 32
     ssd               = false
   }
   memory {
