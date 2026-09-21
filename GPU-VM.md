@@ -19,6 +19,7 @@ state: what's running, how it's configured, and how to reach it.
 | Kernel requirement | `pci=noats` on the **host** kernel command line — passthrough with ATS enabled hard-locks the host. Never remove it while this card is passed through |
 | Resizable BAR | **Full 32 GiB, CPU-visible.** The card defaults to a 256 MiB BAR; `gpu-rebar.service` resizes it to 32 GiB at every host boot, before guests start. Model loads are disk/CPU-bound, not BAR-bound, once resized |
 | Guest OS | Ubuntu 24.04 LTS on the HWE kernel (≥ 6.17) — the GA kernel predates driver support for this card |
+| GuC firmware | **70.72.1**, from upstream `linux-firmware` (commit `4291fa65d305`), in `/lib/firmware/updates/xe/bmg_guc_70.bin`, which overrides noble's older `70.44.1` blob. See *GuC firmware override* below |
 | Snapshots | None. `llm-pool` is deliberately excluded from `sanoid.conf` — model weights are re-downloadable, so there's nothing worth snapshotting |
 | OpenTofu | Authored and created by `tofu apply` (not imported), `tofu/proxmox-llm-vm.tf`. `prevent_destroy` is on. Its own scoped API token (`tofu@pve!llm`) can write to `/vms/105` only — see `tofu/README.md` |
 
@@ -29,6 +30,28 @@ attempting 32 GiB first (which fails and releases the reservation), then 4 GiB,
 then 32 GiB again — and always rebinds both the GPU and its audio function to
 `vfio-pci` on exit. A failed resize leaves the card usable at a smaller BAR; it
 never blocks boot. Check `journalctl -u gpu-rebar -b` after any host reboot.
+
+**GuC firmware override:** the HWE kernel's `xe` driver asks for a newer
+Battlemage GuC than noble's `linux-firmware-intel-graphics` ships. It runs on
+the older one but logs "is recommended" at every boot. Upstream's
+`xe/bmg_guc_70.bin` sits in `/lib/firmware/updates/xe/` (uncompressed, sha256
+`de81c75f…6985ab398b`). The kernel searches `updates/` first and tries
+uncompressed names before `.zst`, and `dpkg` never writes there. The initramfs
+was rebuilt after installing it, so an early-loaded `xe` gets the same blob.
+
+> ⚠️ **The override shadows every future Ubuntu update of this blob.** When
+> `apt-cache policy linux-firmware-intel-graphics` shows a new version, check
+> the GuC version it ships. If it's the same or newer, delete the override,
+> run `sudo update-initramfs -u`, and reboot.
+
+Checking it (on the guest):
+
+| Command | Healthy |
+|---|---|
+| `sudo dmesg \| grep -i guc` | `Using GuC firmware from xe/bmg_guc_70.bin version 70.72.1` on GT0 and GT1; no `is recommended` line |
+| a chat completion to `:8080/v1` | a correct answer at normal speed (`chat`: ~55 tok/s generation) |
+
+History: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → *GuC firmware override*.
 
 ---
 

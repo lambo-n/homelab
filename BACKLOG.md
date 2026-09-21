@@ -54,16 +54,6 @@ Goal G1 (SMART long tests) is live; the rest of the plan in
       boot) has not yet been proven by an actual reboot. Check
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
-- [ ] **GuC firmware on the LLM guest is older than the kernel wants**
-      (`70.44.1` loaded, `70.54.0` recommended). Works today. **Blocked
-      upstream** *(checked 2026-09-21)*: `apt install --only-upgrade
-      linux-firmware` is a no-op — installed and candidate are both
-      `20240318.git3b128b60-0ubuntu3.1`, and the blob
-      (`/lib/firmware/xe/bmg_guc_70.bin.zst`) ships in
-      `linux-firmware-intel-graphics` at that same version. Re-check
-      `apt-cache policy linux-firmware-intel-graphics` after noble updates;
-      the alternative is dropping upstream's blob into
-      `/lib/firmware/updates/xe/`. Needs a guest reboot either way.
 
 ## Voice assistant — leftovers
 
