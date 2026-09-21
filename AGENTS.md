@@ -9,8 +9,10 @@ Read [`README.md`](README.md) first — hardware, platform, and what each piece 
 software does. [`GITOPS.md`](GITOPS.md) is the per-tool reference for flags and
 gotchas; [`BACKLOG.md`](BACKLOG.md) is every open item.
 
-> ⚠️ **This repository is public.** Anything committed here is world-readable,
-> including the encrypted `*.sops.yaml` payloads. `age.key` is the only thing
+> ⚠️ **This repository is public, deliberately, and stays that way.** Anything
+> committed here is world-readable, including the encrypted `*.sops.yaml`
+> payloads and the whole topology (IPs, hostnames, ports, firewall rules,
+> credential *locations*). `age.key` is the only thing
 > standing between a reader and those values — see rule 5.
 
 ---
