@@ -99,7 +99,7 @@ Crossplane from footgun to reasonable.
 
 - Start every Kustomization at `prune: false`; enable only after several clean reconciles.
 - Annotate stateful resources: `kustomize.toolkit.fluxcd.io/prune: disabled`
-- PVs are `Retain`, but a mislabeled prune deleting `postgres-pvc` / `minio-pvc` is the one thing
+- PVs are `Retain`, but a mislabeled prune deleting `minio-pvc` is the one thing
   that would actually hurt.
 
 > **Prune is live.** `prune: true` on every app Kustomization except
@@ -602,6 +602,23 @@ checks Flux can gate on — not only backups. Note barman-cloud is now a **separ
 > the clock the PV/PVC item above was waiting on — it has arrived, and the
 > retirement is now a decision to make rather than one to defer.
 >
+> ✅ **Retired 2026-09-21.** `postgres-pvc`/`postgres-pv` were deleted by hand
+> (`sunfire-storage` never prunes) and removed from git. First the frozen PGDATA
+> was compared row by row with CNPG, by starting `postgres:16.15` on a *copy*
+> in a throwaway pod. The volume held only `sunfire`: one table, 58 rows, the
+> same four roles, and **no bingo data**, which had been dumped separately on
+> 09-02. 56 rows matched exactly, and row 30 was older than CNPG's copy (the
+> soft-delete landed after the import). Row 58 was the one real gap:
+> **`bomb.png` was uploaded at 00:58, after the import (~00:54) but before
+> PostgREST was repointed**, so its row reached only the legacy database, and
+> CNPG later reused id 58 for another upload. Its object is still in MinIO
+> (`5f0a837a…5cc5e.png`, 22,824 B), but with no row the media route 404s. The
+> owner judged it safe to lose. **The lesson for any future cutover: freeze
+> writes on the source between the import and the repoint, or diff the two
+> afterwards, because both "live" signals looked healthy throughout.**
+> The ZFS dataset `archive-pool/postgres-data` is destroyed on the host
+> separately (see `SANOID.md`).
+>
 > **Loose end, not urgent:** `sunfire-postgrest` still `dependsOn:
 > sunfire-postgres`, which now resolves to a Kustomization holding one Secret.
 > Harmless — it is always Ready — but the edge no longer means what it says.
@@ -629,7 +646,7 @@ a bad Flux prune, or logical corruption — RAIDZ replicates a `DELETE` to every
 the pool still scrubs clean. That risk goes *up* when automated reconciliation with `prune: true`
 arrives, but it's covered locally:
 
-- **`sanoid` ZFS snapshots** on `.101` for `archive-pool/minio-data` and `archive-pool/postgres-data`.
+- **`sanoid` ZFS snapshots** on `.101` for `archive-pool/minio-data` (and, until its retirement on 2026-09-21, `archive-pool/postgres-data`).
   Copy-on-write, single-digit GB against the pool's 1.68 TiB (measured post-rebuild). ~24 hourly / 30 daily
   / 6 monthly. **Set this up when the pool is recreated** — a fresh pool is the natural moment, and
   snapshots cover the accidental-delete case that ZFS redundancy does not.
@@ -1069,7 +1086,7 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 ## sanoid (host)
 
 **Config at a glance** — runs on the Proxmox host `.101`, not in the cluster.
-**Five** datasets: `minio-data`, `postgres-data`, the PGDATA zvol
+**Four** datasets: `minio-data`, the PGDATA zvol
 `vm-104-disk-0`, and `ts-ssh-records` on `archive-pool`, plus `sas-pool/data` on
 `sas-pool` (added 2026-09-09). Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
 Procedure and the rollback drill: [`SANOID.md`](SANOID.md).

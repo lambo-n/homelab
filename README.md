@@ -382,7 +382,7 @@ unreachable. The guest is outside the cluster; only the scraping lives here.
 ### Host-level — outside Kubernetes entirely
 
 **sanoid** — ZFS snapshots on the Proxmox host: 24 hourly, 30 daily, 6 monthly
-across `minio-data`, `postgres-data` and the PGDATA zvol. This is the second,
+across `minio-data` and the PGDATA zvol. This is the second,
 independent backup layer; barman covers the database logically, sanoid covers the
 volumes underneath it. Rollback was drilled, not assumed.
 → [`SANOID.md`](SANOID.md), and host config on `.101`

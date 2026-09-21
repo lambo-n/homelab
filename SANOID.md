@@ -48,7 +48,6 @@ Five datasets are covered:
 | `archive-pool/vm-104-disk-0` | **PGDATA** (the zvol) | a zvol does not appear in a plain `zfs list` — use `-t volume` or `-t all` |
 | `archive-pool/ts-ssh-records` | Tailscale SSH session recordings | added 2026-09-09 |
 | `sas-pool/data` | Personal storage / Samba share | added 2026-09-09, `recursive = yes` |
-| `archive-pool/postgres-data` | the old NFS data directory | **legacy** — frozen at the CNPG cutover, kept only as a decaying rollback path |
 
 **`llm-pool` is deliberately not in `sanoid.conf`.** It holds VM 105's model
 weights: multi-GB files that are re-downloadable, where every snapshot would
@@ -60,10 +59,6 @@ pin gigabytes for nothing (see [`GPU-VM.md`](GPU-VM.md)).
 
 ```ini
 [archive-pool/minio-data]
-	use_template = archival
-	recursive = no
-
-[archive-pool/postgres-data]
 	use_template = archival
 	recursive = no
 

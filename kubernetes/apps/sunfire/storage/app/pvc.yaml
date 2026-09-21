@@ -3,22 +3,6 @@ kind: PersistentVolumeClaim
 metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
-  name: postgres-pvc
-  namespace: sunfire
-spec:
-  storageClassName: ""
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 100Gi
-  volumeName: postgres-pv
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  annotations:
-    kustomize.toolkit.fluxcd.io/prune: disabled
   name: minio-pvc
   namespace: sunfire
 spec:
