@@ -115,6 +115,18 @@ jobs:
 
           exit "${fail}"
 
+      # The README's dependency diagram is generated from the ks.yaml files.
+      # A dependsOn edit without a regenerated diagram fails here, and so does
+      # a dependsOn naming a Kustomization that does not exist.
+      - name: Check README dependency graph is current
+        run: |
+          set -euo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            # renovate: datasource=pypi depName=pyyaml
+            pip install --quiet --disable-pip-version-check 'pyyaml==6.0.3'
+          fi
+          python3 .github/scripts/depgraph.py --check README.md
+
   helm-template:
     name: helm template
     runs-on: ubuntu-latest
@@ -124,7 +136,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # helm 4.2.4 from mise.toml -- the same pin the operator uses by hand.
+      # helm from mise.toml -- the same pin the operator uses by hand.
       - name: Install pinned helm
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:

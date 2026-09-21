@@ -137,6 +137,11 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
      It is a heuristic, so read what it flags and use judgement. Existing
      violations get fixed when you touch the section anyway, not in drive-by
      sweeps.
+   - **The full conventions** (what goes in which file, diagrams, version
+     claims, checklists) are in
+     [`.claude/skills/homelab-docs/SKILL.md`](.claude/skills/homelab-docs/SKILL.md).
+     Claude Code loads it as a skill; other agents should read it before
+     editing docs.
 
 ---
 

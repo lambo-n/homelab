@@ -295,7 +295,7 @@ the rest of the toolchain.
 | Project | `sunfire-homelab`, id `a47fcb88-5044-463e-a7c6-7119b4f3c89e` |
 | Environments | `Production [prod]`, `Feature [feature]`; `staging` deleted |
 | Auth | A machine identity (Universal Auth). Client ID + secret are the one bootstrap credential, SOPS-encrypted at `kubernetes/apps/sunfire/infisical/app/credentials.sops.yaml`, written by `scripts/infisical-identity-secret.sh` |
-| Operator | chart **0.11.8**, own `infisical` namespace, scoped to `sunfire` |
+| Operator | chart **0.11.9**, own `infisical` namespace, scoped to `sunfire` |
 | Seeding | `scripts/infisical-seed.py --apply` |
 
 > ⚠️ **The environment SLUG is what the CLI and operator key off**, not the
@@ -510,8 +510,9 @@ auto-upgrades at runtime with no git change — that's drift, and it defeats the
 
 > **Charts are pinned by CHART version, never by app version.** Both CNPG charts
 > move independently of the operator and plugin they install, and the chart is what
-> Flux actually installs. The same holds for reloader (`2.2.16` → appVersion
-> `v1.4.21`) and kube-prometheus-stack (`89.2.0` → appVersion `v0.93.1`).
+> Flux actually installs. The same holds for reloader (a `2.x` chart installing a
+> `v1.x` app) and kube-prometheus-stack, whose chart major bears no relation to
+> the prometheus-operator version it ships.
 
 ---
 
@@ -1003,7 +1004,7 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 
 | | |
 |---|---|
-| Chart | **89.2.0** (appVersion `v0.93.1`), `observability` namespace, no `dependsOn` |
+| Chart | **91.4.1** (appVersion `v0.94.0`), `observability` namespace, no `dependsOn` |
 | Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 4GiB`, ~65,810 active series, pinned to **k3s-worker1** |
 | Storage | `local-path` — TSDB 8Gi nominal, Grafana 2Gi, Alertmanager 1Gi, all on worker1 |
 | Grafana | LAN-only Traefik Ingress at `grafana.homelab.lan`; admin password in `grafana-admin.sops.yaml`; Reloader-annotated |
