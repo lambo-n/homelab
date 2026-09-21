@@ -6,14 +6,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Waiting on a decision
 
-- [ ] **Retire the legacy NFS PV/PVC** (`postgres-pvc` → `postgres-pv`, 100 GiB,
-      `Retain`). Still bound, still holding the pre-cutover Postgres data. They
-      live in `sunfire-storage` where prune is permanently disabled, so removing
-      them is a manual act a git edit cannot do by accident. **The clock they
-      were waiting on has run out:** the successor Worker is live on
-      `sunosrs.cc`, so rolling back to data frozen at the 2026-09-04 cutover
-      would now lose writes rather than recover them. The backups are the
-      recovery path. See `GITOPS.md` → CloudNativePG.
 - [ ] **Re-decide off-site backup, now that the data is real** *(raised
       2026-09-21)*. Both the R2 rejection and the VolSync deferral rested on "no
       successor app exists, so nothing here is worth off-siting." The Worker is

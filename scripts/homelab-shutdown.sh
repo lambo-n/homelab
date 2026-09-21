@@ -9,8 +9,8 @@
 #
 # Why the order matters more than usual here: 192.168.50.101 is BOTH the
 # hypervisor AND the NFS server backing the cluster's only two stateful
-# services. `minio-pv` -> /archive-pool/minio-data and `postgres-pv` ->
-# /archive-pool/postgres-data are NFS mounts held by the guests. Stop the NFS
+# services. `minio-pv` -> /archive-pool/minio-data is an NFS mount held by
+# the guests (Postgres moved to a zvol at the CNPG cutover). Stop the NFS
 # server (or the host) while a guest still has those mounts and you get hung
 # I/O on the client and a Postgres that never checkpoints — the "database
 # system was not properly shut down; automatic recovery in progress" path.

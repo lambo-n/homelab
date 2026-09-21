@@ -271,10 +271,10 @@ defect cannot take the whole mirror. **Replace a failed SK hynix with a
 different vendor**, not with one of the spares below.
 
 Almost all of the 66.23 GiB used is the PGDATA zvol's 66.0 GiB `refreservation`
-(`archive/STORAGE.md:8`). The actual NFS payload — `minio-data`, `postgres-data` — is
+(`archive/STORAGE.md:8`). The actual NFS payload — `minio-data` — is
 small enough to disappear into the rounding.
 
-Under sanoid: `minio-data`, `postgres-data`, `vm-104-disk-0` — 24 hourly / 30
+Under sanoid: `minio-data`, `vm-104-disk-0` — 24 hourly / 30
 daily / 6 monthly (`SANOID.md`).
 
 > ⚠️ Holds `k3s-worker2`'s PGDATA zvol (`zd0`). Any pool work needs that VM
