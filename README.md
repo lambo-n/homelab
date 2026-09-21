@@ -60,10 +60,10 @@ tunnel — there is no port forwarding and no inbound firewall rule anywhere.
 > 2026-09-02. MinIO and PostgreSQL were kept for the successor Worker and
 > everything was rebranded `bingo` → `sunfire`. That Worker is live.
 >
-> ⚠️ Several standing decisions here — no off-site backup, one shared Access
-> service token — were sized for the gap between apps, when nothing stored here
-> had value. That premise no longer holds. Both are flagged for re-decision in
-> [`GITOPS.md`](GITOPS.md) and [`BACKLOG.md`](BACKLOG.md).
+> ⚠️ Some standing decisions were sized for the gap between apps, when nothing
+> stored here had value. **Off-site backup has since been re-decided**: a monthly
+> restic copy to Backblaze B2, live and restore-tested since 2026-09-21. The one
+> shared Access service token is still as it was; see [`GITOPS.md`](GITOPS.md).
 
 ---
 
@@ -163,8 +163,8 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 | Guide media (MinIO) | `archive-pool` | NFS PV, 1 TiB nominal, `Retain` |
 | PGDATA (CloudNativePG) | `archive-pool` | a 64 GiB **zvol** attached to `k3s-worker2` as a block device, ext4, mounted at `/var/lib/rancher/k3s/storage` |
 | Postgres backups | `archive-pool` | into MinIO, which is itself on the pool |
+| **Off-site copy** | **Backblaze B2** | monthly restic snapshot of the database (`pg_dump`) and guide media, client-side encrypted. The only copy that survives losing the host |
 | Prometheus TSDB | `k3s-worker1` root disk | `local-path`, capped by `retentionSize` |
-| Legacy Postgres data | `archive-pool` | NFS PV, 100 GiB, `Retain`, no longer read |
 | LLM model weights | `llm-pool` (single disk, `sde`) | 1400 GiB zvol attached to VM 105 as `/models` (ext4, `largefile4`). **No redundancy, no snapshots** — weights are re-downloadable |
 | Tailscale SSH recordings | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
 | Personal storage / media | `sas-pool` | `/sas-pool/data`, native host RAIDZ1 under sanoid, exported via Samba (`[data]`) |
@@ -314,6 +314,13 @@ takes a daily base backup into MinIO. Proven by a restore drill, not by the
 backups reporting success.
 → `kubernetes/apps/cnpg-system/plugin-barman-cloud/`
 
+**offsite-backup** — restic `0.19.1` in a CronJob: a monthly, encrypted copy of
+the `sunfire` database (`pg_dump`) and every guide image to **Backblaze B2**. It
+checks every 6 hours and only runs once the newest snapshot is 30+ days old, so
+a powered-off cluster delays a month rather than skipping it. Restore-tested,
+not assumed. The restic password is in LastPass as well as SOPS.
+→ `kubernetes/apps/sunfire/offsite-backup/`, [`runbooks/OFFSITE-RESTORE.md`](runbooks/OFFSITE-RESTORE.md)
+
 **PostgREST** `v16.2` — turns the database into a REST API so the Worker needs no
 Postgres driver. Reads `postgres-cnpg-rw`. Authenticates callers with a JWT whose
 signing key is the one secret shared with Cloudflare.
@@ -384,7 +391,8 @@ unreachable. The guest is outside the cluster; only the scraping lives here.
 **sanoid** — ZFS snapshots on the Proxmox host: 24 hourly, 30 daily, 6 monthly
 across `minio-data` and the PGDATA zvol. This is the second,
 independent backup layer; barman covers the database logically, sanoid covers the
-volumes underneath it. Rollback was drilled, not assumed.
+volumes underneath it. Rollback was drilled, not assumed. Both stay on this host;
+the B2 copy above is the only off-site one.
 → [`SANOID.md`](SANOID.md), and host config on `.101`
 
 **mise** — pins the entire toolchain (`kubectl`, `flux`, `helm`, `sops`, `age`,
@@ -428,11 +436,12 @@ kubernetes/apps/
   │     ├── voice-db/       CNPG Cluster — Home Assistant's recorder
   │     └── home-assistant/ Deployment, Service, config PVC
   └── sunfire/            a workload namespace — one directory per workload
-        ├── storage/       NFS PV + PVC          (prune permanently disabled)
+        ├── storage/       MinIO's NFS PV + PVC  (prune permanently disabled)
         ├── minio/         S3 object storage     → minio-api.sunosrs.cc
         ├── postgres/      legacy credential only (Deployment retired 2026-09-04)
         ├── postgres-cnpg/ CNPG Cluster + ObjectStore + ScheduledBackup
         ├── postgrest/     REST over Postgres    → db.sunosrs.cc
+        ├── offsite-backup/ monthly restic → Backblaze B2
         ├── infisical/     InfisicalSecret CR
         └── cloudflared/   tunnel; routing in configmap.yaml
 .github/workflows/        renovate.yaml (dependency PRs) + validate-manifests.yaml (kustomize build + helm template)
@@ -453,6 +462,7 @@ Ordering is expressed with `dependsOn`:
 storage ─┬─ minio ────────────────────┬─ cloudflared
          └─ postgres ── postgrest ────┘
                      └─ postgres-cnpg ─┬─ (also minio, plugin-barman-cloud)
+                                       └─ offsite-backup (also minio)
 cert-manager ──────┬─ plugin-barman-cloud
 cloudnative-pg ────┘
 
@@ -542,6 +552,10 @@ it would die with the VM it is stored on, which is precisely the disaster being
 insured against. Without this key every secret here is unreadable, and **it must
 never be `cat`-ed**, including to display it for backup.
 
+**The restic password is in LastPass too**, for the same reason: it is the only
+key to the off-site B2 copy, and its SOPS copy is on the host that copy exists
+to survive.
+
 ---
 
 ## Where the details live
@@ -556,7 +570,7 @@ never be `cat`-ed**, including to display it for backup.
 | [`SANOID.md`](SANOID.md) | ZFS snapshot policy — which datasets, on what schedule |
 | [`SAS-STORAGE.md`](SAS-STORAGE.md) | `sas-pool` — architecture, snapshots, Samba access |
 | [`HOST-MONITORING.md`](HOST-MONITORING.md) | SMART tests, scrubs and host metrics — what's live and what's still open |
-| [`runbooks/`](runbooks/) | Repeatable procedures — the CNPG restore drill, the snapshot rollback drill |
+| [`runbooks/`](runbooks/) | Repeatable procedures — the CNPG restore drill, the off-site (B2) restore drill, the snapshot rollback drill |
 | [`archive/`](archive/) | Completed one-time runbooks and superseded designs, kept for history |
 | `tofu/README.md` | The OpenTofu root module, its tokens, and the import history |
 | `AGENTS.md` | Orientation for AI assistants working in this tree |

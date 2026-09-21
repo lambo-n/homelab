@@ -631,15 +631,11 @@ is decommissioned (2026-09-02)**; there is no shared budget and no bingo-era gal
 protect. MinIO's two buckets today are `sunfire-guide-media` and
 `sunfire-postgres-backups`, both created after that decision.
 
-**The condition for revisiting this has now been met.** The standing reason to skip off-site backup
-was that no successor app existed, so nothing here had value worth protecting beyond the host. The
-successor Worker is live on `sunosrs.cc` and writing to both the bucket and the database, so that
-premise is spent. The decision should now be made on what that data is actually worth — the one
-thing it must not be is inherited from the bingo-era constraint, or from the gap between apps.
-
-Until it is made, the honest statement is that guide media and the database exist **only on `.101`**:
-sanoid snapshots and barman backups both land on pools in the same chassis. That is a deliberate
-accepted risk, not coverage.
+**Revisited and resolved 2026-09-21.** The standing reason to skip off-site backup was that no
+successor app existed. Once the Worker went live on `sunosrs.cc`, that premise was spent. The
+decision was remade on the data's value: a **monthly restic copy to Backblaze B2**, not R2 (see
+*Off-site backup* below). Local backups (sanoid, barman) still all land in the same chassis. The
+B2 copy is the only one that survives losing `.101`, and it trails by up to a month.
 
 ZFS redundancy + SMART already solve **drive failure**. They do not solve accidental deletion,
 a bad Flux prune, or logical corruption — RAIDZ replicates a `DELETE` to every disk instantly and
@@ -651,11 +647,12 @@ arrives, but it's covered locally:
   / 6 monthly. **Set this up when the pool is recreated** — a fresh pool is the natural moment, and
   snapshots cover the accidental-delete case that ZFS redundancy does not.
 - **CNPG → MinIO**, not R2. `endpointURL: http://minio.sunfire.svc.cluster.local:9000`, with ZFS
-  snapshotting the dataset underneath. One-line change if offsite is ever wanted.
+  snapshotting the dataset underneath. Barman stays local: it is the point-in-time path. The
+  off-site copy is a separate, portable `pg_dump`, so a restore after host loss needs no barman.
 
-Accepted residual risk: host loss (PSU/HBA, pool corruption, fire/theft). Data is classified
-non-essential archival; this is a deliberate decision, not an oversight. Cheap future options if
-that changes: `zfs send` to an external USB drive rotated quarterly, or `syncoid` over Tailscale.
+Residual risk after 2026-09-21: host loss costs **up to a month** of changes (the B2 snapshot
+cadence), plus everything that is not in that copy: barman's history, sanoid snapshots, Home
+Assistant, Prometheus. Those were judged not worth off-siting.
 
 > **VolSync is deferred, not scheduled** *(2026-09-03)*. The line item read
 > "VolSync for the MinIO PVC (only non-DB stateful volume)" and never said where
@@ -683,6 +680,11 @@ that changes: `zfs send` to an external USB drive rotated quarterly, or `syncoid
 > the live Worker has now put back on the table. Deferring VolSync and deferring
 > off-site backup are one decision, not two: pick the destination first, and
 > VolSync either becomes the mechanism or stays unnecessary.
+>
+> **Resolved 2026-09-21: it stays unnecessary.** The destination is B2, and the
+> mechanism is a plain restic CronJob (below). It mirrors MinIO through the S3
+> API rather than reading its data directory, so the live-directory problem
+> above does not arise, and there is no VolSync operator to run.
 > `archive-pool/minio-data` gets sanoid, and after the CNPG cutover it holds the
 > Postgres backups too — that is the dataset that matters, and `SANOID.md`
 > already says so.
@@ -721,7 +723,9 @@ backup exists to survive.
 grows forever. It is the same trap as versioning on the barman bucket
 (`scripts/minio-barman-account.sh`).
 
-**Restore**, from any machine with restic and the password:
+**Restore**: the standing drill and the host-gone procedure are in
+[`runbooks/OFFSITE-RESTORE.md`](runbooks/OFFSITE-RESTORE.md). In short, from any machine with
+restic and the password:
 
 ```bash
 export RESTIC_REPOSITORY='s3:https://<endpoint>/<bucket>/sunfire'

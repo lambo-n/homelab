@@ -23,7 +23,7 @@ instantly and the pool still scrubs clean.
 | Postgres logical corruption, PITR | **CNPG + barman-cloud**, not this |
 | Fast rollback of the PGDATA volume | **sanoid** — via the zvol |
 | Loss of a k3s VM | neither — `vzdump`, or an OpenTofu rebuild |
-| Loss of `.101` | nothing. Accepted residual risk |
+| Loss of `.101` | **monthly restic copy on Backblaze B2**: database and guide media only, up to a month old ([`runbooks/OFFSITE-RESTORE.md`](runbooks/OFFSITE-RESTORE.md)) |
 
 Two traps worth stating plainly:
 

@@ -90,7 +90,8 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    "SOPS + age" and "Infisical"):
    - **SOPS + age**, in this repo, for **cluster-only** secrets (MinIO root,
      `POSTGRES_PASSWORD`, `PGRST_DB_URI`, cloudflared tunnel credentials, the
-     LLM API key, ESPHome Wi-Fi secrets). Keeps cold boot self-contained — this
+     LLM API key, ESPHome Wi-Fi secrets, the off-site backup's B2 key and restic
+     password). Keeps cold boot self-contained — this
      cluster is frequently powered off.
    - **Infisical** as system of record for **cross-boundary** secrets that must
      stay byte-identical between the cluster and the Cloudflare Worker's
