@@ -9,3 +9,4 @@ resources:
   - postgres-cnpg/ks.yaml
   - postgrest/ks.yaml
   - cloudflared/ks.yaml
+  - offsite-backup/ks.yaml

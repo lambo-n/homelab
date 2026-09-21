@@ -59,7 +59,7 @@ not open:
 |---|---|
 | Flux/Crossplane/tofu-controller for Proxmox | Circular dependency on a single host. Also dissolves a real boundary: the shim needs a Proxmox API token with `VM.Allocate` stored in-cluster, so cluster compromise would become hypervisor compromise — today the cluster cannot touch `.101` at all. **Revisit if** a second Proxmox node appears, *or* if a separate management cluster exists (k3s in an LXC on the host) so the reconciler no longer sits on its own substrate |
 | Flux image automation controllers | Renovate is a strict superset; they'd conflict |
-| R2 for backups | Original reason (shared 10 GB free tier) is void — bingo decommissioned. **Due a re-decision:** the rejection rested on no successor app existing, and the Worker is now live on `sunosrs.cc`. See *R2 rejected* under CloudNativePG |
+| R2 for backups | Still rejected, for a different reason: the owner chose not to keep backups on Cloudflare. Off-site went to **Backblaze B2** instead (2026-09-21). See *Off-site backup* under CloudNativePG |
 | CNPG `instances: 3` | False redundancy on one hypervisor |
 | Cilium BGP / Multus | No network gear to peer with |
 | `actions-runner-controller` | Another circular dependency on a single host |
@@ -686,6 +686,58 @@ that changes: `zfs send` to an external USB drive rotated quarterly, or `syncoid
 > `archive-pool/minio-data` gets sanoid, and after the CNPG cutover it holds the
 > Postgres backups too — that is the dataset that matters, and `SANOID.md`
 > already says so.
+
+### Off-site backup: restic → Backblaze B2 *(decided 2026-09-21)*
+
+**Decided:** a **monthly** copy of the database and the guide media, to
+**Backblaze B2** with **restic**. Cloudflare was ruled out by the owner.
+Monthly means host loss costs up to a month of changes, which was accepted
+because the data changes rarely. Sizes on 2026-09-21: guide media 85 MiB, one
+compressed base backup ~4 MiB, the live database 30 MB.
+
+**Mechanism:** the `offsite-backup` CronJob in
+`kubernetes/apps/sunfire/offsite-backup/`. It runs **every 6 hours** and does
+real work only when the newest `monthly` snapshot in the B2 repository is 30+
+days old. A job pinned to the 1st would silently skip any month the cluster
+was powered off that day. The repository is the only record of the last run,
+so rebuilding the cluster cannot reset the clock.
+
+| | |
+|---|---|
+| Database | `pg_dump -Fc` of `sunfire` as its owner (`postgres-cnpg-app`). Portable: restores with plain `pg_restore`, with no barman and no MinIO. Roles are **not** included; they are in `cluster.yaml` (`managed.roles`) and `0002_grants.sql` |
+| Media | `mc mirror` of `sunfire-guide-media` to plain files, using a **read-only** MinIO account (`scripts/minio-offsite-policy.json`) |
+| Repository | `s3:https://<endpoint>/<bucket>/sunfire`, client-side encrypted by restic |
+| Retention | `forget --keep-monthly 12 --prune`, then `restic check` on every real run |
+| Secret | `offsite-backup`, SOPS: cluster-only, so not Infisical (AGENTS.md rule 7). Written by `scripts/offsite-backup-secret.sh`, which you run yourself |
+| Not included | the barman bucket (local point-in-time recovery stays on MinIO), sanoid snapshots, Home Assistant |
+
+⚠️ **The restic password is the single point of failure.** Without it, the B2
+copy cannot be decrypted by anyone. It lives in the SOPS secret **and in
+LastPass**. The second copy matters because the first is on the host this
+backup exists to survive.
+
+⚠️ **B2 buckets keep every version by default.** Set the bucket's lifecycle to
+"Keep only the last version", or `restic prune` deletes nothing and the bucket
+grows forever. It is the same trap as versioning on the barman bucket
+(`scripts/minio-barman-account.sh`).
+
+**Restore**, from any machine with restic and the password:
+
+```bash
+export RESTIC_REPOSITORY='s3:https://<endpoint>/<bucket>/sunfire'
+export AWS_ACCESS_KEY_ID=<b2 key id>
+read -rs AWS_SECRET_ACCESS_KEY; export AWS_SECRET_ACCESS_KEY
+read -rs RESTIC_PASSWORD; export RESTIC_PASSWORD
+restic snapshots --tag monthly
+restic restore latest --tag monthly --target ./restore
+# ./restore/work/data/postgres/sunfire.dump  -> pg_restore -d sunfire
+# ./restore/work/data/media/                 -> mc mirror back into the bucket
+```
+
+**Force a run** (e.g. to test) with
+`kubectl -n sunfire create job --from=cronjob/offsite-backup offsite-manual`.
+It still skips if a snapshot is under 30 days old. To force past that, lower
+`MAX_AGE_DAYS` temporarily.
 
 ---
 
