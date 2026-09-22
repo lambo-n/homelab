@@ -1,0 +1,40 @@
+#!/bin/bash
+# Behaviourally check whether whisper-server is transcribing on the GPU (SYCL)
+# or has silently fallen back to CPU, and write the result to node_exporter's
+# textfile collector. Run by whisper-metrics.timer. GPU-VM.md Observability,
+# VOICE.md V1f.
+#
+# Why timed inference, not a log grep: whisper-server logs its device once at
+# startup ("journalctl -u whisper-server -b" in VOICE.md) and stays silent
+# after that, so a later SYCL failure wouldn't show there again. jfk.wav took
+# ~0.21 s warm on SYCL and ~1.8 s on CPU (VOICE.md V1f, 2026-09-17), so warm
+# request latency is a reliable, live signal -- the same sample whisper-server
+# itself warms up on before serving (ExecStartPost).
+set -uo pipefail
+
+DIR=/var/lib/prometheus/node-exporter
+OUT="$DIR/whisper.prom"
+W=/models/src/whisper.cpp/samples/jfk.wav
+THRESHOLD=1.0
+
+tmp=$(mktemp "$DIR/.whisper.prom.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+{
+  start=$(date +%s.%N)
+  if curl -fsS -m 10 -F file=@"$W" http://127.0.0.1:8910/inference \
+      > /dev/null 2>&1; then
+    end=$(date +%s.%N)
+    dur=$(awk -v a="$start" -v b="$end" 'BEGIN{printf "%.3f", b-a}')
+    echo "whisper_up 1"
+    echo "whisper_inference_seconds $dur"
+    sycl=$(awk -v d="$dur" -v t="$THRESHOLD" 'BEGIN{print (d < t) ? 1 : 0}')
+    echo "whisper_sycl_loaded $sycl"
+  else
+    echo "whisper_up 0"
+  fi
+} > "$tmp"
+
+chmod 644 "$tmp"
+mv "$tmp" "$OUT"
+trap - EXIT

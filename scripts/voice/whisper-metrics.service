@@ -1,0 +1,9 @@
+# Install: GPU-VM.md Observability, VOICE.md V1f. Triggered by
+# whisper-metrics.timer.
+[Unit]
+Description=Write whisper-server GPU/CPU status to the node_exporter textfile collector
+After=whisper-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/whisper-metrics

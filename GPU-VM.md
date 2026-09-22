@@ -113,13 +113,21 @@ twice. Port 9100
 ### Observability
 
 `prometheus-node-exporter` on the guest (GPU temps/power via its hwmon
-collector) plus `scripts/llm/llama-metrics` (a `.timer`-driven collector
-polling `llama-fast` and any *loaded* router preset for tokens/sec, requests,
-and cache-reuse — the router isn't scraped directly, since `/metrics?model=`
-400s on an unloaded preset). Scraped by the cluster's Prometheus via
-`kubernetes/apps/observability/llm-vm/`; dashboard `LLM VM — Arc Pro B70`
-(`uid llm-vm-gpu`) in Grafana. `PrometheusRule llm-vm` alerts on GPU temp > 90°C
-and the VM being unreachable.
+collector) plus two `.timer`-driven textfile collectors:
+
+- `scripts/llm/llama-metrics` polls `llama-fast` and any *loaded* router
+  preset every 15 s for tokens/sec, requests and cache-reuse — the router
+  isn't scraped directly, since `/metrics?model=` 400s on an unloaded preset.
+- `scripts/voice/whisper-metrics` times a warm `jfk.wav` transcription against
+  `whisper-server` every 30 s and classifies it GPU (SYCL, <1 s) or CPU
+  fallback (≥1 s). whisper.cpp's server has no `/metrics` endpoint and logs
+  its device only once at startup, so this is the live check for a silent
+  fallback afterward — see [`VOICE.md`](VOICE.md) → *V1f*.
+
+Both write to node_exporter's textfile collector, scraped by the cluster's
+Prometheus via `kubernetes/apps/observability/llm-vm/`; dashboard `LLM VM —
+Arc Pro B70` (`uid llm-vm-gpu`) in Grafana. `PrometheusRule llm-vm` alerts on
+GPU temp > 90°C and the VM being unreachable.
 
 ---
 

@@ -101,6 +101,13 @@ request). With `qwen27` (cut to 65,536 context — see [`GPU-VM.md`](GPU-VM.md))
 leaving ~5.3 GiB free at idle. A 60K-token `qwen27` request ran clean
 concurrently with a transcription loop (300/300 correct).
 
+**Is it actually on the GPU?** whisper.cpp's server has no `/metrics` and logs
+its device only once at startup, so a silent fallback to CPU afterward is
+otherwise invisible. The Grafana dashboard's *Device* panel (`LLM VM — Arc Pro
+B70`) answers this live: green "GPU (SYCL)" or red "CPU FALLBACK", from timing
+a warm `jfk.wav` transcription every 30 s — see [`GPU-VM.md`](GPU-VM.md) →
+*Observability*.
+
 **Firewall:** ports 10200/10300 open only to the three k3s node IPs
 (`192.168.50.104–106`); `whisper-server` itself binds loopback and is not
 reachable off the VM at all.
@@ -542,8 +549,9 @@ hard-negative false accepts climb.
 - [x] V3e — memory baseline: idle 216,164 B, conversation trough 206,956 B
 - [x] V0 — audio wiring corrected to Waveshare's official examples (ES7210 +
       ES8311, shared I2S bus, GPIO15 amp enable)
-- [ ] V1f leftover — `chat` and `qwen27-agent` load once with `whisper-server`
-      running (rare-use presets, not yet checked)
+- [x] V1f leftover — `chat` and `qwen27-agent` hold up beside `whisper-server`:
+      no allocation failures, whisper transcription unaffected — full log in
+      [`archive/VOICE-BUILD-V1.md`](archive/VOICE-BUILD-V1.md)
 - [x] V4 — conversation agent wired to `llama-fast`, tuned, pipeline-tested
       without hardware — full log in
       [`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md)

@@ -192,9 +192,21 @@ sudo ufw status numbered | grep -E "10200|10300"
   probably because the kernels were still cached from test C; the warm-up
   covers the cold case either way.
 
-**Not yet checked at archive time:** `chat` and `qwen27-agent` loading once
-with `whisper-server` running (both are rare-use presets) — tracked in
-[`../BACKLOG.md`](../BACKLOG.md).
+**`chat` and `qwen27-agent` checked, 2026-09-22** (V1f leftover): both hold up
+beside `whisper-server`.
+
+- **`chat`** (262,144 ctx, beside `fast`): loaded to 30,437 / 32,656 MiB at
+  peak (~2.2 GiB free). A 69,260-token request (`GPU-VM-BUILD.md` +
+  `GITOPS.md`) answered correctly at 458.6 tok/s prompt / 26.9 tok/s
+  generation, no allocation failure. The concurrent whisper loop was
+  158/158 correct.
+- **`qwen27-agent`** (~195,072 ctx, alone — `sudo llm-mode agent` stops
+  `fast`): loaded to 31,666 / 32,656 MiB at peak (~990 MiB free, the
+  tightest of the three presets since nothing else yields VRAM). The same
+  69,302-token request answered correctly at 463.7 tok/s prompt / 6.5 tok/s
+  generation, no allocation failure. The whisper loop was 72/72 correct.
+  `sudo llm-mode normal` afterward restored `fast` and idle router state
+  cleanly.
 
 ## V1g. Install the 65,536 `qwen27` preset
 
