@@ -56,14 +56,11 @@ custom "Hey Doofus" wake word. See [`VOICE.md`](VOICE.md).
 
 From [`HARDWARE.md`](HARDWARE.md) → "Still unknown":
 
-- [ ] SMART baseline on the SATA disks — the 3 `archive-pool` members, the
-      `llm-pool` disk, the `sdf` cold spare and the BOSS virtual disk. All 3 SAS
-      disks are already done. G1 schedules long *tests* on four of them, but the
-      baseline attribute read has never been recorded, and the `archive-pool`
-      trio have degraded SMART support (no health bit) so the attributes are the
-      only signal there. Address by `by-id`, not `sdX`.
-- [ ] BOSS-S2 boot mirror health — invisible to every monitor in this repo; a
-      failed M.2 surfaces only in iDRAC or the BOSS CLI.
+- [ ] BOSS-S2 boot mirror health — invisible to every monitor in this repo
+      (verified: no Prometheus series exists for `sda` past its own pass/fail
+      bit — see `HARDWARE.md` → *SATA SMART baseline*). A failed M.2 surfaces
+      only in iDRAC or the BOSS CLI, neither reachable from the dev VM — the
+      owner's to check.
 - [ ] Total front-bay count and how many are physically empty — decides whether
       expansion needs a new chassis or just more disks.
 
