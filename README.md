@@ -378,9 +378,10 @@ deliberately.
 Flux alert rules, and Flux's own Grafana dashboards committed as JSON.
 → `kubernetes/apps/observability/flux-monitoring/`
 
-**llm-vm** — a `ScrapeConfig` for VM 105's node-exporter and llama.cpp metrics
-collector, its dashboard, and alerts on GPU temperature and the VM being
-unreachable. The guest is outside the cluster; only the scraping lives here.
+**llm-vm** — a `ScrapeConfig` for VM 105's node-exporter, carrying its
+llama.cpp and whisper.cpp metrics collectors, its dashboard, and alerts on GPU
+temperature and the VM being unreachable. The guest is outside the cluster;
+only the scraping lives here.
 → `kubernetes/apps/observability/llm-vm/`
 
 **host-monitoring** — `ScrapeConfig`s for the Proxmox host's node-exporter and

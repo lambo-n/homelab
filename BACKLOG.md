@@ -44,9 +44,6 @@ custom "Hey Doofus" wake word. See [`VOICE.md`](VOICE.md).
       missed the correct phrase. If false wakes appear, go back to 0.95. If misses
       persist, retrain with the owner's own recordings as positives rather than
       dropping far below 0.90. See [`VOICE.md`](VOICE.md) → *Wiring it in*.
-- [ ] **V1f leftover** — load `chat` and `qwen27-agent` once each with
-      `whisper-server` running; both are rare-use presets and weren't checked
-      when VRAM headroom was measured.
 - [ ] **Re-enable Home Assistant device control (Assist)** for the
       conversation agent once real entities exist — off today because the 4B
       model burns through HA's tool-iteration cap calling `GetLiveContext`

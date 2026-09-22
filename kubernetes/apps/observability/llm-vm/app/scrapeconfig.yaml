@@ -1,6 +1,6 @@
 ---
 # VM 105 `llm` (192.168.50.107) lives outside the cluster, so it is scraped by
-# static target, not discovered. See GPU-VM.md F6b.
+# static target, not discovered. See GPU-VM.md → Observability.
 #
 # The guest's ufw admits :9100 from the three k3s nodes
 # (192.168.50.104-106). Pod egress to the LAN is masqueraded to the node's
@@ -16,11 +16,14 @@ spec:
   # power: the host has the card on vfio-pci and cannot read them, and iDRAC
   # does not see third-party GPUs (GPU-VM.md F4).
   #
-  # It also carries llama-server metrics for EVERY model, labelled model="…":
-  # llama-metrics.timer on llm writes them to node_exporter's textfile collector
-  # every 15 s (scripts/llm/llama-metrics). That replaced a direct llm-fast scrape
-  # of :8081, because the router's per-preset /metrics would have left each
-  # unloaded preset as a permanently down target.
+  # It also carries two textfile collectors' output, both on llm:
+  # - llama-metrics.timer (scripts/llm/llama-metrics), every 15 s: llama-server
+  #   metrics for EVERY model, labelled model="…". Replaced a direct llama-fast
+  #   scrape of :8081, because the router's per-preset /metrics would have left
+  #   each unloaded preset as a permanently down target.
+  # - whisper-metrics.timer (scripts/voice/whisper-metrics), every 30 s:
+  #   whisper_up/whisper_sycl_loaded/whisper_inference_seconds, since
+  #   whisper.cpp's server has no /metrics of its own.
   staticConfigs:
     - targets: ["192.168.50.107:9100"]
       labels:
