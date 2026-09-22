@@ -92,7 +92,7 @@ spec:
               volumeMounts:
                 - { name: work, mountPath: /work }
             - name: pg-dump
-              image: docker.io/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+              image: docker.io/library/postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
               command: ["/bin/sh", "-c"]
               args:
                 - |
