@@ -39,7 +39,7 @@ This file is the one place that records the metal.
 | Filled in | 2026-09-09, host console |
 | Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU, Intel Arc Pro B70 (2026-09-15) |
 | Free bays / unused devices | **1 × 1.92 TB SATA SSD, unallocated** (`sdf`); `sde` became `llm-pool` 2026-09-16 |
-| Still unknown | SMART on the 6 SATA disks; BOSS mirror health; empty bay count |
+| Still unknown | BOSS mirror health; empty bay count |
 | ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
 
 ---
@@ -317,6 +317,67 @@ for `archive-pool` if one of the mirror's disks fails.
 
 ---
 
+## SATA SMART baseline, read 2026-09-22 — every one clean
+
+Read from the cluster's Prometheus (`smartctl_exporter`, via
+[`HOST-MONITORING.md`](HOST-MONITORING.md) G4), not the host console — the
+host's API-server route doesn't carry SMART (see the ⚠️ at the top of this
+file), but the exporter's scrape does.
+
+> ⚠️ **Kernel names had already shifted again.** The `archive-pool` member at
+> `by-id` `…ADB5N4365I1505855` (`sdg` in the table above, 2026-09-09) answered
+> as `sdd` on 2026-09-22 — a live instance of the warning under *The three SAS
+> SSDs*. The table below is keyed by serial suffix, not `sdX`.
+
+| | archive-pool `…584Z` | archive-pool `…58D4` | archive-pool `…5855` | llm-pool `…584Y` | cold spare `…5850` |
+|---|---|---|---|---|---|
+| Model | HFS1T9G3H2X069N | MTFDDAK1T9TDT | HFS1T9G3H2X069N | HFS1T9G3H2X069N | HFS1T9G3H2X069N |
+| SMART status | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS | ✅ PASS |
+| Reallocated_Sector_Ct | ✅ 0 | ✅ 0 | ✅ 0 | ✅ 0 | ✅ 0 |
+| Offline_Uncorrectable | ✅ 0 | ✅ 0 | ✅ 0 | ✅ 0 | ✅ 0 |
+| UDMA_CRC_Error_Count | ✅ 0 | ✅ 0 | ✅ 0 | ✅ 0 | ✅ 0 |
+| Media_Wearout_Indicator (normalized) | 100 | 100 | 100 | 100 | 100 |
+| Power-on hours | 2,132 (88.8 d) | 2,131 (88.8 d) | 2,132 (88.8 d) | 2,132 (88.8 d) | 2,132 (88.8 d) |
+| Power cycles | 37 | 36 | 38 | 37 | 37 |
+| Temperature | 40 °C | 33 °C | 41 °C | 39 °C | 40 °C |
+
+**All five clean:** no reallocated sectors, no offline-uncorrectable sectors,
+no CRC errors, full media life remaining. Power-on hours sit within an hour of
+each other across all five (2,131–2,132h, ~88.8 days) — they've been powered
+together since they were installed, the same matched-power-on pattern as the
+SAS trio.
+
+⚠️ **The `archive-pool` trio's SMART status bit isn't a self-assessment.**
+These SK hynix units don't return the classic ATA SMART RETURN STATUS, so
+`smartctl` synthesizes `PASS` from the attribute thresholds instead — which is
+why the attribute row above, not the status row, is the real signal for those
+three (`BACKLOG.md`'s "no health bit" note).
+
+One attribute needs the console to read precisely: the Micron disk (`…58D4`)
+reports `Command_Timeout` (attribute 188) raw `109`. Micron packs several
+sub-counts into that field; the exporter surfaces only the flat decimal. Not a
+red flag at this magnitude — decode it with `smartctl -x` at the console if it
+keeps climbing.
+
+**The BOSS virtual disk (`sda`) carries none of this.** `smartctl_device{}`
+and `smartctl_device_smart_status{device="sda"}` exist (status reads PASS),
+but `smartctl_device_attribute` and `smartctl_device_temperature` return
+**zero series** for `sda` — the exporter has nothing to read past the virtual
+disk's own pass/fail bit, which reflects the RAID1 as a whole, not either M.2
+member. This confirms the ⚠️ under *`sda` / `local-lvm`*: **the mirror's own
+health — degraded, one M.2 dead, both fine — isn't visible anywhere in this
+repo's monitoring.** See *Still unknown* for what would actually answer that.
+
+### Checking it
+
+Grafana dashboard `Proxmox host — pools, drives, thin pool` (`uid host-pve`)
+→ row *Drives (SMART)*: panels **SMART health** (`smartctl_device_smart_status`,
+green = pass), **Temperature**, and **Media errors** (attributes 5/197/198,
+all should read `0`). `PrometheusRule` `HostDriveSmartFailed` and
+`HostDriveHot` alert on the first two.
+
+---
+
 ## The three SAS SSDs — `sas-pool`, 10.47 TiB raw
 
 Three Samsung PM1633a 3.84 TB SAS SSDs, the largest block of capacity in the
@@ -438,9 +499,9 @@ explicitly rather than trusting autodetection on a 512e drive.
 
 ## Still unknown
 
-Tracked in [`BACKLOG.md`](BACKLOG.md) → "Hardware — still unknown": SMART
-baseline on the 6 SATA disks, BOSS-S2 mirror health, and total bay/empty-bay
-count.
+Tracked in [`BACKLOG.md`](BACKLOG.md) → "Hardware — still unknown": BOSS-S2
+mirror health, and total bay/empty-bay count. The SATA SMART baseline is
+above.
 
 ---
 
