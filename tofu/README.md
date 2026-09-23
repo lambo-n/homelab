@@ -202,9 +202,11 @@ edge's serving config.
 
 **Done 2026-09-04 — all five guests, clean plan.** It took two passes: the LXC
 imported under `PVEAuditor`, the four VMs needed one extra privilege, granted
-briefly and revoked. `192.168.50.101` accepts no key from this VM
-(`Permission denied (publickey)`), so the token and the `pveum` commands come
-from someone with a console or a password there — everything after that is API.
+briefly and revoked. The `pveum` commands below can be run over SSH from the
+dev VM (`ssh pve-hostconfig`, the key added for the Ansible host-config layer
+— `../ansible/README.md`) as well as from a console or password login there;
+either way, everything after `pveum user token add` is API only, and the token
+itself is a separate credential from that key.
 
 | Guest | Kind | State |
 |---|---|---|

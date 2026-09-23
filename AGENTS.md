@@ -77,9 +77,14 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    `psql` in the CNPG pod and `mc` in the MinIO pod. Earlier docs said this
    environment's tooling refused it. That stopped being true, and the owner
    confirmed on 2026-09-21 that exec is expected. Two limits remain:
-   - **The Proxmox host accepts no SSH key from the dev VM.** Every `zfs`,
-     `qm`, `pveum` and sanoid command is the owner's to run. Give them the
-     command; do not work around it.
+   - **The Proxmox host accepts one SSH key from the dev VM**,
+     `id_ed25519_pve-hostconfig` (root, restricted to `.103` by `from=`),
+     added for the Ansible host-config layer (`ansible/`, `SANOID.md`). It is
+     unrestricted root once connected, but its purpose is that layer's own
+     playbooks and read-only checks — `zfs`, `qm` and `pveum` administration
+     stay the owner's to run by hand. The key existing doesn't make those
+     commands something to automate ad hoc; give the owner the command
+     instead.
    - **New credentials come from owner-run scripts** (`scripts/minio-*-account.sh`,
      `scripts/offsite-backup-secret.sh`), which generate them in the pod or at a
      silent prompt and pipe them straight into `sops`, so they never appear in

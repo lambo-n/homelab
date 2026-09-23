@@ -1,0 +1,24 @@
+---
+# Mirrors archive/SANOID-SETUP.md's original hand-run install, made
+# idempotent. sanoid.timer fires every 15 minutes and decides internally
+# what's due -- there is no separate prune timer to manage.
+
+- name: Install sanoid
+  ansible.builtin.apt:
+    name: sanoid
+    state: present
+    update_cache: true
+
+- name: Render /etc/sanoid/sanoid.conf
+  ansible.builtin.template:
+    src: sanoid.conf.j2
+    dest: /etc/sanoid/sanoid.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable and start sanoid.timer
+  ansible.builtin.systemd:
+    name: sanoid.timer
+    enabled: true
+    state: started

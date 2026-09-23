@@ -1231,8 +1231,10 @@ whether the route itself is up.
 the laptop, so hardware enumeration for [`HARDWARE.md`](HARDWARE.md) does not
 need the dev VM.
 
-**What this does not cover.** `.101` accepts no SSH key from the dev VM or from
-a laptop (`tofu/README.md:200`), and the dev VM has no route to the *pool* —
+**What this does not cover.** `.101` accepts no SSH key from a laptop — only
+one dedicated key from the dev VM, scoped to the Ansible host-config layer
+(`ansible/README.md`; the Proxmox API token path is separate, see
+`tofu/README.md` → *Proxmox*) — and the dev VM has no route to the *pool* —
 NFS `2049`/`111` are not reachable from it (`variables.tf`). Those facts don't
 depend on the tailnet.
 
@@ -1487,8 +1489,8 @@ Renovate has a first-class `mise` manager (updates the *first* listed version pe
 > **Three steps are yours, not the assistant's** *(was two; the disk grow is
 > new)*. `kubectl exec` against a pod is
 > refused by this environment's tooling *(true when written; no longer true
-> since at least 2026-09-21: see AGENTS.md rule 3)*, and `.101` has no SSH key
-> for the dev VM. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
+> since at least 2026-09-21: see AGENTS.md rule 3)*, and `.101` had no SSH key
+> for the dev VM either *(no longer true; scoped now to the Ansible host-config layer — see AGENTS.md rule 3)* <!-- doc-history:ignore -->. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
 > service account scoped to it, and writes the credential into the repo already
 > SOPS-encrypted — the keys are generated in the pod, piped into `sops`, and
 > never printed), and `SANOID.md` in full. The barman account deliberately

@@ -1,0 +1,6 @@
+---
+- name: PVE host config (.101)
+  hosts: proxmox
+  become: false # already connects as root -- see ~/.ssh/config
+  roles:
+    - sanoid

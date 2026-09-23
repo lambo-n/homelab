@@ -1,11 +1,14 @@
 # sanoid — ZFS snapshots on `.101`
 
-**Everything here runs on the Proxmox host `192.168.50.101` as root**, not on
-the dev VM: this VM has no SSH key on `.101` (`Permission denied (publickey)`)
-and mounts no NFS, so it cannot run a single `zfs` command. Neither Flux nor
-OpenTofu reconciles any of it — snapshots are host config, not Kubernetes
-objects. Installed and configured 2026-09-02 through 2026-09-09; see
-[`archive/SANOID-SETUP.md`](archive/SANOID-SETUP.md) for how.
+**Everything here runs on the Proxmox host `192.168.50.101` as root.** The dev
+VM reaches it over a dedicated SSH key (`id_ed25519_pve-hostconfig`) and
+applies config with the Ansible layer in [`ansible/`](ansible/) — see
+[`ansible/README.md`](ansible/README.md) for how to run it. Neither Flux nor
+OpenTofu reconciles any of this; it's the third layer named in `GITOPS.md` →
+"Scope: Flux manages the cluster, not the hypervisor". The original install
+was by hand; see [`archive/SANOID-SETUP.md`](archive/SANOID-SETUP.md) for that
+and [`archive/ANSIBLE-HOST-CONFIG-SETUP.md`](archive/ANSIBLE-HOST-CONFIG-SETUP.md)
+for how it moved into git.
 
 ---
 
@@ -55,39 +58,25 @@ pin gigabytes for nothing (see [`GPU-VM.md`](GPU-VM.md)).
 
 ## Configuration
 
-`/etc/sanoid/sanoid.conf` — 24 hourly / 30 daily / 6 monthly:
+`/etc/sanoid/sanoid.conf` on `.101` is rendered from
+[`ansible/roles/sanoid/templates/sanoid.conf.j2`](ansible/roles/sanoid/templates/sanoid.conf.j2) —
+that template is the source of truth; this table is a summary, not a copy to
+edit separately. 24 hourly / 30 daily / 6 monthly:
 
-```ini
-[archive-pool/minio-data]
-	use_template = archival
-	recursive = no
+| Dataset | Template | Recursive |
+|---|---|---|
+| `archive-pool/minio-data` | `archival` | no |
+| `archive-pool/vm-104-disk-0` | `archival` | no |
+| `archive-pool/ts-ssh-records` | `archival` | no |
+| `sas-pool/data` | `archival` | yes |
 
-[archive-pool/vm-104-disk-0]
-	use_template = archival
-	recursive = no
-
-[archive-pool/ts-ssh-records]
-	use_template = archival
-	recursive = no
-
-[sas-pool/data]
-	use_template = archival
-	recursive = yes
-
-[template_archival]
-	frequently = 0
-	hourly = 24
-	daily = 30
-	monthly = 6
-	yearly = 0
-	autosnap = yes
-	autoprune = yes
-```
-
-Tabs, not spaces, for the indented lines — sanoid's INI parser is strict about
-it and a space-indented key is silently ignored rather than rejected. Adding a
-new dataset means an entry here, then `systemctl restart sanoid.timer`, then a
-run of [`runbooks/SANOID-VERIFY.md`](runbooks/SANOID-VERIFY.md) before trusting it.
+Tabs, not spaces, for the indented lines in the rendered file — sanoid's INI
+parser is strict about it and a space-indented key is silently ignored rather
+than rejected. Adding a new dataset means an entry in the template, then
+`ansible-playbook site.yml --check --diff` from `ansible/` to review the
+change, then apply, then `ssh pve-hostconfig systemctl restart sanoid.timer`
+(the role doesn't restart it for you), then a run of
+[`runbooks/SANOID-VERIFY.md`](runbooks/SANOID-VERIFY.md) before trusting it.
 
 ## Leave a note where the next person will look
 

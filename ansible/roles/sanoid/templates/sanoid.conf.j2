@@ -1,0 +1,27 @@
+{# Tabs, not spaces, for the indented lines -- sanoid's INI parser is strict
+   about it and a space-indented key is silently ignored rather than
+   rejected. See ../../../SANOID.md "Configuration". #}
+[archive-pool/minio-data]
+	use_template = archival
+	recursive = no
+
+[archive-pool/vm-104-disk-0]
+	use_template = archival
+	recursive = no
+
+[archive-pool/ts-ssh-records]
+	use_template = archival
+	recursive = no
+
+[sas-pool/data]
+	use_template = archival
+	recursive = yes
+
+[template_archival]
+	frequently = 0
+	hourly = 24
+	daily = 30
+	monthly = 6
+	yearly = 0
+	autosnap = yes
+	autoprune = yes
