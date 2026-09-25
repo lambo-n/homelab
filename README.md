@@ -56,6 +56,10 @@ around. No auth: LAN-reachable on purpose, same posture as the rest of the
 voice stack. No custom container image is built for it — a stock
 `python:3.12-slim` installs `ffmpeg` and its Python deps at pod start.
 
+A CLI client is served from the same service rather than copied to each
+device by hand: `curl -O http://192.168.50.104:8000/transcribe.sh && chmod +x
+transcribe.sh`.
+
 ### Sunfire — backing a Cloudflare Worker
 
 [`sunosrs.cc`](https://sunosrs.cc) is a React SPA plus a Cloudflare Worker for an

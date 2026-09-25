@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from wyoming.asr import Transcribe, Transcript
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.client import AsyncTcpClient
@@ -32,6 +33,13 @@ def _decode_to_pcm16(data: bytes) -> bytes:
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+@app.get("/transcribe.sh")
+async def cli():
+    # Lets a LAN device grab the client with `curl -O .../transcribe.sh`
+    # instead of the script being copied around by hand.
+    return FileResponse("/app/transcribe.sh", media_type="text/x-shellscript", filename="transcribe.sh")
 
 
 @app.post("/transcribe")

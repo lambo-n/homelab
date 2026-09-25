@@ -8,5 +8,6 @@ configMapGenerator:
     namespace: transcribe
     files:
       - app.py
+      - transcribe.sh
 generatorOptions:
   disableNameSuffixHash: true
