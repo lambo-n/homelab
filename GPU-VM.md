@@ -118,11 +118,13 @@ collector) plus two `.timer`-driven textfile collectors:
 - `scripts/llm/llama-metrics` polls `llama-fast` and any *loaded* router
   preset every 15 s for tokens/sec, requests and cache-reuse — the router
   isn't scraped directly, since `/metrics?model=` 400s on an unloaded preset.
-- `scripts/voice/whisper-metrics` times a warm `jfk.wav` transcription against
-  `whisper-server` every 30 s and classifies it GPU (SYCL, <1 s) or CPU
-  fallback (≥1 s). whisper.cpp's server has no `/metrics` endpoint and logs
-  its device only once at startup, so this is the live check for a silent
-  fallback afterward — see [`VOICE.md`](VOICE.md) → *V1f*.
+- `scripts/voice/whisper-proxy` sits between `wyoming-whisper` and
+  `whisper-server`, timing every real transcription and classifying it GPU
+  (SYCL, <1 s) or CPU fallback (≥1 s). whisper.cpp's server has no `/metrics`
+  endpoint and logs its device only once at startup, so this is the live
+  signal for a silent fallback afterward — but it only updates when someone
+  actually uses the voice assistant, not on a fixed interval — see
+  [`VOICE.md`](VOICE.md) → *V1f*.
 
 Both write to node_exporter's textfile collector, scraped by the cluster's
 Prometheus via `kubernetes/apps/observability/llm-vm/`; dashboard `LLM VM —

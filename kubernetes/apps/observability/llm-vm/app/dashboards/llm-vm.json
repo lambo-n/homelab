@@ -16,7 +16,7 @@
   },
   "editable": true,
   "graphTooltip": 1,
-  "description": "VM 105 (llm, 192.168.50.107): GPU thermals and power from node_exporter hwmon, per-model llama-server metrics (llama-metrics textfile collector), whisper-server GPU/CPU status (whisper-metrics textfile collector), VM resources. homelab GPU-VM.md Observability.",
+  "description": "VM 105 (llm, 192.168.50.107): GPU thermals and power from node_exporter hwmon, per-model llama-server metrics (llama-metrics textfile collector), whisper-server GPU/CPU status from real usage (whisper-proxy textfile collector), VM resources. homelab GPU-VM.md Observability.",
   "templating": {
     "list": [
       {
@@ -1373,7 +1373,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "1 = whisper-server answered /inference within 10 s. Checked every 30 s (whisper-metrics.timer on llm).",
+      "description": "1 = the most recent real transcription reached whisper-server successfully, via whisper-proxy on llm. No fixed check interval any more: stale/no data means nobody has used the voice assistant recently, not that it's down.",
       "gridPos": {
         "h": 5,
         "w": 8,
@@ -1452,7 +1452,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Classified from warm jfk.wav latency: <1 s = GPU (SYCL), ≥1 s = CPU fallback (VOICE.md V1f). whisper-server logs its device only once at startup, so this is the live check for a silent fallback afterward. No data when whisper-server is unreachable — see the Reachable panel.",
+      "description": "Classified from the most recent real transcription's latency: <1 s = GPU (SYCL), ≥1 s = CPU fallback (VOICE.md V1f). whisper-server logs its device only once at startup, so this is the live signal for a silent fallback afterward — but it only updates when someone actually talks to the assistant. No data when whisper-server is unreachable — see the Reachable panel.",
       "gridPos": {
         "h": 5,
         "w": 8,
@@ -1528,13 +1528,13 @@
     },
     {
       "type": "stat",
-      "title": "Inference latency (jfk.wav, warm)",
+      "title": "Inference latency (avg, real usage)",
       "id": 34,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Same 11 s sample whisper-server warms up on at start. SYCL ~0.21 s; CPU fallback ~1.8 s (VOICE.md V1f, 2026-09-17). The 1 s line is the Device panel's GPU/CPU cutoff.",
+      "description": "Cumulative average over every real transcription whisper-proxy has timed since it last restarted. SYCL runs ~0.21 s; CPU fallback ~1.8 s (VOICE.md V1f, 2026-09-17). The 1 s line is the Device panel's GPU/CPU cutoff.",
       "gridPos": {
         "h": 5,
         "w": 8,
@@ -1547,7 +1547,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(whisper_inference_seconds{instance=\"llm\"})",
+          "expr": "whisper_inference_seconds_sum{instance=\"llm\"} / whisper_inference_seconds_count{instance=\"llm\"}",
           "legendFormat": "latency",
           "refId": "A",
           "range": false,
@@ -1601,7 +1601,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Dashed line: the 1 s GPU/CPU-fallback cutoff. A jump from ~0.2 s to ~1.8 s that stays up is a SYCL fallback, not a fluke.",
+      "description": "Cumulative average latency across real transcriptions, from whisper-proxy — flat where nobody's used the assistant, since it only updates on real usage. Dashed line: the 1 s GPU/CPU-fallback cutoff. A rise from ~0.2 s toward ~1.8 s that stays up is a SYCL fallback, not a fluke.",
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -1614,8 +1614,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "whisper_inference_seconds{instance=\"llm\"}",
-          "legendFormat": "jfk.wav",
+          "expr": "whisper_inference_seconds_sum{instance=\"llm\"} / whisper_inference_seconds_count{instance=\"llm\"}",
+          "legendFormat": "latency",
           "refId": "A",
           "range": true,
           "instant": false

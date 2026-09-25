@@ -21,9 +21,11 @@ spec:
   #   metrics for EVERY model, labelled model="…". Replaced a direct llama-fast
   #   scrape of :8081, because the router's per-preset /metrics would have left
   #   each unloaded preset as a permanently down target.
-  # - whisper-metrics.timer (scripts/voice/whisper-metrics), every 30 s:
-  #   whisper_up/whisper_sycl_loaded/whisper_inference_seconds, since
-  #   whisper.cpp's server has no /metrics of its own.
+  # - whisper-proxy.service (scripts/voice/whisper-proxy), on every real
+  #   transcription: whisper_up/whisper_sycl_loaded/whisper_last_inference_seconds/
+  #   whisper_inference_seconds_sum/_count, since whisper.cpp's server has no
+  #   /metrics of its own. Updates only when someone actually uses the voice
+  #   assistant, not on a fixed interval.
   staticConfigs:
     - targets: ["192.168.50.107:9100"]
       labels:
