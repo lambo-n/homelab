@@ -24,6 +24,7 @@ under [The stack](#the-stack).
 | **Voice assistant** | Home Assistant and its recorder database, orchestrating an ESP32-S3 satellite against the speech and LLM services on VM 105 | `voice` | `:8123` on any node IP (LAN only) |
 | **Sunfire** | Object storage and relational data for the `sunosrs.cc` Cloudflare Worker | `sunfire` | `minio-api.sunosrs.cc`, `db.sunosrs.cc` |
 | **Observability** | Prometheus, Alertmanager and Grafana for the cluster, the Flux stack and VM 105 | `observability` | `grafana.homelab.lan` (LAN only) |
+| **Transcribe** | A personal mp3-to-text tool over HTTP, calling VM 105's whisper.cpp for the owner's own schoolwork | `transcribe` | `:8000` on any node IP (LAN only) |
 
 Adding one means a directory under `kubernetes/apps/`, its own `ks.yaml`, and a row
 above.
@@ -40,6 +41,20 @@ everything after it to Home Assistant in the `voice` namespace, which calls
 whisper.cpp, Piper and `llama-fast` on VM 105. Nothing in this path leaves the
 LAN: no cloud speech service, no tunnel, no account anywhere.
 → [`VOICE.md`](VOICE.md)
+
+### Transcribe — mp3-to-text over the LAN
+
+A small FastAPI service in the `transcribe` namespace: `POST` an audio file to
+`/transcribe` on `:8000` (any node IP) and get back JSON transcript text. It
+speaks the Wyoming protocol to `wyoming-whisper` on VM 105 — the same STT
+backend the voice assistant uses — over the path already allowed from the
+three k3s node IPs, so nothing new is opened on VM 105's firewall.
+`whisper-server` itself serializes requests behind one GPU, so a long
+transcription can delay a Doofus voice command behind it in the queue; this is
+accepted as a rare, low-cost tradeoff rather than something worth engineering
+around. No auth: LAN-reachable on purpose, same posture as the rest of the
+voice stack. No custom container image is built for it — a stock
+`python:3.12-slim` installs `ffmpeg` and its Python deps at pod start.
 
 ### Sunfire — backing a Cloudflare Worker
 
@@ -513,6 +528,9 @@ flowchart LR
     sunfire_postgres_cnpg["sunfire-postgres-cnpg"]
     sunfire_postgrest["sunfire-postgrest"]
     sunfire_storage["sunfire-storage"]
+  end
+  subgraph ns_transcribe["transcribe"]
+    transcribe_api["transcribe-api"]
   end
   subgraph ns_voice["voice"]
     home_assistant["home-assistant"]

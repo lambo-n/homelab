@@ -1,0 +1,20 @@
+---
+# LoadBalancer through k3s ServiceLB (klipper): answers on :8000 at every node
+# address, .104-.106, same mechanism home-assistant's :8123 and Traefik's
+# 80/443 use.
+#
+# LAN-reachable on purpose, no auth: matches how the rest of the voice stack
+# is exposed. Not routed through cloudflared or Traefik -- this is a personal
+# tool, not a public or hostname-based service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: transcribe-api
+  namespace: transcribe
+spec:
+  type: LoadBalancer
+  selector:
+    app: transcribe-api
+  ports:
+    - name: http
+      port: 8000
