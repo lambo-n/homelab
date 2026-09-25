@@ -108,14 +108,13 @@ template:
 
 ---
 
-## Remote Access (Samba / Tailnet)
+## Remote Access (Samba / LAN only)
 
-Only one user accesses this storage. Because the client has:
-```bash
-sudo tailscale set --accept-routes
-```
-and `tailscale-gateway` (CTID 100) advertises `192.168.50.0/24`, access is direct
-to `192.168.50.101` over the tailnet without public exposure or port forwarding.
+Only one user accesses this storage, and only from the LAN. The Samba ports
+(445/139) are **not** in `tailscale/policy.hujson`'s grant list for `proxmox`
+(`GITOPS.md` → Tailscale host), so the tailnet subnet route does not reach this
+share — being on the tailnet is not sufficient on its own. The share works when
+the client is physically on `192.168.50.0/24`.
 
 ### Samba Share Config (`/etc/samba/smb.conf`)
 

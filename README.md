@@ -151,7 +151,7 @@ Proxmox API on `:8006` — devices and controllers cannot.*
 
 > **Storage pool active 2026-09-09.** The three SAS SSDs are configured as
 > **`sas-pool`** in RAIDZ1 (6.85 TiB usable) on the Proxmox host under `sanoid`,
-> exported via Samba for single-user tailnet access. See [`SAS-STORAGE.md`](SAS-STORAGE.md).
+> exported via Samba for single-user LAN-only access. See [`SAS-STORAGE.md`](SAS-STORAGE.md).
 
 > **This table names no devices.** Models, capacities, serials, `by-id` paths,
 > free capacity and the controller topology are recorded in
