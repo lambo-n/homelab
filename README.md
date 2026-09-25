@@ -23,7 +23,7 @@ under [The stack](#the-stack).
 |---|---|---|---|
 | **Voice assistant** | Home Assistant and its recorder database, orchestrating an ESP32-S3 satellite against the speech and LLM services on VM 105 | `voice` | `:8123` on any node IP (LAN only) |
 | **Sunfire** | Object storage and relational data for the `sunosrs.cc` Cloudflare Worker | `sunfire` | `minio-api.sunosrs.cc`, `db.sunosrs.cc` |
-| **Observability** | Prometheus, Alertmanager and Grafana for the cluster, the Flux stack and VM 105 | `observability` | `grafana.homelab.lan` (LAN only) |
+| **Observability** | Prometheus, Alertmanager and Grafana for the cluster, the Flux stack and VM 105 | `observability` | `:80` on any node IP (LAN only) |
 | **Transcribe** | A personal mp3-to-text tool over HTTP, calling VM 105's whisper.cpp for the owner's own schoolwork | `transcribe` | `:8000` on any node IP (LAN only) |
 
 Adding one means a directory under `kubernetes/apps/`, its own `ks.yaml`, and a row
@@ -410,15 +410,12 @@ behind the pool metrics run on the host, installed by hand; only the scraping
 lives here ([`HOST-MONITORING.md`](HOST-MONITORING.md)).
 → `kubernetes/apps/observability/host-monitoring/`
 
-> **Reaching Grafana.** Nothing resolves `homelab.lan` — add to `/etc/hosts` on any machine
-> that browses it:
->
-> ```
-> 192.168.50.104  grafana.homelab.lan
-> ```
->
-> Any of the three node IPs works; Traefik's klipper LoadBalancer answers on all of them.
-> The admin password is in git, encrypted — read it with
+> **Reaching Grafana.** No hostname, no DNS: browse `http://192.168.50.104` directly
+> (any of the three node IPs works; Traefik's klipper LoadBalancer answers on all of them).
+> The Ingress carries no `host` rule, so it matches on IP alone — see
+> `kube-prometheus-stack`'s `helmrelease.yaml`. Remote reach works the same way, over the
+> tailnet subnet route (→ *Network*, above). The admin password is in git, encrypted —
+> read it with
 > `sops --decrypt kubernetes/apps/observability/kube-prometheus-stack/app/grafana-admin.sops.yaml`.
 > Deliberately **not** added to the cloudflared tunnel: that would put an admin UI on the
 > public edge and grow the tunnel's blast radius for something only ever used from this LAN.
