@@ -148,6 +148,14 @@
       matchManagers: ["mise"],
       matchDepNames: ["kubectl"],
       automerge: false,
+      // Majors and 0.x-breaking-minors above already read as "needs a human"
+      // because Renovate's own isBreaking flag puts a "!" in their commit
+      // type (e.g. "feat(container)!:"). kubectl's updates aren't breaking by
+      // that definition -- they're excluded above for a different reason --
+      // so nothing marks them without this override. Force the same "!" onto
+      // the "chore(mise):" prefix so a kubectl PR reads as manual-merge in
+      // the PR list title without opening it.
+      commitMessagePrefix: "chore(mise)!:",
     },
   ],
 }
