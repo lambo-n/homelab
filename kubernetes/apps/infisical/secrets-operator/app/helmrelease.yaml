@@ -34,9 +34,9 @@ spec:
   chart:
     spec:
       chart: secrets-operator
-      # Chart 0.11.8 carries appVersion v0.11.8 -- Infisical keeps them in
-      # lockstep, unlike reloader where the two move independently. Pinned by
-      # chart, as everywhere else in this repo.
+      # Chart and appVersion move in lockstep here, unlike reloader where the
+      # two move independently. Pinned by chart, as everywhere else in this
+      # repo.
       version: 0.11.10
       sourceRef:
         kind: HelmRepository

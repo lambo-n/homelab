@@ -36,6 +36,18 @@ name: Validate manifests
 #
 # Neither job talks to the cluster. A chart that renders here can still fail to
 # apply; reconcile-time healthChecks remain the last gate. See GITOPS.md "Renovate".
+#
+# **A third job, version-drift, is deliberately not part of that gate.** It
+# compares version numbers stated in README.md/GITOPS.md prose against the
+# files that pin them (kubernetes/apps/**, mise.toml) and posts a ::warning
+# per mismatch -- always exits 0. Every one of those pins is Renovate-bumped
+# and Renovate never touches prose, so without this the docs drift silently
+# until someone runs a manual sweep. It can't block automerge the way
+# kustomize-build and helm-template do: a routine dependency bump must not
+# fail CI over prose it doesn't touch. Same warn-only pattern as
+# doc-history-check.py (doc-history.yaml), which is a separate workflow only
+# because that one filters to *.md pushes -- this one can't, since most of
+# what it checks isn't a *.md change at all.
 
 on:
   pull_request:
@@ -155,3 +167,15 @@ jobs:
 
       - name: Render every HelmRelease
         run: python3 .github/scripts/render-charts.py kubernetes
+
+  version-drift:
+    name: version drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check docs against pinned versions
+        run: python3 .github/scripts/version-drift.py --ci
