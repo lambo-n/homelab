@@ -21,6 +21,10 @@ opentofu = "1.12.6"
 # from this VM; uv is the installer mise's pipx backend uses when present.
 uv = "0.12.19"
 "pipx:esphome" = "2026.9.0"
+# PVE host-config layer (GITOPS.md "Scope: Flux manages the cluster, not the
+# hypervisor"). Runs from this VM by hand against .101 -- deliberately NOT
+# reconciled automatically, same reasoning as opentofu above.
+"pipx:ansible-core" = "2.21.4"
 
 [env]
 KUBECONFIG = "{{config_root}}/kubeconfig"

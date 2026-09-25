@@ -4,12 +4,8 @@ Every open item across this repo, in one place, so nothing is tracked only in
 a runbook nobody re-reads. Each entry says what it's waiting on and where the
 fuller context lives. Nothing here is blocking day-to-day operation.
 
-## Blocked on a layer that does not exist yet
+## OpenTofu
 
-- [ ] **Pin `sanoid` in Ansible/host config.** It is host-level, not a
-      Kubernetes object, so neither Flux nor OpenTofu reconciles it. Needs the
-      host-config layer named in `GITOPS.md` → Cross-cutting decisions → scope
-      split. Until it exists, [`SANOID.md`](SANOID.md) *is* the record.
 - [ ] **Split the OpenTofu root module in two.** Both providers share one root,
       so a Proxmox-only plan still refreshes Cloudflare and dies without that
       token. `-refresh=false` is the workaround in use. See `GITOPS.md` →

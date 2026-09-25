@@ -20,14 +20,16 @@ This file is the one place that records the metal.
 > date and the command that produced it, because nothing inside the cluster can
 > re-derive one later.
 
-> ⚠️ **Two access paths, and they answer different questions.** `192.168.50.101`
-> accepts no SSH key from the dev VM or from a laptop (`tofu/README.md:200`), and
-> the dev VM has no route to the *pool* itself (`archive/STORAGE.md:4-5`). But the
-> Proxmox **API on `:8006`** is reachable from the dev VM and — via the approved
-> `192.168.50.0/24` subnet route — from any tailnet device running
-> `tailscale set --accept-routes` (see [`GITOPS.md`](GITOPS.md#tailscale-host)).
-> Capacities and disk lists can be re-read from either. **Controller topology,
-> `by-id` paths and SMART cannot** — those need the console.
+> ⚠️ **Three access paths, and they answer different questions.**
+> `192.168.50.101` accepts one dedicated SSH key from the dev VM, scoped to
+> the Ansible host-config layer (`ansible/README.md`) — still no key from a
+> laptop, and the dev VM has no route to the *pool* itself
+> (`archive/STORAGE.md:4-5`). The Proxmox **API on `:8006`** is reachable from
+> the dev VM and — via the approved `192.168.50.0/24` subnet route — from any
+> tailnet device running `tailscale set --accept-routes` (see
+> [`GITOPS.md`](GITOPS.md#tailscale-host)). Capacities and disk lists can be
+> re-read from the API or a root shell. **Controller topology, `by-id` paths
+> and SMART** need a root shell — the console, or the dev VM's key.
 
 ---
 
