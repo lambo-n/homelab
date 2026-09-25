@@ -53,8 +53,9 @@ three k3s node IPs, so nothing new is opened on VM 105's firewall.
 transcription can delay a Doofus voice command behind it in the queue; this is
 accepted as a rare, low-cost tradeoff rather than something worth engineering
 around. No auth: LAN-reachable on purpose, same posture as the rest of the
-voice stack. No custom container image is built for it — a stock
-`python:3.12-slim` installs `ffmpeg` and its Python deps at pod start.
+voice stack. No custom container image is built for it — a stock Python slim
+image installs `ffmpeg` and its Python deps at pod start.
+→ `GITOPS.md` → *transcribe-api*
 
 A CLI client is served from the same service rather than copied to each
 device by hand: `curl -O http://192.168.50.104:8000/transcribe.sh && chmod +x
@@ -471,6 +472,8 @@ kubernetes/apps/
   │     ├── llm-vm/                 ScrapeConfig, dashboard and alerts for VM 105
   │     └── host-monitoring/        ScrapeConfigs, dashboard and alerts for the Proxmox host
   ├── reloader/           restarts workloads when their Secrets change
+  ├── transcribe/
+  │     └── api/            FastAPI mp3-to-text tool, LAN only, calling VM 105
   ├── voice/
   │     ├── voice-db/       CNPG Cluster — Home Assistant's recorder
   │     └── home-assistant/ Deployment, Service, config PVC

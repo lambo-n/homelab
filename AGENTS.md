@@ -53,6 +53,7 @@ One directory per app under `kubernetes/apps/`, each `ks.yaml` (a Flux
 | `cert-manager` | present only for the barman plugin's mTLS |
 | `infisical` | Infisical Operator |
 | `reloader` | restarts workloads when their Secrets change |
+| `transcribe` | A personal mp3-to-text tool, LAN only, calling `wyoming-whisper` on VM 105 |
 
 Adding a workload means a new directory, its own `ks.yaml`, and a row in
 `README.md` → *What runs on it*.
