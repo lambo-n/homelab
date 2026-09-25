@@ -23,7 +23,7 @@
 		// Proxmox web UI / API.
 		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006"]},
 
-		// Traefik (Grafana at grafana.homelab.lan) and Home Assistant.
+		// Traefik (Grafana, reached by IP, no host rule) and Home Assistant.
 		// One node IP is enough; klipper answers on all three.
 		{"src": ["autogroup:member"], "dst": ["k3s-control"], "ip": ["tcp:80", "tcp:8123"]},
 

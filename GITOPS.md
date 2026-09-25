@@ -1008,7 +1008,7 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 | Chart | **91.4.1** (appVersion `v0.94.0`), `observability` namespace, no `dependsOn` |
 | Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 4GiB`, ~65,810 active series, pinned to **k3s-worker1** |
 | Storage | `local-path` — TSDB 8Gi nominal, Grafana 2Gi, Alertmanager 1Gi, all on worker1 |
-| Grafana | LAN-only Traefik Ingress at `grafana.homelab.lan`; admin password in `grafana-admin.sops.yaml`; Reloader-annotated |
+| Grafana | LAN-only Traefik Ingress, no host rule (reached by node IP alone); admin password in `grafana-admin.sops.yaml`; Reloader-annotated |
 | Alerting | Alertmanager on the chart's `null` receiver. Flux alerts on two paths — a notification-controller `Provider`/`Alert`, and a `PrometheusRule` over `flux_resource_info` |
 | Selectors | all four `*NilUsesHelmValues: false`, so monitors and rules are picked up from any namespace without a release label |
 
@@ -1218,7 +1218,7 @@ fish-safe one-liners:
 |---|---|
 | `ssh dev 'hostname'` | `dev` |
 | `curl -skI https://192.168.50.101:8006/api2/json/version \| head -1` | any HTTP status (`501` — PVE refuses `HEAD`) |
-| `curl -sI -H 'Host: grafana.homelab.lan' 192.168.50.104 \| head -1` | `302 Found` |
+| `curl -sI 192.168.50.104 \| head -1` | `302 Found` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8080/v1/models` | `000` |
 | `curl -sk -m5 -o /dev/null -w '%{http_code}' https://192.168.50.104:6443/version` | `000` |
 

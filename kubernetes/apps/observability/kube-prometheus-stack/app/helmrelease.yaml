@@ -158,12 +158,13 @@ spec:
         # would put an admin UI on the public edge and grow the tunnel's blast
         # radius for a service only ever used from this LAN.
         #
-        # Nothing resolves homelab.lan; add to /etc/hosts on any machine that
-        # browses it:  192.168.50.104  grafana.homelab.lan
+        # No `hosts` entry, deliberately: this is the only Ingress in the
+        # cluster, so an unqualified rule (chart's else-branch, no `host:`
+        # field) matches any Host header. Reach it by IP alone --
+        # 192.168.50.104, .105 or .106, klipper answers on all three -- no
+        # DNS, no /etc/hosts, and nothing tailnet-specific for LAN access.
         enabled: true
         ingressClassName: traefik
-        hosts:
-          - grafana.homelab.lan
         path: /
         pathType: Prefix
       # No additionalDataSources. Alertmanager has no authentication of its own,
