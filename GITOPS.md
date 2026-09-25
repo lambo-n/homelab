@@ -37,6 +37,7 @@ Open items and remaining backlog live in [`BACKLOG.md`](BACKLOG.md), not here.
 | cloudflared | [↓](#cloudflared) | `config_src` decides routing — a local file alone does nothing |
 | MinIO | [↓](#minio) | The scoped policy withholds `ListBucket`, so `mc ls` cannot verify it |
 | PostgREST | [↓](#postgrest) | `401` on anonymous is correct, not a fault |
+| transcribe-api | [↓](#transcribe-api) | `whisper-server` serializes requests behind one GPU mutex |
 | kube-prometheus-stack | [↓](#kube-prometheus-stack) | The Flux alert every guide gives you queries a metric that no longer exists |
 | sanoid (host) | [↓](#sanoid-host) | A snapshot of a live Postgres is crash-consistent, not a backup |
 | Tailscale (host) | [↓](#tailscale-host) | The policy file is a record, not applied by anything — edit it, then paste it into the console |
@@ -996,6 +997,45 @@ recoverable; it is not a substitute for snapshots, and Phase 5 matters more now.
 > PostgREST reads needs no Cloudflare Worker change at all — the JWT signing key,
 > `POSTGREST_URL`, the Access service token and every `MINIO_*` value are
 > untouched by it. That is what made the CNPG cutover a one-side operation.
+
+---
+
+## transcribe-api
+
+**Config at a glance** — own `transcribe` namespace, one Deployment
+(`kubernetes/apps/transcribe/api/app/`), `LoadBalancer` Service on `:8000`
+(klipper, every node IP — same mechanism as Traefik and Home Assistant).
+No custom image: a stock `python:*-slim` (Renovate-tracked; see the pinned
+digest in `deployment.yaml` rather than a version here) installs `ffmpeg` and
+its Python deps (`fastapi`, `uvicorn`, `wyoming`) at container start. No
+`dependsOn` — it only calls out to VM 105, nothing in-cluster.
+
+`POST /transcribe` decodes the uploaded audio with `ffmpeg` and speaks the
+Wyoming protocol to `wyoming-whisper:10300` on VM 105, the same STT backend
+`voice/home-assistant` calls — reachable because the three k3s node IPs are
+already `ufw`-allowed for that port (see `VOICE.md`), so this opens nothing
+new on VM 105's firewall. `GET /transcribe.sh` serves the CLI client from the
+same pod, so a LAN device fetches it with `curl -O` instead of it being
+copied around by hand.
+
+> ⚠️ **No auth, LAN-only, on purpose** — same posture as the rest of the
+> voice stack. A device that isn't on the LAN relays through the dev VM's SSH
+> access instead of the service being opened to the tailnet: see
+> `scripts/transcribe-remote.sh`.
+
+> ⚠️ **`whisper-server` serializes every request behind one GPU mutex**
+> (`examples/server/server.cpp`, `whisper_mutex`), verified by reading the
+> source and firing two concurrent requests. A long transcription here queues
+> behind, or ahead of, a Doofus voice command on VM 105 — accepted as a rare,
+> low-cost tradeoff rather than something to build a priority queue around.
+
+**Checking it** — from any LAN device:
+
+```bash
+curl -F file=@some.mp3 http://192.168.50.104:8000/transcribe
+```
+
+A healthy response is `{"text": "..."}`. Any of the three node IPs work.
 
 ---
 
