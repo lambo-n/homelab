@@ -529,6 +529,9 @@ flowchart LR
     sunfire_postgrest["sunfire-postgrest"]
     sunfire_storage["sunfire-storage"]
   end
+  subgraph ns_transcribe["transcribe"]
+    transcribe_api["transcribe-api"]
+  end
   subgraph ns_voice["voice"]
     home_assistant["home-assistant"]
     voice_db["voice-db"]
