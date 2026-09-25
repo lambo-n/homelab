@@ -58,7 +58,10 @@ voice stack. No custom container image is built for it — a stock
 
 A CLI client is served from the same service rather than copied to each
 device by hand: `curl -O http://192.168.50.104:8000/transcribe.sh && chmod +x
-transcribe.sh`.
+transcribe.sh`. The service is deliberately LAN-only, so a device that isn't
+on the LAN (a laptop on the tailnet away from home) instead runs
+`scripts/transcribe-remote.sh`, which relays the audio through an SSH session
+to the dev VM rather than opening the service to the tailnet.
 
 ### Sunfire — backing a Cloudflare Worker
 
@@ -486,8 +489,9 @@ kubernetes/apps/
                           version-drift.py (doc versions vs pins), doc-history-check.py (current-state rule)
 .claude/                  Claude Code project settings and the homelab-docs skill (documentation conventions)
 esphome/                  voice-satellite firmware, wake-word model, SOPS-encrypted Wi-Fi secrets
-scripts/                  bootstrap scripts (tunnel, MinIO accounts, Infisical seed) and the
-                          host/guest units for the GPU and voice stacks (`gpu-rebar`, `llm/`, `voice/`)
+scripts/                  bootstrap scripts (tunnel, MinIO accounts, Infisical seed), the
+                          host/guest units for the GPU and voice stacks (`gpu-rebar`, `llm/`, `voice/`),
+                          and `transcribe-remote.sh` (the off-LAN client for `kubernetes/apps/transcribe`)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
 runbooks/                 repeatable procedures, meant to be re-run (restore drill, snapshot verification)
 archive/                  completed one-time runbooks and superseded designs — history, not live docs
