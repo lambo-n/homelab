@@ -318,7 +318,7 @@ diffs. Flux decrypts at apply time using an in-cluster key. This is what makes a
 cold start need no network beyond GitHub.
 → `.sops.yaml`, `*.sops.yaml`, `age.key` (gitignored)
 
-**Infisical** `v0.11.9` — system of record for the *other* class of secret: the
+**Infisical** `v0.11.10` — system of record for the *other* class of secret: the
 ones that must stay byte-identical between this cluster and two Cloudflare Worker
 environments. The operator materialises them into Kubernetes Secrets.
 → `kubernetes/apps/infisical/`, `kubernetes/apps/sunfire/infisical/`
@@ -371,7 +371,7 @@ it for its internal mTLS. It issues nothing else; there is no `ClusterIssuer`.
 
 ### Networking
 
-**cloudflared** `2026.9.1` — an outbound-only tunnel to the Cloudflare edge. Since
+**cloudflared** `2026.9.3` — an outbound-only tunnel to the Cloudflare edge. Since
 2026-09-04 it is **locally managed**: the ingress map is a ConfigMap in this repo,
 not a dashboard setting.
 → `kubernetes/apps/sunfire/cloudflared/`
@@ -390,9 +390,9 @@ layer split exists to avoid.
 
 ### Observability
 
-**kube-prometheus-stack** chart `91.4.1` — Prometheus `v3.14.0`, Alertmanager
-`v0.34.0`, Grafana `13.2.2`, node-exporter and kube-state-metrics. 26 scrape
-targets, 222 alert rules. Alerts fire and are visible; nothing is pushed anywhere,
+**kube-prometheus-stack** chart `91.5.2` — Prometheus `v3.14.0`, Alertmanager
+`v0.34.1`, Grafana `13.2.2`, node-exporter and kube-state-metrics. 29 scrape
+targets, 240 alert rules. Alerts fire and are visible; nothing is pushed anywhere,
 deliberately.
 → `kubernetes/apps/observability/kube-prometheus-stack/`
 

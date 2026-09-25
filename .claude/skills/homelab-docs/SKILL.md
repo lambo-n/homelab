@@ -115,6 +115,13 @@ image tags, mise tools) and exits 1 on drift or on a claim whose sentence no
 longer matches. Run it whenever you touch README.md or GITOPS.md, and fix
 drift in the same change.
 
+**Also runs in CI as a warning, on every PR** (`version-drift` job in
+`validate-manifests.yaml`, `--ci` mode) — every `CLAIMS` entry is a value
+Renovate bumps on its own, so a routine dependency PR is exactly where drift
+gets introduced without anyone touching a doc. It never blocks merge (same
+warn-only pattern as `doc-history-check.py`); the annotation is the prompt to
+fix it in a follow-up docs pass rather than a permanent silent gap.
+
 - **Adding a version to prose?** Add a `CLAIMS` entry in the script in the
   same change, or cite the file instead of the number.
 - **Versions no repo file pins** (chart appVersions: Prometheus, Alertmanager,

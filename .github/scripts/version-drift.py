@@ -6,6 +6,10 @@ prose in README.md and GITOPS.md is not bumped with them. Each CLAIM below
 ties one sentence in a doc to the file that owns that version.
 
   (no args)   report every claim; exit 1 if any disagrees or is missing
+  --ci        CI. Prints GitHub ::warning annotations for drift. Always exits
+              0 -- a Renovate PR that bumps a pinned file must never be
+              blocked by prose it doesn't touch. See doc-history-check.py's
+              --base mode for the same pattern.
 
 A claim whose doc pattern no longer matches is reported as MISSING, so a
 rewritten sentence can't silently drop out of the check: update or remove the
@@ -72,6 +76,14 @@ def first(path: str, pattern: str):
     return m.group(1) if m else None
 
 
+def first_with_line(path: str, pattern: str):
+    text = (ROOT / path).read_text()
+    m = re.search(pattern, text, re.MULTILINE)
+    if not m:
+        return None, None
+    return m.group(1), text.count("\n", 0, m.start()) + 1
+
+
 def norm(v: str) -> str:
     return v.lstrip("v")
 
@@ -94,5 +106,22 @@ def main() -> int:
     return bad
 
 
+def ci() -> int:
+    for label, doc, doc_rx, src, src_rx in CLAIMS:
+        said, line = first_with_line(doc, doc_rx)
+        pinned = first(src, src_rx)
+        loc = f"file={doc}" + (f",line={line}" if line else "")
+        if said is None or pinned is None:
+            which = doc if said is None else src
+            print(f"::warning {loc},title=Version drift::{label}: "
+                  f"pattern no longer matches in {which}")
+        elif norm(said) != norm(pinned):
+            print(f"::warning {loc},title=Version drift::{label} says "
+                  f"{said}, but {src} pins {pinned}")
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--ci"]:
+        sys.exit(ci())
     sys.exit(main())
