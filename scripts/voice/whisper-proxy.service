@@ -1,0 +1,16 @@
+# Install: GPU-VM.md Observability, VOICE.md V1f. wyoming-whisper's --api
+# points here (127.0.0.1:8911), not straight at whisper-server, so real
+# transcriptions -- not a synthetic canary -- drive the latency and
+# GPU/CPU-fallback metrics.
+[Unit]
+Description=Metrics-recording reverse proxy in front of whisper-server (homelab GPU-VM.md)
+After=whisper-server.service
+Requires=whisper-server.service
+
+[Service]
+ExecStart=/usr/local/sbin/whisper-proxy
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

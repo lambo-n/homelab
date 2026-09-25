@@ -239,3 +239,28 @@ updated on 2026-09-17, so Claude Code's context cap matches the new window.
 
 **Verified 2026-09-17:** loaded warm in 27 s, `/props` reports `n_ctx 65536`,
 1 slot.
+
+## 2026-09-25 — inference latency moved from a synthetic canary to real usage
+
+`whisper-metrics.timer` transcribed a fixed `jfk.wav` sample every 30 s to
+drive three metrics: reachability, GPU/CPU device classification, and the
+"Inference latency" panels. The dashboard's legend and panel names named the
+sample file (`jfk.wav`), which read as if it were tracking live voice
+assistant usage — it wasn't; it was a warm-request health check, and the
+displayed latency never reflected a real transcription.
+
+Replaced the whole timer/script with `scripts/voice/whisper-proxy`, a small
+reverse proxy inserted between `wyoming-whisper` and `whisper-server`
+(127.0.0.1:8911 → 8910). It times every real transcription Home Assistant
+sends and writes running totals (`whisper_inference_seconds_sum`/`_count`) to
+node_exporter's textfile collector, from which Grafana computes a cumulative
+average. GPU/CPU fallback classification (`whisper_sycl_loaded`) now comes
+from the same real requests instead of the canary.
+
+Considered keeping the canary for reachability/device detection and adding
+the proxy only for latency, so there'd still be a heartbeat between real
+uses. Decided against it (owner call, 2026-09-25): one signal path is
+simpler, and the tradeoff — reachability/device panels go stale between real
+uses instead of refreshing every 30 s — was accepted as fine for a
+personal-use voice assistant. Current state: [`../VOICE.md`](../VOICE.md) →
+*What's running today*, [`../GPU-VM.md`](../GPU-VM.md) → *Observability*.

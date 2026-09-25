@@ -42,6 +42,7 @@ flowchart LR
   end
   subgraph llm["VM 105 llm · 192.168.50.107"]
     ww["wyoming-whisper :10300"]
+    wpx["whisper-proxy<br/>127.0.0.1:8911"]
     ws["whisper-server<br/>127.0.0.1:8910 (B70)"]
     wp["wyoming-piper :10200 (CPU)"]
     lf["llama-fast :8081 (B70)"]
@@ -51,7 +52,8 @@ flowchart LR
   ha <-- "native API :6053<br/>HA dials the device" --> va
   ha -- "TTS audio over the API" --> spk
   ha -- "Wyoming" --> ww
-  ww --> ws
+  ww --> wpx
+  wpx --> ws
   ha -- "Wyoming" --> wp
   ha -- "OpenAI API" --> lf
   ha -- "tcp:5432" --> db
@@ -74,7 +76,7 @@ What each component does when something is down:
 | `esphome/wake_words/` | "Hey Doofus" v2 model and manifest, from `~/mww-hey-doofus` (V5) |
 | `esphome/secrets.sops.yaml` | Wi-Fi SSID/password and the API key (generated into SOPS, never printed) |
 | `scripts/esphome-run.sh` | Runs ESPHome with secrets decrypted into tmpfs for one run |
-| `scripts/voice/*.service` | `whisper-server`, `wyoming-whisper`, `wyoming-piper` units for VM 105 |
+| `scripts/voice/*.service` | `whisper-server`, `whisper-proxy`, `wyoming-whisper`, `wyoming-piper` units for VM 105 |
 | `scripts/voice/ha-api.sops.yaml` | HA long-lived token for `pipeline-test.py`, operator-only (not read by the cluster) |
 | `scripts/voice/pipeline-test.py` | Drives the Doofus pipeline over HA's websocket API without hardware |
 | `kubernetes/apps/voice/voice-db/` | CNPG Cluster `voice-db` |
@@ -85,13 +87,14 @@ What each component does when something is down:
 
 ### Speech services on VM 105 (V1)
 
-Three services on `llm` (VM 105), alongside `llama-fast`/`llama-router` (see
+Four services on `llm` (VM 105), alongside `llama-fast`/`llama-router` (see
 [`GPU-VM.md`](GPU-VM.md)):
 
 | Service | Port | What |
 |---|---|---|
 | `whisper-server` | `127.0.0.1:8910` (loopback) | whisper.cpp `v1.9.4`, SYCL build, **`small.en` f16** — q8_0 was found to transcribe garbage on this SYCL build |
-| `wyoming-whisper` | `:10300` | Wyoming protocol bridge in front of `whisper-server`, for Home Assistant |
+| `whisper-proxy` | `127.0.0.1:8911` (loopback) | Times every real transcription for the Grafana latency/device metrics; sits between `wyoming-whisper` and `whisper-server` |
+| `wyoming-whisper` | `:10300` | Wyoming protocol bridge in front of `whisper-proxy`, for Home Assistant |
 | `wyoming-piper` | `:10200` | Piper TTS, Wyoming protocol, CPU only |
 
 **Measured:** f16 transcribes in 0.21 s warm (first request after a cold start
@@ -104,9 +107,11 @@ concurrently with a transcription loop (300/300 correct).
 **Is it actually on the GPU?** whisper.cpp's server has no `/metrics` and logs
 its device only once at startup, so a silent fallback to CPU afterward is
 otherwise invisible. The Grafana dashboard's *Device* panel (`LLM VM — Arc Pro
-B70`) answers this live: green "GPU (SYCL)" or red "CPU FALLBACK", from timing
-a warm `jfk.wav` transcription every 30 s — see [`GPU-VM.md`](GPU-VM.md) →
-*Observability*.
+B70`) answers this live: green "GPU (SYCL)" or red "CPU FALLBACK", classified
+from the latency of the most recent real transcription, timed by
+`whisper-proxy` in front of `whisper-server` — see [`GPU-VM.md`](GPU-VM.md) →
+*Observability*. It only updates when someone actually uses the voice
+assistant, not on a fixed interval.
 
 **Firewall:** ports 10200/10300 open only to the three k3s node IPs
 (`192.168.50.104–106`); `whisper-server` itself binds loopback and is not

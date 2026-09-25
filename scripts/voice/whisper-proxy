@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+# Sits between wyoming-whisper and whisper-server (127.0.0.1:8910) so latency
+# and GPU/CPU classification come from real Home Assistant transcriptions
+# instead of a synthetic warm-request canary. whisper.cpp's server has no
+# /metrics and logs its device only once at startup, so this is now the only
+# live signal for a silent SYCL fallback -- it only updates when someone
+# actually talks to the assistant. GPU-VM.md Observability, VOICE.md V1f.
+#
+# whisper_inference_seconds_sum/_count are running totals since this proxy
+# last started (a normal Prometheus counter reset on restart). The dashboard
+# divides them directly for a cumulative average across real usage, not a
+# rolling window.
+import http.server
+import os
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+LISTEN = ("127.0.0.1", 8911)
+UPSTREAM = "http://127.0.0.1:8910"
+METRICS_DIR = "/var/lib/prometheus/node-exporter"
+METRICS_FILE = os.path.join(METRICS_DIR, "whisper.prom")
+GPU_CPU_THRESHOLD_SECONDS = 1.0
+
+totals = {"sum": 0.0, "count": 0}
+
+
+def write_metrics(up, last_seconds=None, sycl=None):
+    lines = [f"whisper_up {up}"]
+    if last_seconds is not None:
+        lines += [
+            f"whisper_last_inference_seconds {last_seconds:.3f}",
+            f"whisper_sycl_loaded {sycl}",
+            f"whisper_inference_seconds_sum {totals['sum']:.3f}",
+            f"whisper_inference_seconds_count {totals['count']}",
+        ]
+    fd, tmp = tempfile.mkstemp(dir=METRICS_DIR, prefix=".whisper.prom.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, METRICS_FILE)
+    except OSError:
+        os.unlink(tmp)
+        raise
+
+
+class Proxy(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path != "/inference":
+            self.send_error(404)
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+        req = urllib.request.Request(
+            UPSTREAM + self.path,
+            data=body,
+            headers={"Content-Type": self.headers.get("Content-Type", "")},
+            method="POST",
+        )
+        start = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                payload = resp.read()
+                status = resp.status
+                resp_headers = resp.headers
+        except (urllib.error.URLError, TimeoutError):
+            write_metrics(up=0)
+            self.send_error(502, "whisper-server unreachable")
+            return
+        dur = time.monotonic() - start
+        totals["sum"] += dur
+        totals["count"] += 1
+        sycl = 1 if dur < GPU_CPU_THRESHOLD_SECONDS else 0
+        write_metrics(up=1, last_seconds=dur, sycl=sycl)
+
+        self.send_response(status)
+        content_type = resp_headers.get("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, fmt, *args):
+        pass  # whisper-server's own log already has the per-request detail
+
+
+if __name__ == "__main__":
+    server = http.server.ThreadingHTTPServer(LISTEN, Proxy)
+    server.serve_forever()
