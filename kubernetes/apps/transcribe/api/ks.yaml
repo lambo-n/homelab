@@ -1,0 +1,22 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: transcribe-api
+  namespace: flux-system
+spec:
+  interval: 30m
+  # First start installs ffmpeg and the Python deps at container start (no
+  # custom image is built for this) -- give it room before liveness kicks in.
+  timeout: 5m
+  path: ./kubernetes/apps/transcribe/api/app
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  prune: true
+  wait: true
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: transcribe-api
+      namespace: transcribe
