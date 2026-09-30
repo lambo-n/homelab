@@ -21,3 +21,4 @@ worker-credentials.yaml
 # Byproduct of running the CI helper in .github/scripts/ locally.
 __pycache__/
 *.pyc
+.aider*
