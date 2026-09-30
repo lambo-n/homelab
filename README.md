@@ -25,6 +25,7 @@ under [The stack](#the-stack).
 | **Sunfire** | Object storage and relational data for the `sunosrs.cc` Cloudflare Worker | `sunfire` | `minio-api.sunosrs.cc`, `db.sunosrs.cc` |
 | **Observability** | Prometheus, Alertmanager and Grafana for the cluster, the Flux stack and VM 105 | `observability` | `:80` on any node IP (LAN only) |
 | **Transcribe** | A personal mp3-to-text tool over HTTP, calling VM 105's whisper.cpp for the owner's own schoolwork | `transcribe` | `:8000` on any node IP (LAN only) |
+| **Search** | SearXNG, a metasearch backend for a `web_search` tool the LLM presets on VM 105 call | `search` | `:8080` on any node IP (LAN only) |
 
 Adding one means a directory under `kubernetes/apps/`, its own `ks.yaml`, and a row
 above.
@@ -472,6 +473,8 @@ kubernetes/apps/
   │     ├── llm-vm/                 ScrapeConfig, dashboard and alerts for VM 105
   │     └── host-monitoring/        ScrapeConfigs, dashboard and alerts for the Proxmox host
   ├── reloader/           restarts workloads when their Secrets change
+  ├── search/
+  │     └── searxng/        metasearch backend for the VM 105 LLM presets' `web_search` tool
   ├── transcribe/
   │     └── api/            FastAPI mp3-to-text tool, LAN only, calling VM 105
   ├── voice/
@@ -526,6 +529,9 @@ flowchart LR
   end
   subgraph ns_reloader["reloader"]
     reloader["reloader"]
+  end
+  subgraph ns_search["search"]
+    searxng["searxng"]
   end
   subgraph ns_sunfire["sunfire"]
     sunfire_cloudflared["sunfire-cloudflared"]

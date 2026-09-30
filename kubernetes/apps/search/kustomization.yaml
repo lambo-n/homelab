@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# SearXNG: the metasearch backend for a `web_search` tool the LLM presets on
+# VM 105 (GPU-VM.md) will call. Unrelated to any single app, so kept in its
+# own namespace rather than sunfire/voice/transcribe.
+resources:
+  - namespace.yaml
+  - searxng/ks.yaml

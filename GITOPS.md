@@ -38,6 +38,7 @@ Open items and remaining backlog live in [`BACKLOG.md`](BACKLOG.md), not here.
 | MinIO | [↓](#minio) | The scoped policy withholds `ListBucket`, so `mc ls` cannot verify it |
 | PostgREST | [↓](#postgrest) | `401` on anonymous is correct, not a fault |
 | transcribe-api | [↓](#transcribe-api) | `whisper-server` serializes requests behind one GPU mutex |
+| searxng | [↓](#searxng) | No redis, so the request limiter is off — fine for one caller, not a public instance |
 | kube-prometheus-stack | [↓](#kube-prometheus-stack) | The Flux alert every guide gives you queries a metric that no longer exists |
 | sanoid (host) | [↓](#sanoid-host) | A snapshot of a live Postgres is crash-consistent, not a backup |
 | Tailscale (host) | [↓](#tailscale-host) | The policy file is a record, not applied by anything — edit it, then paste it into the console |
@@ -1036,6 +1037,43 @@ curl -F file=@some.mp3 http://192.168.50.104:8000/transcribe
 ```
 
 A healthy response is `{"text": "..."}`. Any of the three node IPs work.
+
+---
+
+## searxng
+
+**Config at a glance** — own `search` namespace, one Deployment
+(`kubernetes/apps/search/searxng/app/`), `LoadBalancer` Service on `:8080`
+(klipper, every node IP). The official `searxng/searxng` image (Renovate-tracked;
+see the pinned digest in `deployment.yaml`), configured with a single
+`settings.yml` ConfigMap that sets `use_default_settings: true` and overrides
+only `instance_name`, `secret_key`, `limiter: false` and `search.formats`
+(`html` + `json`). No `dependsOn` — nothing in-cluster depends on it yet.
+
+It exists as the metasearch backend for a `web_search` tool the LLM presets on
+VM 105 (`GPU-VM.md`) will call — see `BACKLOG.md` → *GPU / LLM VM* for the rest
+of that tool-calling harness (`fetch`, OCR, code-exec), still to be built.
+`search.formats: json` is what that tool will consume; the `html` format stays
+enabled so the instance is also usable from a browser directly.
+
+> ⚠️ **No auth, LAN-only, no redis.** Same posture as `transcribe-api` — a
+> single caller (the LLM tool harness), not a public instance, so the request
+> limiter that needs redis to back it is left off rather than standing up a
+> redis deployment for one consumer.
+
+> ⚠️ **`secret_key` is a plain ConfigMap value, not SOPS.** It signs session
+> cookies for a tool with no login and no sensitive state behind it — not a
+> credential in the sense rule 5 is guarding against. If searxng ever gains
+> real auth or public exposure, revisit this.
+
+**Checking it** — from any LAN device:
+
+```bash
+curl 'http://192.168.50.104:8080/search?q=test&format=json'
+```
+
+A healthy response is a JSON body with a non-empty `results` array. Any of
+the three node IPs work; the web UI is the same URL without `format=json`.
 
 ---
 

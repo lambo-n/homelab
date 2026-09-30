@@ -21,6 +21,14 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## GPU / LLM VM
 
+- [ ] **Tool-calling harness for `chat`/`fast` (search, fetch, OCR, code-exec).**
+      A SearXNG-backed `web_search` tool, plus a paired `fetch` tool (read a
+      URL's full text) for the router presets, both `supports_tools: true`
+      already (`scripts/llm/extra-openai-models.yaml`). A CPU-only OCR tool
+      (Tesseract), called only when `fetch` hits a PDF/image response rather
+      than text, so it never competes with `chat`+`fast`+whisper for the
+      card's ~2.2 GiB of free VRAM. A sandboxed code-exec tool for
+      `qwen27-agent` is undecided — no sandbox mechanism chosen yet.
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
       attempt (2026-09-16) failed at the 32 GiB step; the sequence was fixed in
       `gpu-rebar.sh` (PR #24) and passed a manual `systemctl restart`, but the

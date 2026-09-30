@@ -1,0 +1,19 @@
+---
+# LoadBalancer through k3s ServiceLB (klipper): answers on :8080 at every node
+# address, same mechanism transcribe's :8000 and home-assistant's :8123 use.
+#
+# LAN-reachable on purpose, no auth -- matches transcribe/home-assistant. The
+# LLM tool harness on VM 105 (and any pod that needs it) reaches this at any
+# node IP; no dependency on where the tool-execution loop happens to run.
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: search
+spec:
+  type: LoadBalancer
+  selector:
+    app: searxng
+  ports:
+    - name: http
+      port: 8080
