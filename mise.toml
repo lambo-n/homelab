@@ -24,7 +24,7 @@ uv = "0.12.23"
 # PVE host-config layer (GITOPS.md "Scope: Flux manages the cluster, not the
 # hypervisor"). Runs from this VM by hand against .101 -- deliberately NOT
 # reconciled automatically, same reasoning as opentofu above.
-"pipx:ansible-core" = "2.21.4"
+"pipx:ansible-core" = "2.21.5"
 
 [env]
 KUBECONFIG = "{{config_root}}/kubeconfig"
