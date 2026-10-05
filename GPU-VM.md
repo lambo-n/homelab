@@ -70,7 +70,7 @@ user `llama`:
 
 | Preset | Model | Context (beside `fast`) |
 |---|---|---:|
-| `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 65,536 (cut from 81,920 on 2026-09-17 to leave room for `whisper-server` — see [`VOICE.md`](VOICE.md)) |
+| `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 65,536 (sized to leave room for `whisper-server` — see [`VOICE.md`](VOICE.md)) |
 | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | 262,144 (full) |
 | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone | ~195,072 (`sudo llm-mode agent` first — stops `llama-fast`) |
 
@@ -81,7 +81,7 @@ download time. Llama 3.1 8B Q8_0 is also downloaded but not wired into a
 preset today.
 
 **Access control:** every model role, every port answers `401` without an API
-key. Three keys exist in `/etc/llama/api-keys` (owner, cluster, agents), each a
+key, except `/health`, which answers `200` to anyone on the LAN. Three keys exist in `/etc/llama/api-keys` (owner, cluster, agents), each a
 64-character line generated with `openssl rand -hex 32`.
 
 **Firewall (`ufw` on the guest):** LAN-only. Port 22 open from anywhere
@@ -90,8 +90,10 @@ key. Three keys exist in `/etc/llama/api-keys` (owner, cluster, agents), each a
 (`192.168.50.102`), because routed tailnet traffic arrives as that address.
 The tailnet policy also grants nothing on `.107`
 ([`GITOPS.md`](GITOPS.md#tailscale-host)), so a routed device is refused
-twice. Port 9100
-(node-exporter) is open to the three k3s node IPs only.
+twice. Ports 9100
+(node-exporter) and 10200/10300 (Wyoming Piper and Whisper, for Home Assistant)
+are open to the three k3s node IPs only, so the dev VM cannot reach the Wyoming
+ports directly.
 
 ### Consumers
 
@@ -109,6 +111,55 @@ twice. Port 9100
   Known limits: no WebSearch/WebFetch (both call Anthropic's own servers), no
   MCP tool search on a non-first-party base URL, and any other machine using
   this needs its own copy of the wrapper and key since the API is LAN-only.
+
+### Tool calling
+
+`scripts/llm/tools/` gives the `llm` CLI two tools (all four presets are
+`supports_tools: true`): `web_search` (SearXNG in the cluster,
+[`GITOPS.md`](GITOPS.md) → *searxng*) and `fetch_url` (a page's readable text).
+Install both files together on the guest, and pass the file with `--functions`:
+
+```bash
+ssh llm mkdir -p .config/io.datasette.llm/tools
+```
+```bash
+scp scripts/llm/tools/{fetch,tools}.py \
+  llm:.config/io.datasette.llm/tools/
+```
+```bash
+llm -m fast --td \
+  --functions ~/.config/io.datasette.llm/tools/tools.py \
+  "Read https://example.com and give me its title"
+```
+
+| | |
+|---|---|
+| `SEARXNG_URL` | Defaults to `http://192.168.50.104:8080` (a node IP; the Service answers on all three) |
+| `LLM_TOOLS_DIR` | Where `tools.py` finds `fetch.py`; defaults to `~/.config/io.datasette.llm/tools` |
+| `fetch_url` limits | Public `http`/`https` only, 2 MiB read, `max_chars` clamped to 12,000 (`fast` has an 8,192-token window) |
+| OCR, code-exec | Not built; `BACKLOG.md` → *GPU / LLM VM* |
+
+> ⚠️ **`fetch_url` is an SSRF boundary, because the model picks the URL and a
+> fetched page can steer it.** `fetch.py` resolves the host and refuses it
+> (`blocked-address`) unless every address is globally routable, connects to the
+> address it checked, and re-checks each redirect hop. Loopback, the LAN, the
+> k3s nodes and cloud metadata addresses are therefore unreachable through it.
+> Keep that property if you change the fetcher.
+
+> ⚠️ **`llm --functions` registers every public callable in the file.**
+> `tools.py` exposes exactly `web_search` and `fetch_url`; everything else is
+> underscore-prefixed and uses `import x`, never `from x import y`, or the
+> import would become a tool. The file is `exec`'d without `__file__`, so it
+> cannot import a sibling module by relative path.
+
+**Checking it** — `python3 -m unittest discover -s scripts/llm/tools` passes
+with no network. Then, on the guest:
+
+| Command | Healthy |
+|---|---|
+| the `llm … --functions` call above | a `Tool call: fetch_url(...)` line, then a title of "Example Domain" |
+| same, asking it to read `http://192.168.50.104:8123/` | `error: "blocked-address: 192.168.50.104"` in the tool result |
+| `curl 'http://192.168.50.104:8080/search?q=test&format=json'` | JSON with a non-empty `results` array |
 
 ### Observability
 
