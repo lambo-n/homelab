@@ -44,6 +44,13 @@ custom "Hey Doofus" wake word. See [`VOICE.md`](VOICE.md).
       conversation agent once real entities exist — off today because the 4B
       model burns through HA's tool-iteration cap calling `GetLiveContext`
       with nothing exposed yet.
+- [ ] **Track the `wyoming-whisper` patch and alert on STT failures.** The
+      bridge (`/opt/wyoming/whisper-api/wyoming_whisper_api_client/handler.py`
+      on VM 105) is patched in place to return an empty transcript when
+      `whisper-proxy` answers non-200, instead of dying; the patch is not in
+      this repo and a reinstall of the package would drop it. Copy the
+      handler under `scripts/voice/` and deploy it from there, and alert on
+      non-200 from the proxy so a silent satellite shows up in Grafana.
 - [ ] **V5, deferred** — an LVGL status display, a CPU-only STT fallback for
       when VM 105 is off, and Prometheus metrics on the pipeline. Each measured
       against the V3e heap baseline.

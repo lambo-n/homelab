@@ -48,7 +48,9 @@ def write_metrics(up, last_seconds=None, sycl=None):
 
 class Proxy(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        if self.path != "/inference":
+        # wyoming-whisper posts to /inference?temperature=...; match the path
+        # alone and forward the query string upstream unchanged.
+        if self.path.split("?", 1)[0] != "/inference":
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length", 0))
