@@ -12,13 +12,7 @@ objects in a bucket; only this file proves those objects reconstruct a database.
 Runs entirely against the Kubernetes API from the dev VM. Nothing here touches
 `.101`, and nothing here writes to the live `sunfire` namespace.
 
-> ✅ **Unblocked 2026-09-04.** Every precondition in §0 now holds: the CNPG cluster
-> is healthy, `ContinuousArchiving=True`, and a completed base backup plus four
-> WAL segments sit in `s3://sunfire-postgres-backups/`. The drill's PVC lands on
-> the 64 GiB zvol (62 GiB free), not the root disk.
->
-> Run this **before** PostgREST is cut over to the new cluster. While the old
-> `postgres` Deployment is still authoritative, a failed drill costs nothing.
+> The §0 preconditions hold when the CNPG cluster is healthy, `ContinuousArchiving=True`, and a completed base backup plus WAL segments sit in `s3://sunfire-postgres-backups/`. The drill's PVC lands on the 64 GiB zvol, not the root disk, and nothing here writes to the live `sunfire` namespace.
 
 ---
 
@@ -200,10 +194,7 @@ Expected: `rolcanlogin` true for `authenticator` only, `rolinherit` false for
 into a shell variable — do not paste it into a command line that lands in
 history.
 
-> ℹ️ Earlier revisions said `kubectl exec` was refused by the assistant's
-> tooling and made this section owner-only. That is no longer true (AGENTS.md
-> rule 3): either of you can run it. Keep `$PW` out of shell history and out of
-> any output either way.
+> ℹ️ Either of you can run this (AGENTS.md rule 3). Keep `$PW` out of shell history and out of any output.
 
 ## 5. PITR — the thing base backups alone cannot do
 

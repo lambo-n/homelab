@@ -1,0 +1,21 @@
+# Overrides only -- use_default_settings pulls in the image's full default
+# engine list so this doesn't need to track upstream's engine catalog.
+use_default_settings: true
+
+general:
+  instance_name: "search"
+
+server:
+  # secret_key comes from the SEARXNG_SECRET env var (Secret `searxng`, SOPS).
+  # No redis in this namespace to back the limiter -- single caller (the LLM
+  # tool harness), not a public instance.
+  limiter: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  # json is what the web_search/fetch tools consume; html keeps the UI usable
+  # for a human sanity check from a browser.
+  formats:
+    - html
+    - json

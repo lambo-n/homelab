@@ -21,6 +21,7 @@ Three rules carry most of the weight:
 | `GITOPS.md` | One section per tool: *Config at a glance* table, gotchas as ⚠️ callouts, how to check it. *Cross-cutting decisions* and *Explicitly rejected* hold decisions and their current rationale | How a decision was reached |
 | `BACKLOG.md` | Open items only, each with what it waits on and where context lives | Finished items; delete them, don't tick them |
 | `GPU-VM.md`, `VOICE.md`, `SANOID.md`, `SAS-STORAGE.md`, `HARDWARE.md`, `HOST-MONITORING.md` | Current state of things outside Flux; these docs *are* the record | Build logs |
+| `tofu/README.md`, `ansible/README.md` | How to operate that layer: tokens and where they live, the import/apply sequence, gotchas | Dated narrative of the first apply; that goes in `archive/` |
 | `runbooks/` | Procedures meant to be re-run (restore drill, snapshot check) | One-off procedures once done |
 | `archive/` | History: build logs, incidents, migrations, how decisions were reached, dated verification runs. See `archive/README.md` | Anything a reader needs to operate today |
 | `AGENTS.md` | Rules for assistants working here | Cluster facts that belong in README/GITOPS |

@@ -96,3 +96,38 @@ venv.
 - Persona: on one of two runs, "capital of Australia" got a refusal ("look it
   up yourself") instead of the answer. If that keeps happening, add "always
   answer simple questions, even while complaining" to the instructions.
+
+## 2026-10-05 — the build checklist, final state
+
+> Moved from `VOICE.md` → *Checklist* in the 2026-10-05 docs pass, as it stood.
+
+## Checklist
+
+- [x] V1 — speech services on VM 105 (whisper-server, Wyoming bridges,
+      `qwen27` cut to 65,536 context) — full log in
+      [`archive/VOICE-BUILD-V1.md`](VOICE-BUILD-V1.md)
+- [x] V2 — `voice-db` + Home Assistant deployed and onboarded, Wyoming entries
+      added, "Doofus" pipeline created
+- [x] V3a/V3b — firmware secrets generated, config validated and compiled
+      (Wi-Fi password rotated 2026-09-19)
+- [x] V3c/V3d — flashed 2026-09-19, adopted in HA at `192.168.50.70`
+- [x] V3d leftover — DHCP reservation for `192.168.50.70` confirmed
+- [x] V3e — memory baseline: idle 216,164 B, conversation trough 206,956 B
+- [x] V0 — audio wiring corrected to Waveshare's official examples (ES7210 +
+      ES8311, shared I2S bus, GPIO15 amp enable)
+- [x] V1f leftover — `chat` and `qwen27-agent` hold up beside `whisper-server`:
+      no allocation failures, whisper transcription unaffected — full log in
+      [`archive/VOICE-BUILD-V1.md`](VOICE-BUILD-V1.md)
+- [x] V4 — conversation agent wired to `llama-fast`, tuned, pipeline-tested
+      without hardware — full log in
+      [`archive/VOICE-BUILD-V2-V4.md`](VOICE-BUILD-V2-V4.md)
+- [x] V4 leftover — end-to-end wake → reply latency on the real device:
+      acceptable in real use
+- [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.93)
+- [x] V5 leftover — real-world false wakes: none over several days at 0.97
+- [ ] V5 — wake-word recall on real voices: judge cutoff 0.93 after a few
+      days of use (see *Wiring it in*)
+- [ ] V5 — display, STT fallback, metrics (deferred)
+- [x] V1g — pitched voice `en_US-norman-medium_x0.8`, as a custom Piper
+      voice (`.onnx.json` rate + length_scale), is the Doofus assistant's
+      voice (2026-09-18)
