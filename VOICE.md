@@ -2,15 +2,13 @@
 
 A Waveshare **ESP32-S3-Touch-LCD-1.85C-BOX** (360×360 round LCD, mic,
 speaker box) listens for the wake word **"Hey Doofus" on the device** and
-hands everything after that to the homelab. Scaffolded 2026-09-17 (PR #32,
-merged).
+hands everything after that to the homelab.
 
-**Status 2026-09-19: working end to end.** V1 (speech services on VM 105), V2
-(Home Assistant + `voice-db` in k3s) and V4 (the conversation agent) are live.
-V3: the board is flashed and adopted at `192.168.50.70`, runs the custom
-"Hey Doofus" wake word, and answers aloud through the Doofus pipeline. The
-audio only worked once it followed Waveshare's real wiring (V0). Open items
-are in the checklist.
+**Working end to end.** V1 (speech services on VM 105), V2 (Home Assistant +
+`voice-db` in k3s) and V4 (the conversation agent) are live. V3: the board is
+flashed and adopted at `192.168.50.70`, runs the custom "Hey Doofus" wake word,
+and answers aloud through the Doofus pipeline. The audio works because it follows
+Waveshare's official wiring (V0). Open items are in [`BACKLOG.md`](BACKLOG.md).
 
 ## Decisions
 
@@ -160,19 +158,11 @@ json.dump(d, open("en_US-norman-medium_x0.8.onnx.json", "w"), indent=2)'
 caches the voice list: reload the `piper` Wyoming integration (Settings →
 Devices & services → piper → Reload), then pick the voice on the assistant.
 
-**Verified 2026-09-18, through HA** (`/api/tts_get_url` on `tts.piper`): median
+**Checking it,** through HA (`/api/tts_get_url` on `tts.piper`): median
 F0 95 Hz for plain Norman and 77 Hz for this voice (0.81×), at similar length
 (3.87 s and 4.18 s; Piper varies ~0.6 s between runs of one sentence), and
 `whisper-server` transcribed it word for word. Samples before choosing:
 Norman stays intelligible to ×0.7 and garbles at ×0.6; `ryan-low` holds to ×0.6.
-
-**Superseded:** commit `9e49e7b` did the same with a Wyoming proxy on `:10201`
-that ran the audio through ffmpeg `asetrate`+`atempo`. It was deployed for an
-hour and removed the same day (service, script, ufw rules, HA entry, and
-the `ffmpeg` apt install it needed: exactly the 172 packages of that one
-transaction, purged by list, nothing older touched): the
-time-stretch can sound processed, and it was a second service and port for
-what one config file does. The code is in git history.
 
 ### Home Assistant + `voice-db` in k3s (V2)
 
@@ -245,7 +235,7 @@ table: [`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md).
 
 ### V3 — Firmware
 
-**V3a. Secrets — done 2026-09-17.** Four keys in `esphome/secrets.sops.yaml`:
+**V3a. Secrets.** Four keys in `esphome/secrets.sops.yaml`:
 `wifi_ssid`, `wifi_password`, and `api_encryption_key` (32 random bytes,
 base64). OTA has no password; it inherits the API key. The API key was
 generated **straight into** the file so it was never printed; SSID
@@ -270,7 +260,7 @@ sops set esphome/secrets.sops.yaml \
 )
 ```
 
-**V3b. Validate and compile — done 2026-09-17.** Compiled clean: RAM 32.8%
+**V3b. Validate and compile.** Compiled clean: RAM 32.8%
 (111,959 / 341,760 B), flash 13.2%. Needed `python3.12-venv` on the dev VM
 (ESPHome builds an ESP-IDF 5.5.5 venv). `scripts/esphome-run.sh` originally
 assumed PlatformIO's `.pioenvs/` output path; ESPHome 2026.9 builds with
@@ -282,7 +272,7 @@ cd ~/homelab
 scripts/esphome-run.sh config
 ```
 
-**V3c. First flash over USB (workstation) — done 2026-09-19.** The dev VM has no USB. Build the
+**V3c. First flash over USB (workstation).** The dev VM has no USB. Build the
 factory image into a private directory, move it with `scp -3`, and flash it
 from the browser:
 
@@ -299,7 +289,7 @@ From the workstation, run `scp -3 dev:fw/firmware.factory.bin .`, open
 contains the Wi-Fi password and API key.** Delete it on both machines after
 flashing (`rm -rf ~/fw` on dev).
 
-**V3d. Adopt in HA — done 2026-09-19** (`192.168.50.70`, reserved in the
+**V3d. Adopt in HA** (`192.168.50.70`, reserved in the
 router's DHCP):
 
 1. Find the board's IP (router DHCP table) and reserve it (V0).
@@ -312,7 +302,7 @@ Later updates go over the air from the dev VM:
 `scripts/esphome-run.sh run --no-logs --device 192.168.50.70`. (`upload` alone has
 nothing to send: the script's build tree lives only for one run.)
 
-**V3e. Memory baseline (the point of the lean build) — done 2026-09-19.** Record the
+**V3e. Memory baseline (the point of the lean build).** Record the
 `Heap Free`, `Heap Max Block` and `PSRAM Free` sensors in HA at three moments:
 idle, while the wake word is listening, and during a reply. **Every later
 component is added one at a time and compared against these.** If the device
@@ -320,7 +310,7 @@ crashes, get a backtrace with ESPHome's Troubleshooting guide
 (`scripts/esphome-run.sh logs --device …` streams logs over the API; a crash
 backtrace over serial needs the workstation, since the dev VM has no USB).
 
-**Results, 2026-09-19 (hardware):**
+**Results (hardware):**
 - V3c: the factory image was rebuilt on dev from `5fea582` (stock
   `okay_nabu`) after the Wi-Fi password changed (`2feb374`); flashed from
   web.esphome.io; the `.bin` deleted on dev.
@@ -367,12 +357,12 @@ is needed.
 - **Metrics.** HA's `prometheus` integration needs a long-lived token, so it
   can only be added after onboarding. Scrape it and add per-stage pipeline
   latency to Grafana.
-- **Custom wake word** "Hey Doofus": done 2026-09-19, below.
-- **Volume on the screen**: done 2026-09-20. Slide a finger up or down
+- **Custom wake word** "Hey Doofus": see below.
+- **Volume on the screen.** Slide a finger up or down
   anywhere to set the media player's volume; a bar and percentage show while
   dragging and fade 1.5 s after release. Under 25 px of travel is still a tap,
   so tap/long-press are unchanged; 260 px covers the full range.
-- **Touch and announcements**: done 2026-09-19. Touch (CST816T): tap to
+- **Touch and announcements.** Touch (CST816T): tap to
   talk or stop, hold for 0.8 s or longer to toggle Mic Mute. An announce-only
   `media_player` (WAV, PSRAM buffers; heap about 203 KB free, down about 5 KB)
   gives the satellite `assist_satellite.announce`, and HA scripts
@@ -509,7 +499,7 @@ a second always-running inference and its own tensor arena.
 
 `scripts/esphome-run.sh` copies `esphome/wake_words/` into its tmpfs build
 directory beside the YAML, since ESPHome resolves the local manifest path
-relative to it. Pushed 2026-09-19 together with the audio fix (the stock
+relative to it. Shipped together with the audio fix (the stock
 build's mic was dead, so its baseline was moot); it wakes at 0.98 average
 probability. To update:
 
@@ -539,37 +529,6 @@ recall at every cutoff. If false wakes appear, go back up to 0.95. If misses
 persist, the fix is retraining with real recordings of the owner as
 positives (`~/mww-hey-doofus`), not a cutoff far below 0.90, where
 hard-negative false accepts climb.
-
-## Checklist
-
-- [x] V1 — speech services on VM 105 (whisper-server, Wyoming bridges,
-      `qwen27` cut to 65,536 context) — full log in
-      [`archive/VOICE-BUILD-V1.md`](archive/VOICE-BUILD-V1.md)
-- [x] V2 — `voice-db` + Home Assistant deployed and onboarded, Wyoming entries
-      added, "Doofus" pipeline created
-- [x] V3a/V3b — firmware secrets generated, config validated and compiled
-      (Wi-Fi password rotated 2026-09-19)
-- [x] V3c/V3d — flashed 2026-09-19, adopted in HA at `192.168.50.70`
-- [x] V3d leftover — DHCP reservation for `192.168.50.70` confirmed
-- [x] V3e — memory baseline: idle 216,164 B, conversation trough 206,956 B
-- [x] V0 — audio wiring corrected to Waveshare's official examples (ES7210 +
-      ES8311, shared I2S bus, GPIO15 amp enable)
-- [x] V1f leftover — `chat` and `qwen27-agent` hold up beside `whisper-server`:
-      no allocation failures, whisper transcription unaffected — full log in
-      [`archive/VOICE-BUILD-V1.md`](archive/VOICE-BUILD-V1.md)
-- [x] V4 — conversation agent wired to `llama-fast`, tuned, pipeline-tested
-      without hardware — full log in
-      [`archive/VOICE-BUILD-V2-V4.md`](archive/VOICE-BUILD-V2-V4.md)
-- [x] V4 leftover — end-to-end wake → reply latency on the real device:
-      acceptable in real use
-- [x] V5 — "Hey Doofus" v2 on the device (cutoff 0.93)
-- [x] V5 leftover — real-world false wakes: none over several days at 0.97
-- [ ] V5 — wake-word recall on real voices: judge cutoff 0.93 after a few
-      days of use (see *Wiring it in*)
-- [ ] V5 — display, STT fallback, metrics (deferred)
-- [x] V1g — pitched voice `en_US-norman-medium_x0.8`, as a custom Piper
-      voice (`.onnx.json` rate + length_scale), is the Doofus assistant's
-      voice (2026-09-18)
 
 ## Related
 

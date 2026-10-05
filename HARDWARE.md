@@ -40,10 +40,8 @@ This file is the one place that records the metal.
 | Created | 2026-09-09 |
 | Filled in | 2026-09-09, host console |
 | Physical devices recorded | **9 disks + 1 zvol, all identified**; 1 GPU, Intel Arc Pro B70 (2026-09-15) |
-| Free bays / unused devices | **1 × 1.92 TB SATA SSD, unallocated** (`sdf`); `sde` became `llm-pool` 2026-09-16 |
+| Free bays / unused devices | **1 × 1.92 TB SATA SSD, unallocated** (`sdf`); `sde` is `llm-pool` |
 | Still unknown | BOSS mirror health; empty bay count |
-| ~~Live hazard~~ | ✅ **Resolved 2026-09-09** — `/mnt/sas{1,2,3}` unmounted, fstab entries removed, host rebooted clean |
-
 ---
 
 ## The host
@@ -100,10 +98,10 @@ Key architectural findings confirmed 2026-09-09:
 
 ## GPU — Intel Arc Pro B70, installed 2026-09-15
 
-Installed with a full power cycle of the homelab. Everything below is from the
-host console the same day (`lspci -nnk`, `dmesg`, `/sys/kernel/iommu_groups`).
-**Attached to VM 105 (`llm`, `192.168.50.107`) since 2026-09-16**, whole card via the `arc-b70` mapping. No k3s node sees it. Planned: whole
-card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.md).
+Everything below is from the host console (`lspci -nnk`, `dmesg`,
+`/sys/kernel/iommu_groups`). The whole card is attached to VM 105 (`llm`,
+`192.168.50.107`) via the `arc-b70` mapping, and no k3s node sees it. Models are
+on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.md).
 
 | | | Source |
 |---|---|---|
@@ -111,7 +109,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
 | Address | `53:00.0` — Intel Battlemage G21 `[8086:e223]`, subsystem **ASRock** `[1849:6025]` | `lspci -nnk` |
 | Siblings | bridges `51:00.0` `[8086:e2ff]`, `52:01.0` `[8086:e2f0]`, `52:02.0` `[8086:e2f1]`; audio `54:00.0` `[8086:e2f7]` | `lspci -nn` |
 | VRAM | **32 GiB** physical (`0x800000000`); **31.89 GiB usable** (`0x7f9000000`, 32 GiB − 112 MiB stolen), confirmed in VM 105. CPU-visible: **all 31.89 GiB with full ReBAR** (`CPU accessible size 0x7f9000000`, 2026-09-16, [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) D). The firmware default is 256 MiB (`0x10000000`, small BAR); `gpu-rebar.service` resizes it at host boot. Small BAR limits CPU visibility, not what fits in VRAM | `dmesg` (host 2026-09-15; guest `xe` 2026-09-16) |
-| Host driver | **`vfio-pci`** since 2026-09-16 (both `53:00.0` and `54:00.0`, bound in the initramfs). Was `xe` in SR-IOV PF mode. | `lspci -nnk`, 2026-09-16 |
+| Host driver | **`vfio-pci`** (both `53:00.0` and `54:00.0`, bound in the initramfs) | `lspci -nnk`, 2026-09-16 |
 | Resizable BAR capability | **Present.** `Physical Resizable BAR`, BAR 2 current 256MB, **supported 256MB – 32GB**; also a `Virtual Resizable BAR` (SR-IOV VFs) | `lspci -vvv`, 2026-09-16 |
 | BIOS MMIO | *Memory Mapped I/O above 4 GB* **Enabled** (already); *Memory Mapped I/O Base* **56 TB** (was 12 TB) | owner at POST, 2026-09-16 |
 | PCIe windows | Root port `50:02.0` → switch `51:00.0` → ports `52:01.0` (GPU) / `52:02.0` (audio). Prefetchable: root port **72G**, switch and GPU port **64G**; root bus `0000:50` 64-bit aperture `220000000000-22ffffffffff` = **1 TiB**. Nothing else under the root port | `lspci -vv`, `/proc/iomem`, 2026-09-16 |
@@ -154,15 +152,7 @@ card to one LLM VM, models on `sde` as `llm-pool` — see [`GPU-VM.md`](GPU-VM.m
   itself (`gpu-rebar.service`, with the card held by `vfio-pci`; a bound `xe` makes
   the kernel refuse). What blocked the OS resize was the BIOS-enabled SR-IOV
   reservation, not a refusal — see [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) Phase D.
-- 🔴 **Passthrough with ATS enabled hard-locks the host.** First `qm start 105`
-  on 2026-09-16: after `vfio-pci` reset the card, VT-d Device-TLB invalidations
-  to `53:00.0` timed out (`DMAR: … Invalidation Time-out Error`, `QI PRIOR:
-  Device-TLB Invalidation qw0 = 0x5300530000000003`), and 45 s later
-  `watchdog: CPU13: Watchdog detected hard LOCKUP`. The whole host was down until
-  a power cycle. **Fixed by `pci=noats`**, verified 2026-09-16 02:16 PDT: same
-  reset sequence, no Device-TLB timeouts, `ATSCtl: Enable-` with the VM running,
-  and the guest booted ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) C2a). Removing that parameter
-  brings the lockup back.
+- 🔴 **Passthrough with ATS enabled hard-locks the host, so the host runs with `pci=noats`.** After `vfio-pci` resets the card, VT-d Device-TLB invalidations to `53:00.0` time out (`DMAR: … Invalidation Time-out Error`), and about 45 s later `watchdog: CPU13: Watchdog detected hard LOCKUP`; the host stays down until a power cycle. With `pci=noats` the same reset sequence shows no Device-TLB timeouts and `ATSCtl: Enable-` while the VM runs. Removing that parameter brings the lockup back ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) C2a).
 - ℹ️ `Cannot find any crtc or sizes` is only because no monitor is plugged in.
 
 ---
@@ -287,8 +277,8 @@ diverged:
 | | `…150584Y` (`sde`) | `…1505850` (`sdf`) |
 |---|---|---|
 | Size | 1.75 TiB (1.92 TB) | 1.75 TiB (1.92 TB) |
-| State | **`llm-pool`** since 2026-09-16 — single-disk ZFS, no redundancy, VM 105's model weights ([`GPU-VM.md`](GPU-VM.md)) | **free** — not in any pool, not mounted, not in `pvesm status` |
-| Residue | partition table wiped 2026-09-16 before `zpool create` | still carries `part1` + `part9` — the ZFS data + 8 MiB reserved pair, left from the raidz2 |
+| State | **`llm-pool`** — single-disk ZFS, no redundancy, VM 105's model weights ([`GPU-VM.md`](GPU-VM.md)) | **free** — not in any pool, not mounted, not in `pvesm status` |
+| Residue | partition table wiped before `zpool create` | still carries `part1` + `part9` — the ZFS data + 8 MiB reserved pair, left from the raidz2 |
 
 `sdf` alone is the additive, non-disruptive capacity available today with no
 purchase and no migration: 1.75 TiB with no redundancy, or a replacement member

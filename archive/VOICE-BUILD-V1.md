@@ -264,3 +264,15 @@ simpler, and the tradeoff — reachability/device panels go stale between real
 uses instead of refreshing every 30 s — was accepted as fine for a
 personal-use voice assistant. Current state: [`../VOICE.md`](../VOICE.md) →
 *What's running today*, [`../GPU-VM.md`](../GPU-VM.md) → *Observability*.
+
+## 2026-09-18 — the ffmpeg pitch proxy, superseded by a custom Piper voice
+
+> Moved from `VOICE.md` → *Pitched voice* in the 2026-10-05 docs pass, as it stood.
+
+**Superseded:** commit `9e49e7b` did the same with a Wyoming proxy on `:10201`
+that ran the audio through ffmpeg `asetrate`+`atempo`. It was deployed for an
+hour and removed the same day (service, script, ufw rules, HA entry, and
+the `ffmpeg` apt install it needed: exactly the 172 packages of that one
+transaction, purged by list, nothing older touched): the
+time-stretch can sound processed, and it was a second service and port for
+what one config file does. The code is in git history.

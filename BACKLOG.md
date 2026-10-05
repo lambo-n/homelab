@@ -21,14 +21,14 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## GPU / LLM VM
 
-- [ ] **Tool-calling harness for `chat`/`fast` (search, fetch, OCR, code-exec).**
-      A SearXNG-backed `web_search` tool, plus a paired `fetch` tool (read a
-      URL's full text) for the router presets, both `supports_tools: true`
-      already (`scripts/llm/extra-openai-models.yaml`). A CPU-only OCR tool
-      (Tesseract), called only when `fetch` hits a PDF/image response rather
-      than text, so it never competes with `chat`+`fast`+whisper for the
-      card's ~2.2 GiB of free VRAM. A sandboxed code-exec tool for
-      `qwen27-agent` is undecided — no sandbox mechanism chosen yet.
+- [ ] **Finish the tool-calling harness (OCR, code-exec).** `web_search` and
+      `fetch_url` exist (`GPU-VM.md` → *Tool calling*). Still to build: a
+      CPU-only OCR tool (Tesseract), called only when `fetch_url` returns
+      `unsupported-content-type` for a PDF/image, so it never competes with
+      `chat`+`fast`+whisper for the card's ~2.2 GiB of free VRAM; and a
+      sandboxed code-exec tool for `qwen27-agent`, with no sandbox mechanism
+      chosen yet. Also still to do: install the tools on the guest and
+      confirm `web_search` end to end once SearXNG is running.
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
       attempt (2026-09-16) failed at the 32 GiB step; the sequence was fixed in
       `gpu-rebar.sh` (PR #24) and passed a manual `systemctl restart`, but the
@@ -39,9 +39,8 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Voice assistant — leftovers
 
-**Working end to end since 2026-09-19.** V0–V5 are done except the items below;
-the satellite is flashed, adopted at `192.168.50.70`, and answering on the
-custom "Hey Doofus" wake word. See [`VOICE.md`](VOICE.md).
+**Working end to end.** The satellite is flashed, adopted at `192.168.50.70`, and answering on the
+custom "Hey Doofus" wake word; the items below are what is left. See [`VOICE.md`](VOICE.md).
 
 - [ ] **Judge the wake word at `probability_cutoff: 0.93`** after a few days
       of real use. It runs at 0.93 because 0.97 gave zero false wakes but often

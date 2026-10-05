@@ -8,14 +8,7 @@ circular dependency on a single host.
 **Applies are run by hand from this VM, never from inside the cluster.** State is
 local and gitignored; it is backed up with this VM.
 
-> **Applied 2026-09-04. State is real.** `serial: 4`, two managed resources —
-> `cloudflare_dns_record.minio_api` and `cloudflare_dns_record.db`. Both were
-> imported from the live zone rather than created, and the apply that moved
-> `var.tunnel_id` to `1ac59ce2-15bb-46df-967f-caa8b05881f7` is what cut live
-> traffic onto the locally-managed tunnel.
->
-> **Only Proxmox is left**, and it needs a token this operator can issue
-> themselves. Skip to "Proxmox" at the bottom.
+> **Managed here:** the two Cloudflare DNS records (`cloudflare_dns_record.minio_api` and `.db`, imported from the live zone rather than created) and all six Proxmox guests. `var.tunnel_id` moves both records between tunnels.
 
 ## What this directory does and does not own
 
@@ -26,12 +19,12 @@ local and gitignored; it is backed up with this VM.
 | Tunnel credentials | Flux, SOPS-encrypted | a cluster secret, not an edge object |
 | Ingress routing | Flux, `cloudflared/app/configmap.yaml` | the entire point of the local-management conversion |
 | MinIO CORS Transform Rule | **nobody — delete it** | vestigial; no browser addresses that hostname. See "The CORS rule" below |
-| Proxmox guests | **tofu, read-only** | all five imported 2026-09-04, `0 to change, 0 to destroy`; each carries `prevent_destroy` |
-| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply 2026-09-16 (`proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
+| Proxmox guests | **tofu, read-only** | all five imported, `0 to change, 0 to destroy`; each carries `prevent_destroy` |
+| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply (`proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
 
 ## The Cloudflare token — kept out of disk, so re-created when needed
 
-The token used on 2026-09-04 was exported into one shell and never written
+The Cloudflare token is exported into one shell and never written
 anywhere (`read -rs`, per below). That is deliberate and it has a cost: a future
 Cloudflare apply needs the token again — either the same one, if it was put in
 LastPass afterwards, or a fresh one made the same way.
@@ -84,7 +77,7 @@ read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
 `read -rs` keeps it out of shell history — **but only if that line is typed and
 run by itself.** Pasted as part of a multi-line block, `read` consumes the *next
 pasted line* as its value, and the secret you paste afterwards executes as a
-command instead (hit 2026-09-16). Run the `read` line alone, paste at the prompt,
+command instead. Run the `read` line alone, paste at the prompt,
 then check the variable's prefix before using it. The provider reads
 `CLOUDFLARE_API_TOKEN` natively, so nothing needs to go in `terraform.tfvars`.
 
@@ -102,8 +95,7 @@ permission, not a bad token.
 ## Running a Cloudflare apply now
 
 The zone id and both record ids are already in the config
-(`variables.tf`, `cloudflare-dns.tf`); the discovery `curl`s that used to live
-here are done. With the token exported:
+(`variables.tf`, `cloudflare-dns.tf`); the discovery `curl`s are done. With the token exported:
 
 ```bash
 tofu plan     # must be "No changes." unless you changed something on purpose
@@ -118,9 +110,8 @@ The one deliberate change this directory exists to make:
 
 - **Moving traffic between tunnels** — set `var.tunnel_id` and apply. Both
   records' `content` derives from it, so a single apply re-points both
-  hostnames. That is exactly how the 2026-09-04 cutover was done, and it is the
-  rollback path too: the old tunnel id is recorded in `variables.tf`, though the
-  old tunnel itself has since been deleted.
+  hostnames. That is how traffic moved to the locally-managed tunnel. The old tunnel
+  is deleted, so this is not a rollback path.
 
 Verify from outside afterwards with the Worker, **not with `curl`**: both
 hostnames return `HTTP 403` to anything without the Access service token,
@@ -130,8 +121,8 @@ the full status-code decoder.
 ## The CORS rule
 
 `GITOPS.md` listed "MinIO CORS handled by a Cloudflare Transform Rule" as a
-clickops gap. **Resolved 2026-09-04: the rule is vestigial — delete it in the
-dashboard rather than codify it here.** Nothing about it belongs in tofu, so
+clickops gap. **The rule is vestigial — delete it in the dashboard rather than
+codify it here.** Nothing about it belongs in tofu, so
 there is no resource and no `.example` for it.
 
 The evidence, in the app repo:
@@ -150,7 +141,7 @@ And even if something did try: Access rejects a browser at the edge for want of
 the service token, so the rule's response headers could never be exercised.
 
 
-## Gotchas hit on the first real apply (2026-09-04)
+## Gotchas
 
 All five are provider- or API-side, and all are recorded because the next person
 will hit them identically.
@@ -159,7 +150,7 @@ will hit them identically.
 imported fine and then failed its update with `PATCH … 404 {"code":1002,"message":
 "Tunnel not found"}` — on a tunnel it had read seconds earlier. Nothing declared
 on it differed from reality, so it attempted a write for computed drift alone.
-It is no longer in this config. If it is still in your state from an earlier
+It is not in this config. If it is still in your state from an earlier
 run, `tofu state rm cloudflare_zero_trust_tunnel_cloudflared.sunfire` — removing
 a resource from config while it remains in state makes the next plan propose
 **destroying** it, and the `prevent_destroy` guard leaves with the block.
@@ -200,7 +191,7 @@ edge's serving config.
 
 ## Proxmox
 
-**Done 2026-09-04 — all five guests, clean plan.** It took two passes: the LXC
+**All five imported guests plan clean.** It takes two passes: the LXC
 imported under `PVEAuditor`, the four VMs needed one extra privilege, granted
 briefly and revoked. The `pveum` commands below can be run over SSH from the
 dev VM (`ssh pve-hostconfig`, the key added for the Ansible host-config layer
@@ -260,11 +251,10 @@ pveum acl delete / --tokens "$T" --roles TofuDisk
 pveum acl delete / --users tofu@pve --roles TofuDisk
 ```
 
-⚠️ **Grant it to the token as well as the user** *(since 2026-09-16)*. `!import`
-has been `--privsep 1` since then (below), so its rights are the *intersection*
+⚠️ **Grant it to the token as well as the user.** `!import` is
+`--privsep 1` (below), so its rights are the *intersection*
 of its own ACL and the user's. A grant on the user alone still fails with
-`403 Permission check failed (/vms/103, VM.Config.Disk)`, which is exactly what
-the first attempt at the 2026-09-21 worker1 refresh hit.
+`403 Permission check failed (/vms/103, VM.Config.Disk)`.
 
 Stacking beats editing the base role: the revoke removes one narrow grant rather
 than re-asserting a broad one, and it is checkable from here without SSH —
@@ -299,29 +289,11 @@ token's braces: it does not depend on the token being read-only at all.
 ```bash
 pveum user add tofu@pve --comment "OpenTofu, read-only (homelab/tofu)"
 pveum acl modify / --users tofu@pve --roles PVEAuditor
-pveum user token add tofu@pve import --privsep 0
+pveum user token add tofu@pve import --privsep 1
+pveum acl modify / --tokens 'tofu@pve!import' --roles PVEAuditor
 ```
 
-`--privsep 0` makes the token inherit the user's privileges — which were
-auditor-only at the time, so this was not a widening.
-
-> 🔴 **That stopped being safe on 2026-09-16.** `tofu@pve` has to gain write
-> roles on `/vms/105` and the storages for the `!llm` token to work at all — a
-> privsep token's rights are the **intersection** of its own ACLs and its user's,
-> so a token cannot exceed its user ([`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5). With
-> `--privsep 0`, `!import` would inherit every one of those write roles and stop
-> being read-only. ✅ **Done 2026-09-16** — switched to `--privsep 1` with its own
-> `PVEAuditor` grant at `/`, *before* the user was widened:
->
-> ```bash
-> pveum user token modify tofu@pve import --privsep 1
-> pveum acl modify / --tokens 'tofu@pve!import' --roles PVEAuditor
-> pveum user permissions 'tofu@pve!import' --path /vms/105   # audit only
-> ```
->
-> Verified afterwards: that last command returns the seven auditor privileges
-> only, although `tofu@pve` itself now holds `TofuVM` on `/vms/105`. Switching
-> the flag does **not** regenerate the secret, so the LastPass copy stays valid.
+> ⚠️ **`!import` is `--privsep 1` with its own `PVEAuditor` grant at `/`, and that is what keeps it read-only.** A privsep token's rights are the **intersection** of its own ACLs and its user's, so a token cannot exceed its user ([`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5). `tofu@pve` holds write roles on `/vms/105` and the storages so that the `!llm` token can work at all, and with `--privsep 0` `!import` would inherit every one of them. Audit it with `pveum user permissions 'tofu@pve!import' --path /vms/105`: it returns the seven auditor privileges only, although `tofu@pve` itself holds `TofuVM` there. Switching the flag does **not** regenerate the secret, so the LastPass copy stays valid.
 
 The `token add` command prints the secret **once**; it is a UUID, and the
 provider wants it joined to the token's full name.
@@ -354,8 +326,7 @@ curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
   | jq -r '.data[] | "\(.type)\t\(.vmid)\t\(.node)\t\(.name)"' | sort
 ```
 
-Import IDs are `<node>/<vmid>` for both kinds; the node is `pve`. As of
-2026-09-04 it returns exactly the five rows in the table above.
+Import IDs are `<node>/<vmid>` for both kinds; the node is `pve`. It returns exactly the five rows in the table above.
 
 ### The sequence — for the next guest, or to regenerate an existing body
 
@@ -420,14 +391,13 @@ separate credential — not a reason to widen this one.
 
 ## Where each credential lives
 
-Written 2026-09-15, after half an hour was spent looking for a Proxmox token
-that had never been stored anywhere. **Infra credentials go to LastPass and are
+**Infra credentials go to LastPass and are
 exported per shell. They are deliberately not in Infisical and not in SOPS.**
 
 | Credential | Lives in | Used as | Notes |
 |---|---|---|---|
-| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1` since 2026-09-16** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 ([`../archive/SAS-RECLAIM.md`](../archive/SAS-RECLAIM.md) §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
-| `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | Created 2026-09-16, `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping, the bridge, and `Sys.AccessNetwork` on `/nodes/pve` so the node can download the cloud image (the narrow alternative to `Sys.Modify`). See [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
+| `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1`** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 ([`../archive/SAS-RECLAIM.md`](../archive/SAS-RECLAIM.md) §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
+| `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping, the bridge, and `Sys.AccessNetwork` on `/nodes/pve` so the node can download the cloud image (the narrow alternative to `Sys.Modify`). See [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
 | Cloudflare API token | **Nowhere, by design** — re-created when needed (see "The Cloudflare token" above); put it in LastPass if you make one | `CLOUDFLARE_API_TOKEN` | Required scopes are above. **Only needed when a plan refreshes or changes the Cloudflare records.** A `-refresh=false` plan that leaves them untouched makes no Cloudflare API calls and runs without it (verified 2026-09-16; the import section below relies on the same fact). |
 | `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
 | Cluster-only secrets | **git**, as `*.sops.yaml` | Flux → k8s Secrets | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token. |
@@ -451,10 +421,9 @@ Providers are constrained in `versions.tf` and exactly pinned by
 tracks both.
 
 > ⚠️ **Renovate bumps the constraint; only `tofu init` refreshes the lock.**
-> Found 2026-09-15: `versions.tf` had been raised to `bpg/proxmox ~> 0.113` and
-> `cloudflare ~> 5.24`, but the lock still carried the 0.112 package and the old
-> cloudflare constraint line. The result is that **every tofu command fails
-> outright** on a fresh checkout or after a cache clear:
+> When `versions.tf` is raised (to `bpg/proxmox ~> 0.113` and `cloudflare ~> 5.24`,
+> say) but the lock still carries the old package (0.112) and constraint line,
+> **every tofu command fails outright** on a fresh checkout or after a cache clear:
 >
 > ```
 > Error: Required plugins are not installed

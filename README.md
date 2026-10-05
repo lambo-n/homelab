@@ -80,14 +80,7 @@ data, so the Worker offloads both here:
 Both hostnames are Cloudflare Access–gated and reached through an outbound-only
 tunnel — there is no port forwarding and no inbound firewall rule anywhere.
 
-> **History.** The original consumer was *Sun Clan Bingo*, decommissioned
-> 2026-09-02. MinIO and PostgreSQL were kept for the successor Worker and
-> everything was rebranded `bingo` → `sunfire`. That Worker is live.
->
-> ⚠️ Some standing decisions were sized for the gap between apps, when nothing
-> stored here had value. **Off-site backup has since been re-decided**: a monthly
-> restic copy to Backblaze B2, live and restore-tested since 2026-09-21. The one
-> shared Access service token is still as it was; see [`GITOPS.md`](GITOPS.md).
+> The standing decisions that follow from the data's value: **off-site backup** is a monthly restic copy to Backblaze B2, and the Worker environments share one Access service token on purpose. See [`GITOPS.md`](GITOPS.md).
 
 ---
 
@@ -130,29 +123,13 @@ a single failure domain and is the constraint behind most of the architecture.
 | Also on SATA | `llm-pool` — a single 1.92 TB SSD (`sde`), no redundancy, holding VM 105's model weights |
 | Unallocated | 1 × 1.92 TB SATA SSD (`sdf`), cold spare for `archive-pool` |
 
-*Host storage figures read from `pvesm status` on the host console 2026-09-09.
-The dev VM has no route to the pool, but capacities can be re-read over the
-Proxmox API on `:8006` — devices and controllers cannot.*
+*Host storage figures come from `pvesm status` on the host console. The dev VM
+has no route to the pool, but capacities can be re-read over the Proxmox API on
+`:8006` — devices and controllers cannot.*
 
-> ⚠️ **Corrected 2026-09-09.** This table read "LVM-thin on an **NVMe** RAID1
-> pair" until the devices were enumerated. It is neither NVMe nor an OS-level
-> RAID: it is a Dell BOSS-S2 card presenting two M.2 SATA SSDs as one
-> hardware-mirrored virtual disk. The distinction is operational, not pedantic —
-> **the OS cannot see the member disks**: no `/proc/mdstat` entry, no
-> `zpool status`, and `smartctl /dev/sda` reads the *virtual* disk. A failed half
-> of the boot mirror surfaces only in iDRAC or the BOSS CLI. Nothing here checks
-> either — node-exporter is a DaemonSet on the three k3s **nodes**, so the
-> Proxmox host is not scraped at all; [`HOST-MONITORING.md`](HOST-MONITORING.md)
-> is the plan to change that. See
-> [`HARDWARE.md`](HARDWARE.md#sda--local-lvm--the-boot-device-and-a-correction).
->
-> The same enumeration found **10.47 TiB of SAS SSD that this table never
-> mentioned** — three disks that previously carried bare ext4 filesystems with no
-> redundancy (reclaimed and wiped 2026-09-09 per [`archive/SAS-RECLAIM.md`](archive/SAS-RECLAIM.md)).
+> ⚠️ **`local-lvm` is not NVMe and not an OS-level RAID.** It is a Dell BOSS-S2 card presenting two M.2 SATA SSDs as one hardware-mirrored virtual disk. The distinction is operational, not pedantic — **the OS cannot see the member disks**: no `/proc/mdstat` entry, no `zpool status`, and `smartctl /dev/sda` reads the *virtual* disk. A failed half of the boot mirror surfaces only in iDRAC or the BOSS CLI, which nothing here checks. The host's own node-exporter and `smartctl_exporter` are scraped ([`HOST-MONITORING.md`](HOST-MONITORING.md)), but they see the virtual disk too. See [`HARDWARE.md`](HARDWARE.md#sda--local-lvm--the-boot-device-and-a-correction).
 
-> **Storage pool active 2026-09-09.** The three SAS SSDs are configured as
-> **`sas-pool`** in RAIDZ1 (6.85 TiB usable) on the Proxmox host under `sanoid`,
-> exported via Samba for single-user LAN-only access. See [`SAS-STORAGE.md`](SAS-STORAGE.md).
+> The three SAS SSDs are **`sas-pool`**, RAIDZ1 (6.85 TiB usable) on the Proxmox host under `sanoid`, exported via Samba for single-user LAN-only access. See [`SAS-STORAGE.md`](SAS-STORAGE.md).
 
 > **This table names no devices.** Models, capacities, serials, `by-id` paths,
 > free capacity and the controller topology are recorded in
@@ -193,10 +170,7 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 | SSH session logs (a daemon on the gateway, not Tailscale's recorder) | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
 | Personal storage / media | `sas-pool` | `/sas-pool/data`, native host RAIDZ1 under sanoid, exported via Samba (`[data]`) |
 
-> ⚠️ **Destroying or rebuilding `archive-pool` now takes `k3s-worker2`'s database
-> disk with it**, and pool work requires that VM stopped first. This retires an
-> invariant repeated across older revisions of these documents — *"no VM disk is on
-> ZFS"* — which stopped being true when PGDATA moved to a zvol.
+> ⚠️ **Destroying or rebuilding `archive-pool` takes `k3s-worker2`'s database disk with it** (PGDATA is a zvol on that pool), so pool work requires that VM stopped first.
 
 ### Network
 
@@ -320,7 +294,7 @@ diffs. Flux decrypts at apply time using an in-cluster key. This is what makes a
 cold start need no network beyond GitHub.
 → `.sops.yaml`, `*.sops.yaml`, `age.key` (gitignored)
 
-**Infisical** `v0.11.10` — system of record for the *other* class of secret: the
+**Infisical** `v0.11.11` — system of record for the *other* class of secret: the
 ones that must stay byte-identical between this cluster and two Cloudflare Worker
 environments. The operator materialises them into Kubernetes Secrets.
 → `kubernetes/apps/infisical/`, `kubernetes/apps/sunfire/infisical/`
@@ -344,12 +318,12 @@ Worker authenticates with a scoped service account that deliberately lacks
 `s3:ListBucket`.
 → `kubernetes/apps/sunfire/minio/`
 
-**CloudNativePG** `v1.30.0` operator, running PostgreSQL **16.15** as a
+**CloudNativePG** `v1.30.1` operator, running PostgreSQL **16.15** as a
 single-instance `Cluster`. Replaced a hand-rolled Deployment on 2026-09-04. One
 instance, not three — three replicas on one hypervisor is theatre.
 → `kubernetes/apps/cnpg-system/`, `kubernetes/apps/sunfire/postgres-cnpg/`
 
-**plugin-barman-cloud** `v0.15.0` — the CNPG backup plugin (separate from the
+**plugin-barman-cloud** `v0.15.1` — the CNPG backup plugin (separate from the
 operator since barman moved out of `spec.backup`). Archives WAL continuously and
 takes a daily base backup into MinIO. Proven by a restore drill, not by the
 backups reporting success.
@@ -384,7 +358,7 @@ klipper LoadBalancer on `:8123` directly. Any future LAN-only UI goes here rathe
 than on the tunnel.
 → ships with k3s, not managed here
 
-**OpenTofu** `1.12.6` — declares the two Cloudflare DNS records and all six
+**OpenTofu** `1.13.1` — declares the two Cloudflare DNS records and all six
 Proxmox guests. Runs **by hand from the dev VM, never from inside the cluster** —
 a reconciler that can delete the VMs it runs on is the failure mode this whole
 layer split exists to avoid.
@@ -392,9 +366,9 @@ layer split exists to avoid.
 
 ### Observability
 
-**kube-prometheus-stack** chart `91.5.2` — Prometheus `v3.14.0`, Alertmanager
-`v0.34.1`, Grafana `13.2.2`, node-exporter and kube-state-metrics. 29 scrape
-targets, 240 alert rules. Alerts fire and are visible; nothing is pushed anywhere,
+**kube-prometheus-stack** chart `91.9.0` — Prometheus `v3.15.0`, Alertmanager
+`v0.34.1`, Grafana `13.2.3`, node-exporter and kube-state-metrics. 29 scrape
+targets, 240 rules (154 alerting). Alerts fire and are visible; nothing is pushed anywhere,
 deliberately.
 → `kubernetes/apps/observability/kube-prometheus-stack/`
 
@@ -483,7 +457,7 @@ kubernetes/apps/
   └── sunfire/            a workload namespace — one directory per workload
         ├── storage/       MinIO's NFS PV + PVC  (prune permanently disabled)
         ├── minio/         S3 object storage     → minio-api.sunosrs.cc
-        ├── postgres/      legacy credential only (Deployment retired 2026-09-04)
+        ├── postgres/      legacy credential only
         ├── postgres-cnpg/ CNPG Cluster + ObjectStore + ScheduledBackup
         ├── postgrest/     REST over Postgres    → db.sunosrs.cc
         ├── offsite-backup/ monthly restic → Backblaze B2
@@ -497,6 +471,7 @@ kubernetes/apps/
 esphome/                  voice-satellite firmware, wake-word model, SOPS-encrypted Wi-Fi secrets
 scripts/                  bootstrap scripts (tunnel, MinIO accounts, Infisical seed), the
                           host/guest units for the GPU and voice stacks (`gpu-rebar`, `llm/`, `voice/`),
+                          the `llm` CLI's `web_search`/`fetch_url` tools (`llm/tools/`),
                           and `transcribe-remote.sh` (the off-LAN client for `kubernetes/apps/transcribe`)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
 runbooks/                 repeatable procedures, meant to be re-run (restore drill, snapshot verification)

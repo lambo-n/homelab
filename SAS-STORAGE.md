@@ -6,11 +6,10 @@ on `192.168.50.101` (`pve`).
 
 > ⚠️ **`zpool status -x` cannot detect an unimported pool — check `zpool list`
 > after every host reboot.** `sas-pool` is host-native, not a PVE storage, so
-> nothing owns its import the way `pvestatd` owns `archive-pool`'s. It went
-> missing for a full day in 2026-09-15/16 while every dependant (`smbd`,
-> `sanoid`) reported healthy against an absent pool. The fix —
-> `systemctl enable zfs-import-scan` — is in place and has been proven across
-> one real reboot. Confirm all three pools (`archive-pool`, `sas-pool`,
+> nothing owns its import the way `pvestatd` owns `archive-pool`'s. It once went
+> missing for a full day while every dependant (`smbd`, `sanoid`) reported
+> healthy against an absent pool. The fix — `systemctl enable zfs-import-scan` —
+> is in place. Confirm all three pools (`archive-pool`, `sas-pool`,
 > `llm-pool`) are present by name before trusting `/sas-pool/data` or the
 > `[data]` share. Full incident record:
 > [`archive/SAS-STORAGE-INCIDENT.md`](archive/SAS-STORAGE-INCIDENT.md).
@@ -36,8 +35,8 @@ SAS SSDs were freed from ext4, wiped with `wipefs -a`, and verified healthy:
 
 ### 2. Why Native Host ZFS Instead of a TrueNAS VM
 
-During the 2026-09-09 TrueNAS VM deployment attempt, two critical hardware facts
-surfaced regarding the **Dell PERC H355 Front** controller (`c3:00.0`):
+Two hardware facts about the **Dell PERC H355 Front** controller (`c3:00.0`) rule out
+a TrueNAS VM:
 
 1. **Shared Backplane Cabling:** In this Dell chassis, all 8 front drive bays
    (`sdb`–`sdj`) are cabled to the PERC H355 Front controller. This includes the
@@ -63,7 +62,7 @@ device contention.
 
 ## Pool Configuration
 
-Created on 2026-09-09:
+Created with:
 
 ```bash
 zpool create -o ashift=12 -O acltype=posixacl -O xattr=sa -O compression=zstd sas-pool raidz1 \

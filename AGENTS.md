@@ -30,8 +30,8 @@ swallow `~/sunfire/`, `~/.ssh` and `~/.claude.json`.
 | `~/sunfire/` | The Sunfire app, cloned **for model context only** (`Sunfire-Team/sunfire`) — never built or deployed from here |
 | `~/archive/` (`chmod 700`) | Decommissioned Sun Clan Bingo assets, read-only. `pgdumpall-2026-09-02.sql` holds SCRAM hashes for retired roles and is `chmod 600` |
 
-`~/sunfire-backend/` was **deleted 2026-09-04**, once every value in it had been
-hash-verified as recoverable from SOPS or Infisical. **There is no plaintext
+`~/sunfire-backend/` does not exist: every value it held was hash-verified as
+recoverable from SOPS or Infisical before it was removed. **There is no plaintext
 secret anywhere on this VM**, and that is a property to preserve.
 
 Run everything from `~/homelab` — mise's tool pins and `[env]` bindings only
@@ -54,6 +54,7 @@ One directory per app under `kubernetes/apps/`, each `ks.yaml` (a Flux
 | `infisical` | Infisical Operator |
 | `reloader` | restarts workloads when their Secrets change |
 | `transcribe` | A personal mp3-to-text tool, LAN only, calling `wyoming-whisper` on VM 105 |
+| `search` | SearXNG, the metasearch backend for the `web_search` tool the `llm` CLI on VM 105 calls ([`GPU-VM.md`](GPU-VM.md) → *Tool calling*) |
 
 Adding a workload means a new directory, its own `ks.yaml`, and a row in
 `README.md` → *What runs on it*.
@@ -62,7 +63,10 @@ Some of the platform is **outside Kubernetes** and reconciled by nobody: ZFS and
 sanoid on the Proxmox host ([`SANOID.md`](SANOID.md),
 [`SAS-STORAGE.md`](SAS-STORAGE.md)), the guests themselves ([`tofu/`](tofu/)),
 and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
-*are* the record; do not assume a git change reaches any of them.
+*are* the record; do not assume a git change reaches any of them. The dev VM
+reaches VM 105 with `ssh llm` (user `dev`, passwordless `sudo`), so a fix there
+is possible, but it is not in git until you copy it into `scripts/` and update
+the doc that describes it.
 
 ---
 
@@ -75,9 +79,8 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    (activated in `~/.bashrc`). Do not install these system-wide or use the old
    `kubectl` v1.30.
 3. **`kubectl exec` works: use it** for inspection and cluster work, including
-   `psql` in the CNPG pod and `mc` in the MinIO pod. Earlier docs said this
-   environment's tooling refused it. That stopped being true, and the owner
-   confirmed on 2026-09-21 that exec is expected. Two limits remain:
+   `psql` in the CNPG pod and `mc` in the MinIO pod; the owner expects it. Two
+   limits apply:
    - **The Proxmox host accepts one SSH key from the dev VM**,
      `id_ed25519_pve-hostconfig` (root, restricted to `.103` by `from=`),
      added for the Ansible host-config layer (`ansible/`, `SANOID.md`). It is
@@ -90,8 +93,8 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
      `scripts/offsite-backup-secret.sh`), which generate them in the pod or at a
      silent prompt and pipe them straight into `sops`, so they never appear in
      assistant output. Exec does not change that. Likewise, list Secret *names*,
-     never `.data`: on 2026-09-21 a `custom-columns` listing printed truncated
-     secret values into the session transcript.
+     never `.data`: a `custom-columns` listing once printed truncated secret
+     values into the session transcript.
 4. **Verification is behavioural, not status-based.** Several failures recorded
    in `GITOPS.md` reported success: a rotated Secret that never restarted its
    pod, an alert rule over a metric that does not exist, a backup nobody had
@@ -108,7 +111,7 @@ and the inference stack on VM 105 ([`GPU-VM.md`](GPU-VM.md)). Those documents
    - **SOPS + age**, in this repo, for **cluster-only** secrets (MinIO root,
      `POSTGRES_PASSWORD`, `PGRST_DB_URI`, cloudflared tunnel credentials, the
      LLM API key, ESPHome Wi-Fi secrets, the off-site backup's B2 key and restic
-     password). Keeps cold boot self-contained — this
+     password, SearXNG's session key). Keeps cold boot self-contained — this
      cluster is frequently powered off.
    - **Infisical** as system of record for **cross-boundary** secrets that must
      stay byte-identical between the cluster and the Cloudflare Worker's
@@ -160,7 +163,7 @@ Cloudflare Worker. A few facts that are easy to get wrong:
   `~/sunfire/homelab/postgres/` (DDL and grants) and
   `~/sunfire/homelab/minio/policy.json`. Update them there rather than writing
   ad-hoc SQL. `~/sunfire/homelab/RUNBOOK.md` has the procedures.
-- **Unified media store** (2026-09-02): production, feature and local dev all
+- **Unified media store**: production, feature and local dev all
   use the one `sunfire-guide-media` bucket and the `public` schema. There is no
   `-feature` bucket and no `sunfire_feature` schema. Two MinIO service accounts
   remain — same policy, same bucket — only so a feature/local key can be revoked
