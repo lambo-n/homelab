@@ -27,8 +27,7 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       `unsupported-content-type` for a PDF/image, so it never competes with
       `chat`+`fast`+whisper for the card's ~2.2 GiB of free VRAM; and a
       sandboxed code-exec tool for `qwen27-agent`, with no sandbox mechanism
-      chosen yet. Also still to do: install the tools on the guest and
-      confirm `web_search` end to end once SearXNG is running.
+      chosen yet.
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
       attempt (2026-09-16) failed at the 32 GiB step; the sequence was fixed in
       `gpu-rebar.sh` (PR #24) and passed a manual `systemctl restart`, but the
