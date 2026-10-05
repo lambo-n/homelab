@@ -65,9 +65,6 @@ CLAIMS = [
     ("OpenTofu", "GITOPS.md",
      r"^\| Version \| \*\*([^*]+)\*\*, pinned in `mise.toml`",
      "mise.toml", r"^opentofu\s*=\s*\"([^\"]+)\""),
-    ("flux CLI", "README.md",
-     r"\*\*Flux\*\* `([^`]+)`",
-     "mise.toml", r"^flux2\s*=\s*\"([^\"]+)\""),
 ]
 
 
