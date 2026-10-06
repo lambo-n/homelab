@@ -114,17 +114,31 @@ ports directly.
 
 ### Tool calling
 
-`scripts/llm/tools/` gives the `llm` CLI two tools (all four presets are
+`scripts/llm/tools/` gives the `llm` CLI three tools (all four presets are
 `supports_tools: true`): `web_search` (SearXNG in the cluster,
-[`GITOPS.md`](GITOPS.md) → *searxng*) and `fetch_url` (a page's readable text).
-Install both files together on the guest, and pass the file with `--functions`:
+[`GITOPS.md`](GITOPS.md) → *searxng*), `fetch_url` (a page's readable text) and
+`ocr_url` (text from a PDF or image; `fetch_url` answers
+`unsupported-content-type` for those, and the model then calls it). Install the
+three files together on the guest, and pass the file with `--functions`:
 
 ```bash
 ssh llm mkdir -p .config/io.datasette.llm/tools
 ```
 ```bash
-scp scripts/llm/tools/{fetch,tools}.py \
+scp scripts/llm/tools/{fetch,ocr,tools}.py \
   llm:.config/io.datasette.llm/tools/
+```
+
+`ocr_url` also needs the packages and the sandbox wrapper on the guest:
+
+```bash
+ssh llm sudo apt-get install -y tesseract-ocr poppler-utils
+```
+```bash
+scp scripts/llm/llm-sandbox llm:/tmp/
+```
+```bash
+ssh llm sudo install -m 755 /tmp/llm-sandbox /usr/local/bin/
 ```
 ```bash
 llm -m fast --td \
@@ -137,7 +151,9 @@ llm -m fast --td \
 | `SEARXNG_URL` | Defaults to `http://192.168.50.104:8080` (a node IP; the Service answers on all three) |
 | `LLM_TOOLS_DIR` | Where `tools.py` finds `fetch.py`; defaults to `~/.config/io.datasette.llm/tools` |
 | `fetch_url` limits | Public `http`/`https` only, 2 MiB read, `max_chars` clamped to 12,000 (`fast` has an 8,192-token window) |
-| OCR, code-exec | Not built; `BACKLOG.md` → *GPU / LLM VM* |
+| `ocr_url` limits | 10 MiB download, English only, `max_pages` clamped to 10 (default 5); a PDF with a text layer uses `pdftotext`, only a scan is rasterised (150 dpi) and OCR'd, ~1 s per page |
+| `LLM_SANDBOX` | The sandbox wrapper `ocr.py` calls through `sudo -n`; defaults to `llm-sandbox` |
+| Code-exec | Not built; `BACKLOG.md` → *GPU / LLM VM* |
 
 > ⚠️ **`fetch_url` is an SSRF boundary, because the model picks the URL and a
 > fetched page can steer it.** `fetch.py` resolves the host and refuses it
@@ -146,8 +162,18 @@ llm -m fast --td \
 > k3s nodes and cloud metadata addresses are therefore unreachable through it.
 > Keep that property if you change the fetcher.
 
+> ⚠️ **`ocr_url` feeds hostile files to poppler and Tesseract, so they only run
+> through `llm-sandbox`.** It runs one allow-listed binary (`pdfinfo`,
+> `pdftotext`, `tesseract`, or the fixed `pdf-ocr-page` pipeline) as a
+> throwaway systemd unit: no network, read-only filesystem, private `/tmp`,
+> 1 GiB memory, 64 tasks, 60 s. Data goes over stdin/stdout. Do not swap it
+> for `systemd-run --user`: with AppArmor restricting unprivileged user
+> namespaces on this guest, `PrivateNetwork` is silently not applied there.
+> `dev` already has passwordless `sudo`, so the wrapper is containment, not a
+> privilege boundary. OCR is CPU-only and never touches the card's VRAM.
+
 > ⚠️ **`llm --functions` registers every public callable in the file.**
-> `tools.py` exposes exactly `web_search` and `fetch_url`; everything else is
+> `tools.py` exposes exactly `web_search`, `fetch_url` and `ocr_url`; everything else is
 > underscore-prefixed and uses `import x`, never `from x import y`, or the
 > import would become a tool. The file is `exec`'d without `__file__`, so it
 > cannot import a sibling module by relative path.
@@ -159,6 +185,8 @@ with no network. Then, on the guest:
 |---|---|
 | the `llm … --functions` call above | a `Tool call: fetch_url(...)` line, then a title of "Example Domain" |
 | same, asking it to read `http://192.168.50.104:8123/` | `error: "blocked-address: 192.168.50.104"` in the tool result |
+| same, asking it to read `https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf` | `fetch_url` returns `unsupported-content-type`, then an `ocr_url` call with `method: "text-layer"`, `pages: 14` |
+| `ssh llm sudo llm-sandbox bash` | `'bash' is not allow-listed`, exit 2 |
 | `curl 'http://192.168.50.104:8080/search?q=test&format=json'` | JSON with a non-empty `results` array |
 
 ### Observability

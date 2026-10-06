@@ -110,7 +110,7 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
-def _open(url: str):
+def _open(url: str, accept: str = 'text/html,text/plain;q=0.9,*/*;q=0.1'):
     """One GET, no redirect handling. Returns (connection, response)."""
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ('http', 'https') or not parts.hostname:
@@ -123,7 +123,7 @@ def _open(url: str):
     try:
         conn.request('GET', target, headers={
             'User-Agent': USER_AGENT,
-            'Accept': 'text/html,text/plain;q=0.9,*/*;q=0.1',
+            'Accept': accept,
             'Accept-Encoding': 'identity',
         })
         return conn, conn.getresponse()
@@ -153,43 +153,57 @@ def _error(url: str, msg: str) -> dict:
     return {'url': url, 'title': None, 'text': None, 'error': msg}
 
 
-def fetch(url: str, max_chars: int = 8000) -> dict:
+class FetchError(Exception):
+    """A failure to report to the model as the `error` string."""
+
+
+def download(url: str, types: tuple, max_bytes: int, accept: str | None = None):
+    """GET url through the SSRF checks. Returns (final_url, mime, content_type, body, truncated).
+
+    Raises FetchError for every failure, including a content type not in `types`.
+    """
     current = url
     try:
         for _ in range(MAX_REDIRECTS + 1):
-            conn, resp = _open(current)
+            conn, resp = _open(current, accept) if accept else _open(current)
             try:
                 if resp.status in REDIRECT_CODES:
                     location = resp.getheader('Location')
                     if not location:
-                        return _error(url, f'http-error: {resp.status} redirect without Location')
+                        raise FetchError(f'http-error: {resp.status} redirect without Location')
                     current = urllib.parse.urljoin(current, location)
                     continue
 
                 if resp.status >= 400:
-                    return _error(url, f'http-error: {resp.status} {resp.reason}')
+                    raise FetchError(f'http-error: {resp.status} {resp.reason}')
 
                 content_type = resp.getheader('Content-Type', '').lower()
                 mime = content_type.split(';')[0].strip()
-                if mime not in TEXT_TYPES:
-                    # PDF and images are for the OCR tool, not this one.
-                    return _error(url, f'unsupported-content-type: {mime or "unknown"}')
+                if mime not in types:
+                    raise FetchError(f'unsupported-content-type: {mime or "unknown"}')
 
-                body = resp.read(MAX_BYTES + 1)
+                body = resp.read(max_bytes + 1)
             finally:
                 conn.close()
             break
         else:
-            return _error(url, 'too-many-redirects')
+            raise FetchError('too-many-redirects')
     except Blocked as e:
-        return _error(url, f'blocked-address: {e}')
+        raise FetchError(f'blocked-address: {e}')
     except ValueError as e:
-        return _error(url, str(e))
+        raise FetchError(str(e))
     except (OSError, http.client.HTTPException) as e:
-        return _error(url, f'network-error: {e}')
+        raise FetchError(f'network-error: {e}')
+    return current, mime, content_type, body[:max_bytes], len(body) > max_bytes
 
-    truncated = len(body) > MAX_BYTES
-    html_content = _decode(body[:MAX_BYTES], content_type)
+
+def fetch(url: str, max_chars: int = 8000) -> dict:
+    try:
+        current, mime, content_type, body, truncated = download(url, TEXT_TYPES, MAX_BYTES)
+    except FetchError as e:
+        return _error(url, str(e))
+
+    html_content = _decode(body, content_type)
 
     title = None
     if mime == 'text/plain':
