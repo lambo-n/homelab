@@ -21,11 +21,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## GPU / LLM VM
 
-- [ ] **Add a sandboxed code-exec tool for `qwen27-agent`.** `run_python` in a
-      separate `agent_tools.py`, so `fast` and the other presets never see it.
-      Mechanism: a new `scripts/llm/llm-sandbox` profile (no network, read-only
-      filesystem, size-limited tmpfs, memory and time caps) —
-      the wrapper that contains `ocr_url` (`GPU-VM.md` → *Tool calling*).
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
       attempt (2026-09-16) failed at the 32 GiB step; the sequence was fixed in
       `gpu-rebar.sh` (PR #24) and passed a manual `systemctl restart`, but the

@@ -6,6 +6,7 @@
 #
 #   sudo llm-sandbox tesseract stdin stdout -l eng < page.png
 #   sudo llm-sandbox pdf-ocr-page 3 150 < scan.pdf      # page 3 -> text
+#   sudo llm-sandbox python-run < script.py             # see the profile below
 #
 # Install to /usr/local/bin (root-owned) -- GPU-VM.md -> Tool calling. The
 # allow-list is the point: a caller can pick the tool but not the binary path.
@@ -13,8 +14,9 @@
 # not applied on this guest (AppArmor restricts unprivileged user namespaces).
 set -euo pipefail
 
-tool=${1:?usage: llm-sandbox <pdfinfo|pdftotext|tesseract|pdf-ocr-page PAGE DPI> [args...]}
+tool=${1:?usage: llm-sandbox <pdfinfo|pdftotext|tesseract|pdf-ocr-page PAGE DPI|python-run> [args...]}
 shift
+extra=()
 case $tool in
   pdfinfo|pdftotext|tesseract) cmd=(/usr/bin/"$tool" "$@") ;;
   pdf-ocr-page)
@@ -25,6 +27,21 @@ case $tool in
       || { echo "llm-sandbox: pdf-ocr-page needs PAGE and DPI" >&2; exit 2; }
     cmd=(/bin/sh -c 'pdftoppm -r "$2" -f "$1" -l "$1" -singlefile - /tmp/p \
       && tesseract /tmp/p.ppm stdout -l eng' sh "$1" "$2") ;;
+  python-run)
+    # Model-written code, so the limits are tighter than for the parsers: a
+    # 16 MiB tmpfs at /mnt (TMPDIR) is the only writable place, no single file
+    # over 64 KiB (this also caps stdout and stderr, which go to files so a
+    # print loop can't flood the pipe), 512 MiB RAM, no swap, one CPU, 32
+    # tasks, 30 s. Source arrives on stdin. Output is: exit code, stdout byte
+    # count, stdout, stderr. /tmp is blocked because DynamicUser forces
+    # PrivateTmp, which lives on the disk and would ignore a size limit.
+    extra=(-p TemporaryFileSystem=/mnt:rw,nosuid,nodev,mode=1777,size=16m
+           -p InaccessiblePaths=/tmp -E TMPDIR=/mnt -p LimitFSIZE=65536
+           -p LimitCORE=0 -p MemoryMax=512M -p MemorySwapMax=0 -p CPUQuota=100%
+           -p TasksMax=32 -p RuntimeMaxSec=30 -p ProtectProc=invisible -p ProcSubset=pid)
+    cmd=(/bin/sh -c 'cat > /mnt/code.py
+      /usr/bin/python3 -I /mnt/code.py > /mnt/out 2> /mnt/err; rc=$?
+      printf "%s\n%s\n" "$rc" "$(wc -c < /mnt/out)"; cat /mnt/out /mnt/err' sh) ;;
   *) echo "llm-sandbox: '$tool' is not allow-listed" >&2; exit 2 ;;
 esac
 
@@ -32,4 +49,4 @@ exec systemd-run --quiet --wait --pipe --collect \
   -p DynamicUser=yes -p PrivateNetwork=yes -p PrivateTmp=yes \
   -p PrivateDevices=yes -p ProtectSystem=strict -p ProtectHome=yes \
   -p NoNewPrivileges=yes -p MemoryMax=1G -p TasksMax=64 \
-  -p RuntimeMaxSec=60 -- "${cmd[@]}"
+  -p RuntimeMaxSec=60 "${extra[@]}" -- "${cmd[@]}"
