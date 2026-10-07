@@ -118,18 +118,23 @@ ports directly.
 `supports_tools: true`): `web_search` (SearXNG in the cluster,
 [`GITOPS.md`](GITOPS.md) → *searxng*), `fetch_url` (a page's readable text) and
 `ocr_url` (text from a PDF or image; `fetch_url` answers
-`unsupported-content-type` for those, and the model then calls it). Install the
-three files together on the guest, and pass the file with `--functions`:
+`unsupported-content-type` for those, and the model then calls it).
+`agent_tools.py` is the same three plus `run_python` (model-written Python in a
+sandbox), and in use only `qwen27-agent` is pointed at it: `fast` and the other
+presets read fetched pages, so they must never be one prompt injection away
+from running code. Install the files together on the guest, and pass the tools
+file with `--functions`:
 
 ```bash
 ssh llm mkdir -p .config/io.datasette.llm/tools
 ```
 ```bash
-scp scripts/llm/tools/{fetch,ocr,tools}.py \
+scp scripts/llm/tools/{fetch,ocr,pyrun,tools,agent_tools}.py \
   llm:.config/io.datasette.llm/tools/
 ```
 
-`ocr_url` also needs the packages and the sandbox wrapper on the guest:
+`ocr_url` and `run_python` also need the packages and the sandbox wrapper on
+the guest:
 
 ```bash
 ssh llm sudo apt-get install -y tesseract-ocr poppler-utils
@@ -153,7 +158,7 @@ llm -m fast --td \
 | `fetch_url` limits | Public `http`/`https` only, 2 MiB read, `max_chars` clamped to 12,000 (`fast` has an 8,192-token window) |
 | `ocr_url` limits | 10 MiB download, English only, `max_pages` clamped to 10 (default 5); a PDF with a text layer uses `pdftotext`, only a scan is rasterised (150 dpi) and OCR'd, ~1 s per page |
 | `LLM_SANDBOX` | The sandbox wrapper `ocr.py` calls through `sudo -n`; defaults to `llm-sandbox` |
-| Code-exec | Not built; `BACKLOG.md` → *GPU / LLM VM* |
+| `run_python` limits | Standard library only, code ≤ 32 KiB, no network, 16 MiB scratch at `/mnt`, 512 MiB RAM, one CPU, 32 tasks, 30 s; returns `exit_code`, `stdout` (6,000 chars) and `stderr` (last 3,000). A kill by the memory or time limit comes back as `error: killed-by-limit` |
 
 > ⚠️ **`fetch_url` is an SSRF boundary, because the model picks the URL and a
 > fetched page can steer it.** `fetch.py` resolves the host and refuses it
@@ -171,6 +176,13 @@ llm -m fast --td \
 > namespaces on this guest, `PrivateNetwork` is silently not applied there.
 > `dev` already has passwordless `sudo`, so the wrapper is containment, not a
 > privilege boundary. OCR is CPU-only and never touches the card's VRAM.
+>
+> **`run_python` is the same wrapper's `python-run` profile, and the code is
+> the attacker's.** It has no network, so nothing it reads can leave, and the
+> unit runs as a one-shot unprivileged user that cannot read `/home/dev` or
+> `/etc/llama`. `/tmp` is blocked and `/mnt` is a size-limited tmpfs, because
+> `DynamicUser` forces a disk-backed private `/tmp` that ignores a size limit.
+> Keep `run_python` out of `tools.py`; a test enforces that.
 
 > ⚠️ **`llm --functions` registers every public callable in the file.**
 > `tools.py` exposes exactly `web_search`, `fetch_url` and `ocr_url`; everything else is
@@ -187,6 +199,9 @@ with no network. Then, on the guest:
 | same, asking it to read `http://192.168.50.104:8123/` | `error: "blocked-address: 192.168.50.104"` in the tool result |
 | same, asking it to read `https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf` | `fetch_url` returns `unsupported-content-type`, then an `ocr_url` call with `method: "text-layer"`, `pages: 14` |
 | `ssh llm sudo llm-sandbox bash` | `'bash' is not allow-listed`, exit 2 |
+| `llm -m qwen27 --functions …/agent_tools.py "Use run_python to sum the primes below 1000"` | a `Tool call: run_python(...)` with `exit_code: 0` and `76127` |
+| `echo 'import socket; socket.create_connection(("1.1.1.1",53),2)' \| ssh llm sudo llm-sandbox python-run` | exit code `1` and `Network is unreachable` in the stderr part |
+| `echo 'while True: pass' \| ssh llm sudo llm-sandbox python-run` | no output after 30 s (the unit was killed) |
 | `curl 'http://192.168.50.104:8080/search?q=test&format=json'` | JSON with a non-empty `results` array |
 
 ### Observability
