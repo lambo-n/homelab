@@ -1,13 +1,13 @@
-"""Tools for the `llm` CLI on VM 105: web_search (SearXNG) and fetch_url.
+"""Tools for the `llm` CLI on VM 105: web_search (SearXNG), fetch_url and ocr_url.
 
     llm -m fast --functions ~/.config/io.datasette.llm/tools/tools.py \
         "What changed in the latest k3s release?"
 
 `llm --functions` execs this file in an empty namespace (no __file__, no
 sibling imports) and registers every public callable as a tool. So: exactly
-two public names below, everything else underscore-prefixed, and only plain
+three public names below, everything else underscore-prefixed, and only plain
 `import x` (never `from x import y`, which would register y as a tool).
-fetch.py is found through LLM_TOOLS_DIR; install both files together, see
+fetch.py and ocr.py are found through LLM_TOOLS_DIR; install all three files together, see
 GPU-VM.md -> Tool calling.
 
 Both tools return JSON strings. Page text and search snippets come from the
@@ -23,6 +23,7 @@ _DIR = os.environ.get('LLM_TOOLS_DIR') or os.path.expanduser('~/.config/io.datas
 _SEARXNG = os.environ.get('SEARXNG_URL', 'http://192.168.50.104:8080').rstrip('/')
 _MAX_RESULTS = 10
 _SNIPPET_CHARS = 300
+_MAX_OCR_PAGES = 10
 _MAX_FETCH_CHARS = 12000  # `fast` has an 8192-token window; keep one page well inside it
 _SEARCH_MAX_BYTES = 1024 * 1024
 
@@ -35,6 +36,7 @@ def _load(name):
 
 
 _fetch = _load('fetch')
+_ocr = _load('ocr')
 
 
 def web_search(query: str, max_results: int = 5) -> str:
@@ -62,6 +64,13 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 def fetch_url(url: str, max_chars: int = 6000) -> str:
     """Fetch a web page and return its readable text as JSON (url, title, text, truncated).
-    Only public http/https pages; PDFs and images are not supported."""
+    Only public http/https pages; for a PDF or image use ocr_url."""
     max_chars = max(1, min(int(max_chars), _MAX_FETCH_CHARS))
     return json.dumps(_fetch.fetch(url, max_chars))
+
+
+def ocr_url(url: str, max_chars: int = 6000, max_pages: int = 5) -> str:
+    """Read the text of a PDF or image at a URL and return it as JSON (url, text, truncated, pages, method).
+    Use it when fetch_url answers unsupported-content-type. Slow on scanned pages; keep max_pages small."""
+    max_chars = max(1, min(int(max_chars), _MAX_FETCH_CHARS))
+    return json.dumps(_ocr.ocr(url, max_chars, max(1, min(int(max_pages), _MAX_OCR_PAGES))))

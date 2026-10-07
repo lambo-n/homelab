@@ -1,0 +1,35 @@
+#!/bin/bash
+# Run one allow-listed binary in a throwaway systemd sandbox on VM 105:
+# no network, read-only filesystem, private /tmp, an unprivileged one-shot
+# user, and memory / task / time limits. stdin and stdout pass through, so
+# callers pipe data in and out and never need a writable path.
+#
+#   sudo llm-sandbox tesseract stdin stdout -l eng < page.png
+#   sudo llm-sandbox pdf-ocr-page 3 150 < scan.pdf      # page 3 -> text
+#
+# Install to /usr/local/bin (root-owned) -- GPU-VM.md -> Tool calling. The
+# allow-list is the point: a caller can pick the tool but not the binary path.
+# `systemd-run --user` is not a substitute; its PrivateNetwork is silently
+# not applied on this guest (AppArmor restricts unprivileged user namespaces).
+set -euo pipefail
+
+tool=${1:?usage: llm-sandbox <pdfinfo|pdftotext|tesseract|pdf-ocr-page PAGE DPI> [args...]}
+shift
+case $tool in
+  pdfinfo|pdftotext|tesseract) cmd=(/usr/bin/"$tool" "$@") ;;
+  pdf-ocr-page)
+    # poppler 24.02 cannot write an image to stdout, so rasterise and OCR in
+    # one unit where the private /tmp is the hand-off. Only two integers
+    # reach the shell, as positional parameters, never spliced into the text.
+    [[ ${1:-} =~ ^[0-9]{1,4}$ && ${2:-} =~ ^[0-9]{2,3}$ ]] \
+      || { echo "llm-sandbox: pdf-ocr-page needs PAGE and DPI" >&2; exit 2; }
+    cmd=(/bin/sh -c 'pdftoppm -r "$2" -f "$1" -l "$1" -singlefile - /tmp/p \
+      && tesseract /tmp/p.ppm stdout -l eng' sh "$1" "$2") ;;
+  *) echo "llm-sandbox: '$tool' is not allow-listed" >&2; exit 2 ;;
+esac
+
+exec systemd-run --quiet --wait --pipe --collect \
+  -p DynamicUser=yes -p PrivateNetwork=yes -p PrivateTmp=yes \
+  -p PrivateDevices=yes -p ProtectSystem=strict -p ProtectHome=yes \
+  -p NoNewPrivileges=yes -p MemoryMax=1G -p TasksMax=64 \
+  -p RuntimeMaxSec=60 -- "${cmd[@]}"

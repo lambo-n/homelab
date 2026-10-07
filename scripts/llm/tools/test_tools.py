@@ -57,12 +57,12 @@ class ToolsTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.srv.shutdown()
 
-    def test_llm_registers_exactly_two_tools(self):
+    def test_llm_registers_exactly_three_tools(self):
         public = {k for k, v in self.ns.items() if callable(v) and not k.startswith('_')}
-        self.assertEqual(public, {'web_search', 'fetch_url'})
+        self.assertEqual(public, {'web_search', 'fetch_url', 'ocr_url'})
 
     def test_tools_have_docstrings_and_type_hints_for_llm(self):
-        for name in ('web_search', 'fetch_url'):
+        for name in ('web_search', 'fetch_url', 'ocr_url'):
             fn = self.ns[name]
             self.assertTrue(fn.__doc__)
             self.assertTrue(fn.__annotations__)
@@ -99,6 +99,15 @@ class ToolsTests(unittest.TestCase):
             self.ns['fetch_url']('https://example.com', max_chars=10**9)
             self.ns['fetch_url']('https://example.com', max_chars=-5)
         self.assertEqual([c.args[1] for c in fake.call_args_list], [12000, 1])
+
+    def test_ocr_url_blocks_private_and_clamps(self):
+        out = json.loads(self.ns['ocr_url']('http://192.168.50.107:8081/x.pdf'))
+        self.assertEqual(out['error'], 'blocked-address: 192.168.50.107')
+        fake = mock.Mock(return_value={'text': 'ok'})
+        with mock.patch.object(self.ns['_ocr'], 'ocr', fake):
+            self.ns['ocr_url']('https://example.com/a.pdf', max_chars=10**9, max_pages=999)
+            self.ns['ocr_url']('https://example.com/a.pdf', max_chars=-5, max_pages=-1)
+        self.assertEqual([c.args[1:] for c in fake.call_args_list], [(12000, 10), (1, 1)])
 
 
 if __name__ == '__main__':

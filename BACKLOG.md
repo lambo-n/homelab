@@ -21,13 +21,11 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## GPU / LLM VM
 
-- [ ] **Finish the tool-calling harness (OCR, code-exec).** `web_search` and
-      `fetch_url` exist (`GPU-VM.md` → *Tool calling*). Still to build: a
-      CPU-only OCR tool (Tesseract), called only when `fetch_url` returns
-      `unsupported-content-type` for a PDF/image, so it never competes with
-      `chat`+`fast`+whisper for the card's ~2.2 GiB of free VRAM; and a
-      sandboxed code-exec tool for `qwen27-agent`, with no sandbox mechanism
-      chosen yet.
+- [ ] **Add a sandboxed code-exec tool for `qwen27-agent`.** `run_python` in a
+      separate `agent_tools.py`, so `fast` and the other presets never see it.
+      Mechanism: a new `scripts/llm/llm-sandbox` profile (no network, read-only
+      filesystem, size-limited tmpfs, memory and time caps) —
+      the wrapper that contains `ocr_url` (`GPU-VM.md` → *Tool calling*).
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
       attempt (2026-09-16) failed at the 32 GiB step; the sequence was fixed in
       `gpu-rebar.sh` (PR #24) and passed a manual `systemctl restart`, but the

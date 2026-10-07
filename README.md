@@ -471,7 +471,7 @@ kubernetes/apps/
 esphome/                  voice-satellite firmware, wake-word model, SOPS-encrypted Wi-Fi secrets
 scripts/                  bootstrap scripts (tunnel, MinIO accounts, Infisical seed), the
                           host/guest units for the GPU and voice stacks (`gpu-rebar`, `llm/`, `voice/`),
-                          the `llm` CLI's `web_search`/`fetch_url` tools (`llm/tools/`),
+                          the `llm` CLI's `web_search`/`fetch_url`/`ocr_url` tools (`llm/tools/`),
                           and `transcribe-remote.sh` (the off-LAN client for `kubernetes/apps/transcribe`)
 tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
 runbooks/                 repeatable procedures, meant to be re-run (restore drill, snapshot verification)
