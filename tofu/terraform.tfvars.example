@@ -1,6 +1,6 @@
 # You probably do not need this file at all any more.
 #
-# The zone id is now a default in variables.tf (it is not secret), and both API
+# The zone id is now a default in cloudflare/variables.tf (it is not secret), and both API
 # tokens are read from the environment:
 #
 #   export CLOUDFLARE_API_TOKEN=...
