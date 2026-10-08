@@ -473,7 +473,7 @@ scripts/                  bootstrap scripts (tunnel, MinIO accounts, Infisical s
                           host/guest units for the GPU and voice stacks (`gpu-rebar`, `llm/`, `voice/`),
                           the `llm` CLI's `web_search`/`fetch_url`/`ocr_url`/`run_python` tools (`llm/tools/`),
                           and `transcribe-remote.sh` (the off-LAN client for `kubernetes/apps/transcribe`)
-tofu/                     Proxmox guests + Cloudflare DNS — applied by hand
+tofu/                     proxmox/ guests + cloudflare/ DNS, two roots — applied by hand
 runbooks/                 repeatable procedures, meant to be re-run (restore drill, snapshot verification)
 archive/                  completed one-time runbooks and superseded designs — history, not live docs
 BACKLOG.md                every open item across this repo, in one place
@@ -612,7 +612,7 @@ sops kubernetes/apps/sunfire/postgres/app/secret.sops.yaml   # edit a secret in 
 sops --decrypt <file>                                        # read one
 sops --encrypt --filename-override <dest>.sops.yaml <src> > <dest>
 
-cd tofu && tofu plan -refresh=false       # -refresh=false: one root module, two providers
+cd tofu/cloudflare && tofu plan           # tofu/proxmox is a separate root: plan with -refresh=false
 ```
 
 > The `--filename-override` flag is required when the source file lives outside
@@ -644,5 +644,5 @@ to survive.
 | [`HOST-MONITORING.md`](HOST-MONITORING.md) | SMART tests, scrubs and host metrics — what's live and what's still open |
 | [`runbooks/`](runbooks/) | Repeatable procedures — the CNPG restore drill, the off-site (B2) restore drill, the snapshot rollback drill |
 | [`archive/`](archive/) | Completed one-time runbooks and superseded designs, kept for history |
-| `tofu/README.md` | The OpenTofu root module, its tokens, and the import history |
+| `tofu/README.md` | The two OpenTofu roots (`cloudflare/`, `proxmox/`), their tokens, and the import procedure |
 | `AGENTS.md` | Orientation for AI assistants working in this tree |

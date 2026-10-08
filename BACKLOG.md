@@ -4,13 +4,6 @@ Every open item across this repo, in one place, so nothing is tracked only in
 a runbook nobody re-reads. Each entry says what it's waiting on and where the
 fuller context lives. Nothing here is blocking day-to-day operation.
 
-## OpenTofu
-
-- [ ] **Split the OpenTofu root module in two.** Both providers share one root,
-      so a Proxmox-only plan still refreshes Cloudflare and dies without that
-      token. `-refresh=false` is the workaround in use. See `GITOPS.md` →
-      OpenTofu.
-
 ## Host monitoring
 
 - [ ] **Decide on thin-pool autoextend for `local-lvm` (`pve/data`).** The pool
@@ -70,10 +63,11 @@ From [`HARDWARE.md`](HARDWARE.md) → "Still unknown":
 
 - [ ] kubeconform or [`flux-schema`](https://github.com/fluxcd/flux-schema)
       validation in CI *(own recommendation — the reference repo does not do this)*.
-- [ ] `tofu validate` + `tofu fmt -check` in CI for PRs touching `tofu/`. Needs no
-      credentials, but `tofu init` downloads providers, so the job isn't hermetic.
+- [ ] `tofu validate` + `tofu fmt -check` in CI for PRs touching `tofu/`, once per
+      root (`tofu/cloudflare/`, `tofu/proxmox/`). Needs no credentials, but
+      `tofu init` downloads providers, so the job isn't hermetic.
       See `tofu/README.md#versions` for the incident that motivated this
-      (Renovate bumped `versions.tf` without refreshing the lock file, and every
+      (Renovate bumped a `versions.tf` without refreshing the lock file, and every
       tofu command failed on a fresh checkout for six days, unnoticed).
 - [ ] Loki + Promtail for logs — wants its own storage answer first (worker1's
       root disk is already the TSDB's constraint).

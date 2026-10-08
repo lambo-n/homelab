@@ -823,7 +823,7 @@ Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 **Config at a glance** — the `tailscale-gateway` LXC (CTID 100, `192.168.50.102`)
 is the only homelab node on the tailnet; the other members are the owner's
 laptop and home PC. It is host-level: neither Flux nor OpenTofu configures it,
-and `tofu/proxmox-container.tf` describes the container, not its Tailscale
+and `tofu/proxmox/proxmox-container.tf` describes the container, not its Tailscale
 state.
 
 | | |
@@ -883,7 +883,7 @@ need the dev VM.
 one dedicated key from the dev VM, scoped to the Ansible host-config layer
 (`ansible/README.md`; the Proxmox API token path is separate, see
 `tofu/README.md` → *Proxmox*) — and the dev VM has no route to the *pool* —
-NFS `2049`/`111` are not reachable from it (`variables.tf`). Those facts don't
+NFS `2049`/`111` are not reachable from it (`tofu/proxmox/variables.tf`). Those facts don't
 depend on the tailnet.
 
 History (how the route was found, the allow-all policy it replaced, the
@@ -899,9 +899,10 @@ verification runs): [`archive/TAILSCALE-SUBNET-ROUTE.md`](archive/TAILSCALE-SUBN
 |---|---|
 | Version | **1.13.1**, pinned in `mise.toml`. State lives on the dev VM and is backed up with it |
 | Applies | run **by hand from the dev VM, never reconciled from inside the cluster** — see the [scope split](#scope-flux-manages-the-cluster-not-the-hypervisor) |
-| Proxmox | `tofu/proxmox-vms.tf` (dev, control, two workers) + `tofu/proxmox-container.tf` (`tailscale-gateway`, CTID 100). All five carry `prevent_destroy`; every body generated from the live guest with `-generate-config-out`, then reviewed |
+| Layout | two roots with separate state: `tofu/proxmox/` and `tofu/cloudflare/`. A plan in one needs no token for the other |
+| Proxmox | `tofu/proxmox/proxmox-vms.tf` (dev, control, two workers) + `tofu/proxmox/proxmox-container.tf` (`tailscale-gateway`, CTID 100). All five carry `prevent_destroy`; every body generated from the live guest with `-generate-config-out`, then reviewed |
 | Proxmox token | `tofu@pve`, **read-only** (`PVEAuditor`). `VM.Allocate` was never granted, at any point |
-| Cloudflare | two resources only — `cloudflare_dns_record.minio_api` and `.db`. `tofu/cloudflare-tunnel.tf` is a comment block explaining why no tunnel object is managed |
+| Cloudflare | two resources only — `cloudflare_dns_record.minio_api` and `.db`. `tofu/cloudflare/cloudflare-tunnel.tf` is a comment block explaining why no tunnel object is managed |
 | Detail | `tofu/README.md` |
 
 > ⚠️ **`PVEAuditor` cannot import a QEMU guest, and the error names the wrong cause**
@@ -955,11 +956,10 @@ verification runs): [`archive/TAILSCALE-SUBNET-ROUTE.md`](archive/TAILSCALE-SUBN
 > the schema marks it required. Generation and validation disagreeing is a provider bug,
 > not a fact about the hypervisor — delete the attribute and let the default stand.
 
-> **Both providers share one root module, so every plan wants both tokens.** A Proxmox-only
-> plan still refreshes the two Cloudflare DNS records and dies on
-> `9106 Missing X-Auth-Key, X-Auth-Email or Authorization headers`. `-refresh=false` is the
-> workaround and is written into the runbook; separate root modules with separate state is
-> the fix, and has not been done.
+> **Each provider has its own root module and state.** `tofu/cloudflare/` plans with a full
+> refresh and needs only `CLOUDFLARE_API_TOKEN`; `tofu/proxmox/` needs only
+> `PROXMOX_VE_API_TOKEN`. `-refresh=false` is still the everyday Proxmox command, because the
+> read-only token cannot refresh the four imported VMs (above), not because of Cloudflare.
 
 > `opentofu` is now pinned in `mise.toml` (1.12.6). Until this phase it is an
 > unused pin — the layer-split table under "Scope" named OpenTofu as the VM
