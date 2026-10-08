@@ -104,9 +104,11 @@ resource "proxmox_virtual_environment_container" "tailscale_gateway" {
     prevent_destroy = true
 
     ignore_changes = [
+      migrate,
       timeout_clone,
       timeout_create,
       timeout_delete,
+      timeout_migrate,
       timeout_start,
       timeout_update,
     ]
