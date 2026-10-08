@@ -37,7 +37,7 @@ that file.
 `-refresh=false` stays the everyday Proxmox command for a different reason: the
 read-only `!import` token cannot refresh the four imported VMs (see "The
 privilege that blocked the four VMs"). The Cloudflare root plans with a full
-refresh.
+refresh. History: [`../archive/TOFU-SPLIT.md`](../archive/TOFU-SPLIT.md).
 
 > **Managed here:** the two Cloudflare DNS records (`cloudflare_dns_record.minio_api` and `.db`, imported from the live zone rather than created) and all six Proxmox guests. `var.tunnel_id` moves both records between tunnels.
 

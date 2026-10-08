@@ -347,7 +347,7 @@ it for its internal mTLS. It issues nothing else; there is no `ClusterIssuer`.
 
 ### Networking
 
-**cloudflared** `2026.9.3` — an outbound-only tunnel to the Cloudflare edge. Since
+**cloudflared** `2026.10.0` — an outbound-only tunnel to the Cloudflare edge. Since
 2026-09-04 it is **locally managed**: the ingress map is a ConfigMap in this repo,
 not a dashboard setting.
 → `kubernetes/apps/sunfire/cloudflared/`
