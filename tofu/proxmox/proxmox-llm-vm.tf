@@ -11,7 +11,7 @@
 # APPLY WITH THE SCOPED TOKEN, AND WITHOUT REFRESH:
 #
 #   export PROXMOX_VE_API_TOKEN='tofu@pve!llm=<uuid>'   # LastPass
-#   export CLOUDFLARE_API_TOKEN='<token>'               # both providers configure every run
+#   cd ~/homelab/tofu/proxmox                           # this root has no Cloudflare provider
 #   tofu plan  -refresh=false
 #   tofu apply -refresh=false
 #

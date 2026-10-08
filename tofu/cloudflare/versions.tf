@@ -1,4 +1,4 @@
-# Toolchain and providers, pinned. `opentofu` itself is pinned in ../mise.toml.
+# Toolchain and providers, pinned. `opentofu` itself is pinned in ../../mise.toml.
 #
 # State lives on this VM and is NOT in git (see .gitignore). Applies are run by
 # hand from here, never reconciled from inside the cluster -- that separation is
@@ -12,10 +12,6 @@ terraform {
     cloudflare = {
       source  = "cloudflare/cloudflare"
       version = "~> 5.24"
-    }
-    proxmox = {
-      source  = "bpg/proxmox"
-      version = "~> 0.116"
     }
   }
 }

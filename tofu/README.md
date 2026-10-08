@@ -8,6 +8,37 @@ circular dependency on a single host.
 **Applies are run by hand from this VM, never from inside the cluster.** State is
 local and gitignored; it is backed up with this VM.
 
+## Layout: two roots, two states
+
+| Root | Provider | Token | Holds |
+|---|---|---|---|
+| `cloudflare/` | `cloudflare/cloudflare` | `CLOUDFLARE_API_TOKEN` | the two DNS records and `var.tunnel_id` |
+| `proxmox/` | `bpg/proxmox` | `PROXMOX_VE_API_TOKEN` (`!import` or `!llm`) | the five imported guests, VM 105 and its cloud image |
+
+Each root has its own `providers.tf`, `variables.tf`, `versions.tf`,
+`.terraform.lock.hcl` and local `terraform.tfstate`. A plan in one needs no token
+for the other, and `-refresh=false` is no longer a workaround for a missing
+Cloudflare token. Run every command from inside the root's directory:
+
+```bash
+cd ~/homelab/tofu/cloudflare && tofu plan
+```
+```bash
+cd ~/homelab/tofu/proxmox && tofu plan -refresh=false -var-file=...
+```
+
+`proxmox/` has two variables with no default, `ubuntu_noble_image_sha256` and
+`llm_ssh_public_keys`. Both are recorded in its state (the checksum on
+`proxmox_virtual_environment_download_file.ubuntu_noble_cloud`, the keys under
+VM 105's `initialization.user_account`), so a JSON var file can be built from
+state with `jq` and kept outside the repo. The `-var-file` path above stands for
+that file.
+
+`-refresh=false` stays the everyday Proxmox command for a different reason: the
+read-only `!import` token cannot refresh the four imported VMs (see "The
+privilege that blocked the four VMs"). The Cloudflare root plans with a full
+refresh. History: [`../archive/TOFU-SPLIT.md`](../archive/TOFU-SPLIT.md).
+
 > **Managed here:** the two Cloudflare DNS records (`cloudflare_dns_record.minio_api` and `.db`, imported from the live zone rather than created) and all six Proxmox guests. `var.tunnel_id` moves both records between tunnels.
 
 ## What this directory does and does not own
@@ -20,7 +51,7 @@ local and gitignored; it is backed up with this VM.
 | Ingress routing | Flux, `cloudflared/app/configmap.yaml` | the entire point of the local-management conversion |
 | MinIO CORS Transform Rule | **nobody — delete it** | vestigial; no browser addresses that hostname. See "The CORS rule" below |
 | Proxmox guests | **tofu, read-only** | all five imported, `0 to change, 0 to destroy`; each carries `prevent_destroy` |
-| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply (`proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
+| VM 105 `llm` + its cloud image | **tofu, read-write** (`tofu@pve!llm`) | the one guest **authored** here, created by apply (`proxmox/proxmox-llm-vm.tf`). Its token writes only to `/vms/105` — see [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5, including the privsep and nearest-path traps. Refreshes normally with that token; the other five still need `-refresh=false` |
 
 ## The Cloudflare token — kept out of disk, so re-created when needed
 
@@ -95,7 +126,7 @@ permission, not a bad token.
 ## Running a Cloudflare apply now
 
 The zone id and both record ids are already in the config
-(`variables.tf`, `cloudflare-dns.tf`); the discovery `curl`s are done. With the token exported:
+(`cloudflare/variables.tf`, `cloudflare/cloudflare-dns.tf`); the discovery `curl`s are done. With the token exported, from `tofu/cloudflare/`:
 
 ```bash
 tofu plan     # must be "No changes." unless you changed something on purpose
@@ -201,11 +232,11 @@ itself is a separate credential from that key.
 
 | Guest | Kind | State |
 |---|---|---|
-| `tailscale-gateway` (CTID 100, `.102`) | LXC | imported — `proxmox-container.tf` |
-| `dev` (101, `.103`) | QEMU | imported — `proxmox-vms.tf`; hosts this state file |
-| `k3s-control` (102, `.104`) | QEMU | imported — `proxmox-vms.tf` |
-| `k3s-worker1` (103, `.105`) | QEMU | imported — `proxmox-vms.tf`; minio |
-| `k3s-worker2` (104, `.106`) | QEMU | imported — `proxmox-vms.tf`; PGDATA zvol as `archive-pool:vm-104-disk-0`, scsi1, 64 GiB |
+| `tailscale-gateway` (CTID 100, `.102`) | LXC | imported — `proxmox/proxmox-container.tf` |
+| `dev` (101, `.103`) | QEMU | imported — `proxmox/proxmox-vms.tf`; hosts this state file |
+| `k3s-control` (102, `.104`) | QEMU | imported — `proxmox/proxmox-vms.tf` |
+| `k3s-worker1` (103, `.105`) | QEMU | imported — `proxmox/proxmox-vms.tf`; minio |
+| `k3s-worker2` (104, `.106`) | QEMU | imported — `proxmox/proxmox-vms.tf`; PGDATA zvol as `archive-pool:vm-104-disk-0`, scsi1, 64 GiB |
 
 All five carry `prevent_destroy`. A config that ever proposes replacing one of
 them fails the plan rather than running it.
@@ -306,7 +337,7 @@ read -rs PROXMOX_VE_API_TOKEN && export PROXMOX_VE_API_TOKEN
 ```
 
 `providers.tf` leaves `api_token` null so the provider picks this up from the
-environment; the endpoint is already a default in `variables.tf`. Verify before
+environment; the endpoint is already a default in `proxmox/variables.tf`. Verify before
 using it — this also confirms 8006 is reachable, which is the one port that is:
 
 ```bash
@@ -337,12 +368,10 @@ Write the `import` block first, with no resource body, then:
 tofu plan -refresh=false -generate-config-out=proxmox-generated.tf
 ```
 
-**`-refresh=false` is not optional here.** Both providers live in this one root
-module, so any plan refreshes the two Cloudflare DNS records too — and with no
-`CLOUDFLARE_API_TOKEN` exported that fails with `9106 Missing X-Auth-Key,
-X-Auth-Email or Authorization headers` before it ever gets to Proxmox. Skipping
-refresh is what lets one token's work proceed without the other's. (The real
-fix is separate root modules with separate state; it has not been done.)
+Run it in `tofu/proxmox/`. **`-refresh=false` is needed with the `!import` token**,
+because that token cannot refresh a QEMU guest (see "The privilege that blocked
+the four VMs"). The Cloudflare token is not involved: the other provider lives in
+a separate root.
 
 Then **read** `proxmox-generated.tf` before anything else — it is gitignored
 precisely so a generated file cannot be committed unreviewed. Fold what is worth
@@ -368,7 +397,7 @@ required, so removing it fails with "Missing required argument". Keep it.
 attributes are *this client's* patience, not anything Proxmox stores, so import
 reads them as null, the schema defaults re-add them, and you get a permanent
 "update in-place" whose entire diff is timeouts: a diff no apply against the
-host could ever settle. `proxmox-container.tf` ignores them in a `lifecycle`
+host could ever settle. `proxmox/proxmox-container.tf` ignores them in a `lifecycle`
 block; the VM bodies omit them.
 
 One warning is expected and unfixable: `network_device.enabled` is deprecated,
@@ -398,7 +427,7 @@ exported per shell. They are deliberately not in Infisical and not in SOPS.**
 |---|---|---|---|
 | `tofu@pve!import` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `PVEAuditor`, read-only, **`--privsep 1`** — which is what keeps it read-only now that `tofu@pve` holds write roles on `/vms/105`. Regenerated 2026-09-09 ([`../archive/SAS-RECLAIM.md`](../archive/SAS-RECLAIM.md) §5) and again 2026-09-15 — Proxmox shows a token secret **once**, so a lost one is replaced, never recovered. |
 | `tofu@pve!llm` | **LastPass** | `PROXMOX_VE_API_TOKEN` | `--privsep 1`. Writes only to `/vms/105`, plus the three storages, the PCI mapping, the bridge, and `Sys.AccessNetwork` on `/nodes/pve` so the node can download the cloud image (the narrow alternative to `Sys.Modify`). See [`../archive/GPU-VM-BUILD.md`](../archive/GPU-VM-BUILD.md) §A5 — including why `tofu@pve` itself must hold these roles for the token to have them. |
-| Cloudflare API token | **Nowhere, by design** — re-created when needed (see "The Cloudflare token" above); put it in LastPass if you make one | `CLOUDFLARE_API_TOKEN` | Required scopes are above. **Only needed when a plan refreshes or changes the Cloudflare records.** A `-refresh=false` plan that leaves them untouched makes no Cloudflare API calls and runs without it (verified 2026-09-16; the import section below relies on the same fact). |
+| Cloudflare API token | **Nowhere, by design** — re-created when needed (see "The Cloudflare token" above); put it in LastPass if you make one | `CLOUDFLARE_API_TOKEN` | Required scopes are above. **Needed only for the `cloudflare/` root.** The `proxmox/` root never reads it. A plan needs only read scopes (Zone Read, DNS Read); DNS Edit is for applying. |
 | `age.key` | `~/homelab/age.key` (gitignored) + **LastPass** | `sops` | Bootstrap secret — it decrypts the others. Never printed, never committed. |
 | Cluster-only secrets | **git**, as `*.sops.yaml` | Flux → k8s Secrets | MinIO root, `POSTGRES_PASSWORD`, `PGRST_DB_URI`, tunnel token. |
 | Cross-boundary secrets | **Infisical** (`prod` / `feature`) | operator → k8s Secret, Worker env | `POSTGREST_JWT_SECRET` + the four scoped MinIO Worker keys — the ones that must stay byte-identical on both sides. |
@@ -410,18 +439,18 @@ rebuilds those VMs behind a service that needs them running is a bootstrap loop
 — the same reasoning that keeps `age.key` in LastPass. Recovery has to be a human
 login from any device.
 
-**`terraform.tfvars` stays absent.** `variables.tf` leaves both tokens `null` so
+**`terraform.tfvars` stays absent.** Each root's `variables.tf` leaves its token `null` so
 the providers read them from the environment; a tfvars file would put them on
 disk, which `AGENTS.md` rule 6 forbids outright.
 
 ## Versions
 
-Providers are constrained in `versions.tf` and exactly pinned by
-`.terraform.lock.hcl`, which **is** committed. Renovate's terraform manager
+Each root constrains its provider in its own `versions.tf` and pins it exactly in
+its own `.terraform.lock.hcl`, which **is** committed. Renovate's terraform manager
 tracks both.
 
 > ⚠️ **Renovate bumps the constraint; only `tofu init` refreshes the lock.**
-> When `versions.tf` is raised (to `bpg/proxmox ~> 0.113` and `cloudflare ~> 5.24`,
+> When a root's `versions.tf` is raised (to `bpg/proxmox ~> 0.113` and `cloudflare ~> 5.24`,
 > say) but the lock still carries the old package (0.112) and constraint line,
 > **every tofu command fails outright** on a fresh checkout or after a cache clear:
 >
@@ -431,8 +460,8 @@ tracks both.
 >     registry.opentofu.org/bpg/proxmox 0.113.1 cached in .terraform/providers
 > ```
 >
-> **After merging any Renovate provider PR, run `tofu init` here and commit the
-> resulting `.terraform.lock.hcl`.** There is no CI that would catch it — the
+> **After merging any Renovate provider PR, run `tofu init` in the affected root
+> and commit the resulting `.terraform.lock.hcl`.** There is no CI that would catch it — the
 > only workflow is `validate-manifests.yaml`, which covers `kubernetes/`, not
 > `tofu/`.
 
@@ -474,8 +503,7 @@ refresh also touches the four VMs, which 403 on `VM.Config.Disk` under
 
 ```bash
 export PROXMOX_VE_API_TOKEN='tofu@pve!import=<uuid>'   # from LastPass
-# CLOUDFLARE_API_TOKEN not needed: -refresh=false makes no Cloudflare API calls
-cd ~/homelab/tofu
+cd ~/homelab/tofu/proxmox
 tofu apply -refresh-only -target=proxmox_virtual_environment_container.tailscale_gateway
 ```
 

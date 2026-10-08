@@ -21,7 +21,7 @@ state: what's running, how it's configured, and how to reach it.
 | Guest OS | Ubuntu 24.04 LTS on the HWE kernel (≥ 6.17) — the GA kernel predates driver support for this card |
 | GuC firmware | **70.72.1**, from upstream `linux-firmware` (commit `4291fa65d305`), in `/lib/firmware/updates/xe/bmg_guc_70.bin`, which overrides noble's older `70.44.1` blob. See *GuC firmware override* below |
 | Snapshots | None. `llm-pool` is deliberately excluded from `sanoid.conf` — model weights are re-downloadable, so there's nothing worth snapshotting |
-| OpenTofu | Authored and created by `tofu apply` (not imported), `tofu/proxmox-llm-vm.tf`. `prevent_destroy` is on. Its own scoped API token (`tofu@pve!llm`) can write to `/vms/105` only — see `tofu/README.md` |
+| OpenTofu | Authored and created by `tofu apply` (not imported), `tofu/proxmox/proxmox-llm-vm.tf`. `prevent_destroy` is on. Its own scoped API token (`tofu@pve!llm`) can write to `/vms/105` only — see `tofu/README.md` |
 
 **`gpu-rebar.service`** (`scripts/gpu-rebar.sh` + `.service`, installed on the
 host): runs before `pve-guests.service` on every host boot. It replays the
@@ -237,5 +237,5 @@ GPU temp > 90°C and the VM being unreachable.
   ESPHome, Home Assistant) sharing this VM's GPU alongside `llama-server`
 - [`BACKLOG.md`](BACKLOG.md) — the one open item from this build (verifying the
   boot-time ReBAR resize across a real host reboot)
-- `tofu/proxmox-llm-vm.tf`, `tofu/README.md` — the VM definition and its token
+- `tofu/proxmox/proxmox-llm-vm.tf`, `tofu/README.md` — the VM definition and its token
 - `scripts/llm/` — the services, wrapper scripts and configs referenced above

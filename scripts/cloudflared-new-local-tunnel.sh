@@ -91,7 +91,7 @@ cat <<NEXT
 
    Next, in order:
      1. Review:  git -C $REPO diff
-     2. Set the new id in tofu:  tofu/variables.tf -> tunnel_id default
+     2. Set the new id in tofu:  tofu/cloudflare/variables.tf -> tunnel_id default
      3. Commit and push, then run 'tofu apply' to repoint both CNAMEs.
         Between those two the site returns 502 -- keep the gap short.
      4. Verify, then delete the old tunnel.
