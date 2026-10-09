@@ -12,6 +12,20 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       off. `HostThinPoolData*`/`MetadataHigh` alert at 80% (`HOST-MONITORING.md`),
       so this is whether LVM should also grow the pool into the VG by itself.
 
+## Observability
+
+- [ ] **Re-size Prometheus `retentionSize` against the current series count.**
+      Head series are ~79,000, up from the ~66,000 the cap was sized for. TSDB
+      blocks are ~2.55 GiB against `retentionSize: 3GiB`, so headroom is ~15%
+      where the HelmRelease comment assumes ~25%. `retention: 15d` is still the
+      binding limit (oldest sample ~15.5 days, `prometheus_tsdb_size_retentions_total`
+      is 0), but further growth makes the size cap cut retention below 15 days.
+      Either raise the cap (worker1's root disk is the constraint, see the
+      comment block at the top of `kube-prometheus-stack/app/helmrelease.yaml`)
+      or find what added the series. Update the sizing comment either way. Check
+      with `prometheus_tsdb_head_series` and `prometheus_tsdb_size_retentions_total`.
+      See [`GITOPS.md`](GITOPS.md) → kube-prometheus-stack.
+
 ## GPU / LLM VM
 
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
