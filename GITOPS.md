@@ -676,8 +676,8 @@ the three node IPs work; the web UI is the same URL without `format=json`.
 
 | | |
 |---|---|
-| Chart | **91.9.0** (appVersion `v0.94.1`), `observability` namespace, no `dependsOn` |
-| Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 4GiB`, ~65,810 active series, pinned to **k3s-worker1** |
+| Chart | **92.1.1** (appVersion `v0.94.1`), `observability` namespace, no `dependsOn` |
+| Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 3GiB`, ~79,000 active series, pinned to **k3s-worker1** |
 | Storage | `local-path` — TSDB 8Gi nominal, Grafana 2Gi, Alertmanager 1Gi, all on worker1 |
 | Grafana | LAN-only Traefik Ingress, no host rule (reached by node IP alone); admin password in `grafana-admin.sops.yaml`; Reloader-annotated |
 | Alerting | Alertmanager on the chart's `null` receiver. Flux alerts on two paths — a notification-controller `Provider`/`Alert`, and a `PrometheusRule` over `flux_resource_info` |
