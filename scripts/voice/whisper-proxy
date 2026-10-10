@@ -88,6 +88,24 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         pass  # whisper-server's own log already has the per-request detail
 
 
+def mark_up():
+    # whisper_up otherwise changes only on a request, so a stopped whisper-server
+    # kept reporting the last value. Starting (After=whisper-server, warm-up
+    # done) sets 1 and keeps the last inference figures; the unit's
+    # ExecStopPost sets 0.
+    try:
+        with open(METRICS_FILE) as f:
+            rest = [l for l in f.read().splitlines() if not l.startswith("whisper_up ")]
+    except FileNotFoundError:
+        rest = []
+    fd, tmp = tempfile.mkstemp(dir=METRICS_DIR, prefix=".whisper.prom.")
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(["whisper_up 1"] + rest) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, METRICS_FILE)
+
+
 if __name__ == "__main__":
+    mark_up()
     server = http.server.ThreadingHTTPServer(LISTEN, Proxy)
     server.serve_forever()

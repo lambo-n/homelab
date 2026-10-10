@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+# Sits in front of sd-server (127.0.0.1:8092) on :8082. sd-server has no API key
+# option and never writes its images to disk -- every API returns them as base64
+# -- so this proxy does both: it requires the same Bearer keys as the llama
+# ports (/etc/llama/api-keys) and saves every generated image to
+# /models/images/. GPU-VM.md -> Image generation.
+#
+# Images are found in the three response shapes sd-server emits:
+#   POST /v1/images/{generations,edits}   data[].b64_json
+#   POST /sdapi/v1/{txt2img,img2img}      images[]
+#   GET  /sdcpp/v1/jobs/<id>, completed    result.images[].b64_json
+# A completed job returns its images on every poll, so each job is saved once.
+#
+# Counters for Grafana go to /run/sd-proxy/sd.prom (systemd RuntimeDirectory,
+# owned by llama); llama-metrics, which runs as root, copies them into
+# node_exporter's textfile directory. They reset when the proxy restarts.
+import base64
+import binascii
+import collections
+import hmac
+import http.server
+import json
+import os
+import socket
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+
+LISTEN = ("0.0.0.0", 8082)
+UPSTREAM_HOST, UPSTREAM_PORT = "127.0.0.1", 8092
+UPSTREAM = f"http://{UPSTREAM_HOST}:{UPSTREAM_PORT}"
+KEYS_FILE = "/etc/llama/api-keys"
+OUT_DIR = os.environ.get("SD_IMAGE_DIR", "/models/images")
+STATS_DIR = os.environ.get("RUNTIME_DIRECTORY", "/run/sd-proxy")
+# FLUX.2-dev at 1024x1024 with CPU offload takes minutes; the OpenAI and sdapi
+# routes hold the connection open for the whole generation.
+UPSTREAM_TIMEOUT = 1800
+MAX_BODY = 64 << 20  # an edit request carries its input images inline
+
+_saved_jobs = collections.OrderedDict()
+_saved_lock = threading.Lock()
+
+_stats = {"generations": 0, "images": 0, "errors": 0, "seconds_sum": 0.0,
+          "seconds_count": 0, "last_seconds": None, "in_flight": 0}
+_stats_lock = threading.Lock()
+SYNC_ROUTES = ("/v1/images/generations", "/v1/images/edits",
+               "/sdapi/v1/txt2img", "/sdapi/v1/img2img")
+
+
+def write_stats(stats_dir=None):
+    stats_dir = stats_dir or STATS_DIR
+    with _stats_lock:
+        st = dict(_stats)
+    lines = [
+        f"sd_generations_total {st['generations']}",
+        f"sd_images_total {st['images']}",
+        f"sd_errors_total {st['errors']}",
+        f"sd_generation_seconds_sum {st['seconds_sum']:.3f}",
+        f"sd_generation_seconds_count {st['seconds_count']}",
+        f"sd_generations_in_flight {st['in_flight']}",
+    ]
+    if st["last_seconds"] is not None:
+        lines.append(f"sd_last_generation_seconds {st['last_seconds']:.3f}")
+    fd, tmp = tempfile.mkstemp(dir=stats_dir, prefix=".sd.prom.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, os.path.join(stats_dir, "sd.prom"))
+    except OSError:
+        os.unlink(tmp)
+        raise
+
+
+def record(**changes):
+    with _stats_lock:
+        for k, v in changes.items():
+            if k == "last_seconds":
+                _stats[k] = v
+            else:
+                _stats[k] += v
+    try:
+        write_stats()
+    except OSError as e:
+        print(f"sd-proxy: stats not written: {e!r}", flush=True)
+
+
+def job_seconds(payload):
+    """started -> completed for a finished async job, if both are timestamps."""
+    start, end = payload.get("started"), payload.get("completed")
+    if isinstance(start, (int, float)) and isinstance(end, (int, float)) and end >= start:
+        return float(end - start)
+    return None
+
+
+def load_keys(path=KEYS_FILE):
+    with open(path) as f:
+        return [line.strip() for line in f if line.strip()]
+
+
+def authorized(header, keys):
+    if not header or not header.startswith("Bearer "):
+        return False
+    given = header[len("Bearer "):].strip().encode()
+    # Compare against every key so the time taken doesn't reveal which matched.
+    ok = False
+    for key in keys:
+        ok |= hmac.compare_digest(given, key.encode())
+    return ok
+
+
+def extract_images(method, path, payload):
+    """Return (job_id or None, [base64 strings]) for a successful response."""
+    route = path.split("?", 1)[0]
+    if method == "POST" and route.startswith("/v1/images/"):
+        return None, [d["b64_json"] for d in payload.get("data") or []
+                      if isinstance(d, dict) and d.get("b64_json")]
+    if method == "POST" and route in ("/sdapi/v1/txt2img", "/sdapi/v1/img2img"):
+        return None, [i for i in payload.get("images") or []
+                      if isinstance(i, str) and i]
+    parts = route.strip("/").split("/")
+    if (method == "GET" and parts[:3] == ["sdcpp", "v1", "jobs"]
+            and len(parts) == 4 and payload.get("status") == "completed"):
+        result = payload.get("result") or {}
+        return parts[3], [i["b64_json"] for i in result.get("images") or []
+                          if isinstance(i, dict) and i.get("b64_json")]
+    return None, []
+
+
+def _first_save(job_id):
+    if job_id is None:
+        return True
+    with _saved_lock:
+        if job_id in _saved_jobs:
+            return False
+        _saved_jobs[job_id] = True
+        while len(_saved_jobs) > 1024:
+            _saved_jobs.popitem(last=False)
+        return True
+
+
+def save_images(job_id, images, out_dir=OUT_DIR):
+    if not images or not _first_save(job_id):
+        return []
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    tag = job_id.removeprefix("job_")[:8] if job_id else os.urandom(4).hex()
+    names = []
+    for n, b64 in enumerate(images):
+        try:
+            data = base64.b64decode(b64, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        ext = "jpg" if data[:3] == b"\xff\xd8\xff" else "png"
+        name = f"{stamp}-{tag}-{n}.{ext}"
+        # O_EXCL: never overwrite an earlier image.
+        fd = os.open(os.path.join(out_dir, name),
+                     os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        names.append(name)
+    return names
+
+
+def upstream_up():
+    try:
+        socket.create_connection((UPSTREAM_HOST, UPSTREAM_PORT), 2).close()
+        return True
+    except OSError:
+        return False
+
+
+class Proxy(http.server.BaseHTTPRequestHandler):
+    keys = []
+
+    def _reply(self, status, body, content_type="application/json", extra=()):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        for k, v in extra:
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _handle(self, method):
+        # /health answers without a key, as on the llama ports.
+        if method == "GET" and self.path == "/health":
+            up = upstream_up()
+            self._reply(200 if up else 503,
+                        json.dumps({"status": "ok" if up else "loading"}).encode())
+            return
+        if not authorized(self.headers.get("Authorization"), self.keys):
+            self._reply(401, b'{"error":"invalid api key"}')
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > MAX_BODY:
+            self._reply(413, b'{"error":"request too large"}')
+            return
+        body = self.rfile.read(length) if length else None
+        headers = {}
+        if self.headers.get("Content-Type"):
+            headers["Content-Type"] = self.headers["Content-Type"]
+        req = urllib.request.Request(UPSTREAM + self.path, data=body,
+                                     headers=headers, method=method)
+        sync = method == "POST" and self.path.split("?", 1)[0] in SYNC_ROUTES
+        if sync:
+            record(in_flight=1)
+        start = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=UPSTREAM_TIMEOUT) as resp:
+                status, payload = resp.status, resp.read()
+                content_type = resp.headers.get("Content-Type", "application/json")
+        except urllib.error.HTTPError as e:
+            status, payload = e.code, e.read()
+            content_type = e.headers.get("Content-Type", "application/json")
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if sync:
+                record(in_flight=-1, errors=1)
+            self._reply(502, b'{"error":"sd-server unreachable"}')
+            return
+        elapsed = time.monotonic() - start
+        if sync:
+            record(in_flight=-1, errors=0 if status == 200 else 1)
+
+        extra = []
+        if status == 200 and content_type.startswith("application/json"):
+            try:
+                body_json = json.loads(payload)
+                job_id, images = extract_images(method, self.path, body_json)
+                names = save_images(job_id, images)
+                if names:
+                    secs = elapsed if job_id is None else job_seconds(body_json)
+                    if secs is None:
+                        record(generations=1, images=len(names))
+                    else:
+                        record(generations=1, images=len(names), seconds_sum=secs,
+                               seconds_count=1, last_seconds=secs)
+            except (ValueError, AttributeError, TypeError, OSError) as e:
+                print(f"sd-proxy: not saved: {e!r}", flush=True)
+                names = []
+            if names:
+                print(f"sd-proxy: saved {' '.join(names)}", flush=True)
+                extra.append(("X-Saved-Images", " ".join(names)))
+        self._reply(status, payload, content_type, extra)
+
+    def do_GET(self):
+        self._handle("GET")
+
+    def do_POST(self):
+        self._handle("POST")
+
+    def log_message(self, fmt, *args):
+        pass  # sd-server's own log has the per-request detail
+
+
+if __name__ == "__main__":
+    Proxy.keys = load_keys()
+    if not Proxy.keys:
+        raise SystemExit(f"sd-proxy: no keys in {KEYS_FILE}")
+    write_stats()
+    http.server.ThreadingHTTPServer(LISTEN, Proxy).serve_forever()

@@ -1,6 +1,9 @@
 #!/bin/bash
-# Switch the llm VM between normal mode (fast + router) and agent mode
-# (router only, so qwen27-agent gets the whole card). GPU-VM.md F5.
+# Switch the llm VM between normal mode (fast + router), agent mode (router
+# only, so qwen27-agent gets the whole card) and image mode (sd-server alone:
+# FLUX.2-dev, no other model on the card). GPU-VM.md F5, Image generation.
+# sd-server.service Conflicts= with fast, the router and whisper-server, so
+# starting either side stops the other; llama-fast brings whisper back.
 # Installed to /usr/local/sbin/llm-mode; run with sudo.
 set -euo pipefail
 U=http://127.0.0.1:8080
@@ -15,12 +18,14 @@ unload() {
 case "${1:-}" in
   agent)
     systemctl stop llama-fast
+    # Coming from image mode: the router and whisper were stopped by it.
+    systemctl start llama-router whisper-proxy
     echo "llama-fast stopped; request model qwen27-agent on :8080"
     ;;
   normal)
     unload qwen27-agent
     sleep 5
-    systemctl start llama-fast
+    systemctl start llama-router llama-fast
     echo "waiting for llama-fast to load (usually ~10 s)..."
     # /health answers 503 while the model loads; -f makes that a failure.
     for _ in $(seq 180); do
@@ -33,14 +38,31 @@ case "${1:-}" in
     echo "llama-fast not ready after 180 s; see journalctl -u llama-fast" >&2
     exit 1
     ;;
+  image)
+    systemctl start sd-server
+    echo "fast, router and whisper stopped; waiting for sd-server..."
+    for _ in $(seq 60); do
+      if curl -fs -o /dev/null http://127.0.0.1:8082/health; then
+        echo "sd-server ready on :8082; images save to /models/images"
+        exit 0
+      fi
+      sleep 1
+    done
+    echo "sd-server not ready after 60 s; see journalctl -u sd-server" >&2
+    exit 1
+    ;;
   status)
     echo "llama-fast:   $(systemctl is-active llama-fast || true)"
     echo "llama-router: $(systemctl is-active llama-router || true)"
-    curl -fsS -H "Authorization: Bearer $K" "$U/models" \
-      | jq -r '.data[] | "\(.id)\t\(.status.value)"'
+    echo "whisper:      $(systemctl is-active whisper-server || true)"
+    echo "sd-server:    $(systemctl is-active sd-server || true)"
+    if systemctl -q is-active llama-router; then
+      curl -fsS -H "Authorization: Bearer $K" "$U/models" \
+        | jq -r '.data[] | "\(.id)\t\(.status.value)"'
+    fi
     ;;
   *)
-    echo "usage: llm-mode agent|normal|status" >&2
+    echo "usage: llm-mode agent|normal|image|status" >&2
     exit 2
     ;;
 esac

@@ -32,8 +32,9 @@ above.
 
 Not everything here is a Kubernetes workload. **VM 105** runs the GPU and the
 local inference stack — `llama.cpp` on an Intel Arc Pro B70, plus the
-speech-to-text and text-to-speech services the voice assistant calls — outside
-the cluster entirely. See [`GPU-VM.md`](GPU-VM.md) and [`VOICE.md`](VOICE.md).
+speech-to-text and text-to-speech services the voice assistant calls, and a
+FLUX.2 image-generation mode that takes the whole card — outside the cluster
+entirely. See [`GPU-VM.md`](GPU-VM.md) and [`VOICE.md`](VOICE.md).
 
 ### Voice assistant — Home Assistant plus VM 105
 
@@ -366,7 +367,7 @@ layer split exists to avoid.
 
 ### Observability
 
-**kube-prometheus-stack** chart `92.1.1` — Prometheus `v3.15.0`, Alertmanager
+**kube-prometheus-stack** chart `92.2.0` — Prometheus `v3.15.0`, Alertmanager
 `v0.34.1`, Grafana `13.2.3`, node-exporter and kube-state-metrics. 29 scrape
 targets, 240 rules (154 alerting). Alerts fire and are visible; nothing is pushed anywhere,
 deliberately.

@@ -676,7 +676,7 @@ the three node IPs work; the web UI is the same URL without `format=json`.
 
 | | |
 |---|---|
-| Chart | **92.1.1** (appVersion `v0.94.1`), `observability` namespace, no `dependsOn` |
+| Chart | **92.2.0** (appVersion `v0.94.1`), `observability` namespace, no `dependsOn` |
 | Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 3GiB`, ~79,000 active series, pinned to **k3s-worker1** |
 | Storage | `local-path` — TSDB 8Gi nominal, Grafana 2Gi, Alertmanager 1Gi, all on worker1 |
 | Grafana | LAN-only Traefik Ingress, no host rule (reached by node IP alone); admin password in `grafana-admin.sops.yaml`; Reloader-annotated |
