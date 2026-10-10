@@ -277,6 +277,7 @@ with no network. Then, on the guest:
 | `curl -s -o /dev/null -w '%{http_code}' localhost:8082/sdcpp/v1/capabilities` | `401` |
 | a `POST /v1/images/generations` with a key (see *Generating an image*) | `200`, and a new file in `/models/images/` named in `X-Saved-Images` |
 | `grep -h 'mode=.*} 1\|whisper_up' /var/lib/prometheus/node-exporter/*.prom` in image mode | `llm_mode{mode="image"} 1` and `whisper_up 0` (the timer runs every 15 s) |
+| `grep -E 'flux2\|^sd_(busy\|step)' /var/lib/prometheus/node-exporter/llama.prom` after one image | `model_loaded{model="flux2-dev"} 1`, `sd_busy 0`, `sd_step_seconds` ≈ 10 |
 | `sudo llm-mode normal` then `sudo llm-mode status` | fast, router and whisper `active`; `sd-server: inactive`; `whisper_up 1` once whisper's ~34 s warm-up ends |
 
 #### Generating an image
@@ -306,7 +307,14 @@ collector) plus two textfile collectors:
   (`llm_mode{mode="normal|agent|image|other"}`, from unit state), VRAM in use
   (`llm_gpu_vram_used_bytes`, from `xpu-smi stats -j`; hwmon has no VRAM
   figure), `sd_server_up`, and copies in `sd-proxy`'s counters from
-  `/run/sd-proxy/sd.prom` while image mode is on.
+  `/run/sd-proxy/sd.prom` while image mode is on. Image mode also appears as
+  a preset, `flux2-dev`, under the llama names
+  (`llamacpp:model_loaded`, `llamacpp:requests_processing`), so the
+  dashboard's per-model row covers it. `sd-server` has no `/metrics`, so its
+  busy flag (`sd_busy`) and the last completed image's stage times
+  (`sd_stage_seconds{stage="encode|weights|sample|decode"}`,
+  `sd_sampling_steps`, `sd_step_seconds`) are parsed from its journal, current
+  run only. Busy covers every API, async `/sdcpp/v1` jobs included.
 - `scripts/voice/whisper-proxy` sits between `wyoming-whisper` and
   `whisper-server`, timing every real transcription and classifying it GPU
   (SYCL, <1 s) or CPU fallback (≥1 s). whisper.cpp's server has no `/metrics`
@@ -321,8 +329,11 @@ Both write to node_exporter's textfile collector, scraped by the cluster's
 Prometheus via `kubernetes/apps/observability/llm-vm/`; dashboard `LLM VM —
 Arc Pro B70` (`uid llm-vm-gpu`) in Grafana. `PrometheusRule llm-vm` alerts on
 GPU temp > 90°C and the VM being unreachable. The dashboard's *Image
-generation* row shows the card mode, VRAM used, generations in flight,
-images and failures per 24 h, and per-image wall time.
+generation* row shows the card mode, VRAM used, whether `sd-server` is
+generating, images and failures per 24 h, per-image wall time, and the last
+image's stage breakdown. The *Model: flux2-dev* row shows loaded / idle /
+busy, seconds per sampling step (from step 2; step 1 also builds the graph),
+prompt-encoding time, images per 24 h and the last image's wall time.
 
 ---
 
