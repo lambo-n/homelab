@@ -59,12 +59,14 @@ History: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → *GuC firmware 
 
 `llama.cpp` (`v0.4.1`, built with Intel SYCL/oneAPI — roughly 2× faster than
 Vulkan on this card) running as two systemd services on the guest, both system
-user `llama`:
+user `llama`, plus an image-generation server that has the card to itself
+(*Image generation* below):
 
 | Service | Port | Serves | Notes |
 |---|---|---|---|
 | `llama-fast.service` | 8081 | **Qwen3.5-4B**, `-c 8192`, always loaded | thinking disabled, `-n 2048` cap |
 | `llama-router.service` | 8080 | preset models below, `--models-max 1` | loads on first request, evicts the previous preset (LRU) |
+| `sd-server.service` + `sd-proxy.service` | 8082 | **FLUX.2-dev**, image mode only | not enabled; `sudo llm-mode image` stops every other model on the card first |
 
 **Router presets**, in `/etc/llama/models.ini`:
 
@@ -74,8 +76,10 @@ user `llama`:
 | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | 262,144 (full) |
 | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone | ~195,072 (`sudo llm-mode agent` first — stops `llama-fast`) |
 
-`llm-mode agent|normal|status` (on the guest) switches between the always-on
-`fast` service and the long-context solo mode. All models live in `/models`
+`llm-mode agent|normal|image|status` (on the guest) switches between the
+always-on `fast` service, the long-context solo mode, and image mode.
+`llama-fast.service` `Wants=whisper-proxy.service`, so however `fast` starts,
+`whisper-server` and its proxy start with it. All models live in `/models`
 (the `llm-pool` disk) and are checksum-verified against Hugging Face at
 download time. Llama 3.1 8B Q8_0 is also downloaded but not wired into a
 preset today.
@@ -85,7 +89,7 @@ key, except `/health`, which answers `200` to anyone on the LAN. Three keys exis
 64-character line generated with `openssl rand -hex 32`.
 
 **Firewall (`ufw` on the guest):** LAN-only. Port 22 open from anywhere
-(ProxyJump SSH arrives via the tailscale gateway); ports 8080/8081 open to
+(ProxyJump SSH arrives via the tailscale gateway); ports 8080/8081/8082 open to
 `192.168.50.0/24` but explicitly denied to the gateway's own address
 (`192.168.50.102`), because routed tailnet traffic arrives as that address.
 The tailnet policy also grants nothing on `.107`
@@ -204,26 +208,121 @@ with no network. Then, on the guest:
 | `echo 'while True: pass' \| ssh llm sudo llm-sandbox python-run` | no output after 30 s (the unit was killed) |
 | `curl 'http://192.168.50.104:8080/search?q=test&format=json'` | JSON with a non-empty `results` array |
 
+### Image generation
+
+`sudo llm-mode image` gives the whole card to
+[stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
+(`master-951-f89d9b1`, SYCL build in `/models/src/stable-diffusion.cpp/build-sycl`)
+serving FLUX.2-dev. `sudo llm-mode normal` gives it back.
+
+| | |
+|---|---|
+| Weights (`/models/flux2/`) | `flux2-dev-Q6_K.gguf` (25.5 GiB, `city96/FLUX.2-dev-gguf`), text encoder `Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf` (13.3 GiB, `unsloth/…-GGUF`), `flux2-vae.safetensors` (`Comfy-Org/flux2-dev`, ungated). Licence: FLUX.2-dev non-commercial |
+| Server | `sd-server` on `127.0.0.1:8092`, `--offload-to-cpu --diffusion-fa --vae-tiling`; request defaults 1024×1024, 28 steps, euler, CFG 1.0, random seed → `scripts/llm/sd-server.service` |
+| Memory | All 39.4 GiB of weights in guest RAM; each stage moves onto the card while it runs: text encoder ~11 GiB, then the diffusion model, peaking at **29.2 of 31.9 GiB** VRAM at 1024². ~1 GiB between images |
+| Speed (1024²) | Prompt encoding 8 s (32 s on the first request after start, reading the weights from disk); ~50 s moving the diffusion model onto the card; **~12.5 s per sampling step**; 4 s decode. The 28-step default is ~7 min per image |
+| Front door | `sd-proxy` on `:8082`: the `/etc/llama/api-keys` Bearer keys (`/health` open, as on the llama ports) and saves every image to `/models/images/` → `scripts/llm/sd-proxy` |
+| Output | `/models/images/<YYYYmmdd-HHMMSS>-<id>-<n>.png`, owner `llama`; the response's `X-Saved-Images` header names the files |
+| APIs | OpenAI `POST /v1/images/generations` (synchronous), AUTOMATIC1111 `/sdapi/v1/txt2img`, native async `/sdcpp/v1/img_gen` + `GET /sdcpp/v1/jobs/<id>` → `examples/server/api.md` upstream |
+
+**One model on the card, enforced by systemd.** `sd-server.service`
+`Conflicts=` with `llama-fast`, `llama-router` and `whisper-server`, so
+starting image mode stops all three (a loaded router preset goes with the
+router), and starting any of them stops image mode. `whisper-proxy` stops with
+`whisper-server`, and `llama-fast`'s `Wants=` brings both back, so **Home
+Assistant and the `transcribe` app have no speech-to-text while image mode is
+on** — Piper TTS is CPU and keeps running. `sd-proxy` is `BindsTo=` `sd-server`: outside image mode,
+`:8082` refuses connections.
+
+> ⚠️ **`/models/images/` is not backed up.** `llm-pool` is excluded from
+> sanoid because weights re-download; generated images don't. Copy off what
+> you want to keep.
+
+> ⚠️ **`--vae-tiling` is required on this card.** Decoding a 1024² latent in
+> one piece fails in the SYCL backend (`Provided range and/or offset does not
+> fit in int`, `Error OP IM2COL`) after the whole sampling run, and the crash
+> restarts `sd-server`.
+
+> ⚠️ **`sd-server` has no authentication and never writes to disk.** Both are
+> `sd-proxy`'s job, so `sd-server` must stay on loopback. A completed async
+> job returns its images on every poll; the proxy saves each job id once.
+
+Install (on the guest, from a copy of `scripts/llm/`):
+
+```bash
+sudo install -m 755 sd-proxy llm-mode /usr/local/sbin/
+```
+```bash
+sudo install -m 644 sd-server.service sd-proxy.service /etc/systemd/system/
+```
+```bash
+sudo install -d -o llama -g llama /models/images
+```
+```bash
+sudo systemctl daemon-reload
+```
+```bash
+sudo ufw insert 2 deny from 192.168.50.102 to any port 8082 proto tcp
+```
+```bash
+sudo ufw insert 4 allow from 192.168.50.0/24 to any port 8082 proto tcp
+```
+
+**Checking it** — `python3 -m unittest scripts/llm/test_sd_proxy.py` passes
+with no network. Then, on the guest:
+
+| Command | Healthy |
+|---|---|
+| `sudo llm-mode image` then `sudo llm-mode status` | `sd-server: active`; fast, router and whisper `inactive` |
+| `curl -s -o /dev/null -w '%{http_code}' localhost:8082/sdcpp/v1/capabilities` | `401` |
+| a `POST /v1/images/generations` with a key (see *Generating an image*) | `200`, and a new file in `/models/images/` named in `X-Saved-Images` |
+| `grep -h 'mode=.*} 1\|whisper_up' /var/lib/prometheus/node-exporter/*.prom` in image mode | `llm_mode{mode="image"} 1` and `whisper_up 0` (the timer runs every 15 s) |
+| `sudo llm-mode normal` then `sudo llm-mode status` | fast, router and whisper `active`; `sd-server: inactive`; `whisper_up 1` once whisper's ~34 s warm-up ends |
+
+#### Generating an image
+
+```bash
+K=$(sudo sed -n 1p /etc/llama/api-keys)
+```
+```bash
+curl -s -D- -o /dev/null localhost:8082/v1/images/generations \
+  -H "Authorization: Bearer $K" -H 'Content-Type: application/json' \
+  -d '{"prompt":"a lighthouse at dusk, oil painting"}'
+```
+
+The `X-Saved-Images` line names the file under `/models/images/`. Size, steps
+and seed go in `<sd_cpp_extra_args>` inside the prompt for the OpenAI route,
+or as fields of the native `/sdcpp/v1/img_gen` body.
+
 ### Observability
 
 `prometheus-node-exporter` on the guest (GPU temps/power via its hwmon
-collector) plus two `.timer`-driven textfile collectors:
+collector) plus two textfile collectors:
 
-- `scripts/llm/llama-metrics` polls `llama-fast` and any *loaded* router
-  preset every 15 s for tokens/sec, requests and cache-reuse — the router
-  isn't scraped directly, since `/metrics?model=` 400s on an unloaded preset.
+- `scripts/llm/llama-metrics` (`llama-metrics.timer`, every 15 s) polls
+  `llama-fast` and any *loaded* router preset for tokens/sec, requests and
+  cache-reuse — the router isn't scraped directly, since `/metrics?model=`
+  400s on an unloaded preset. It also writes the card's mode
+  (`llm_mode{mode="normal|agent|image|other"}`, from unit state), VRAM in use
+  (`llm_gpu_vram_used_bytes`, from `xpu-smi stats -j`; hwmon has no VRAM
+  figure), `sd_server_up`, and copies in `sd-proxy`'s counters from
+  `/run/sd-proxy/sd.prom` while image mode is on.
 - `scripts/voice/whisper-proxy` sits between `wyoming-whisper` and
   `whisper-server`, timing every real transcription and classifying it GPU
   (SYCL, <1 s) or CPU fallback (≥1 s). whisper.cpp's server has no `/metrics`
   endpoint and logs its device only once at startup, so this is the live
-  signal for a silent fallback afterward — but it only updates when someone
-  actually uses the voice assistant, not on a fixed interval — see
-  [`VOICE.md`](VOICE.md) → *V1f*.
+  signal for a silent fallback afterward — but latency only updates when
+  someone actually uses the voice assistant — see [`VOICE.md`](VOICE.md) →
+  *V1f*. `whisper_up` is set to 1 when the proxy starts (after
+  `whisper-server`'s warm-up) and to 0 by its unit's `ExecStopPost`, so it
+  reads 0 in image mode.
 
 Both write to node_exporter's textfile collector, scraped by the cluster's
 Prometheus via `kubernetes/apps/observability/llm-vm/`; dashboard `LLM VM —
 Arc Pro B70` (`uid llm-vm-gpu`) in Grafana. `PrometheusRule llm-vm` alerts on
-GPU temp > 90°C and the VM being unreachable.
+GPU temp > 90°C and the VM being unreachable. The dashboard's *Image
+generation* row shows the card mode, VRAM used, generations in flight,
+images and failures per 24 h, and per-image wall time.
 
 ---
 

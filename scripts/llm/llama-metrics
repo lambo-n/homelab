@@ -1,6 +1,7 @@
 #!/bin/bash
 # Collect llama-server metrics for every model on VM 105 into node_exporter's
-# textfile collector, labelled by model. Run by llama-metrics.timer every 15 s.
+# textfile collector, labelled by model, plus the card's mode (llm-mode), VRAM
+# in use and image mode's counters. Run by llama-metrics.timer every 15 s.
 # Installed to /usr/local/sbin/llama-metrics. GPU-VM.md F6b.
 #
 # Why not scrape the router directly: in router mode /metrics needs ?model=, and a
@@ -47,6 +48,29 @@ emit() { # <model> <url>
       fi
     done < <(printf '%s' "$models" | jq -r '.data[] | "\(.id) \(.status.value)"')
   fi
+
+  # Which mode the card is in (llm-mode): exactly one of these is 1.
+  fast=$(systemctl is-active llama-fast)
+  router=$(systemctl is-active llama-router)
+  sd=$(systemctl is-active sd-server)
+  mode=other
+  if [ "$sd" = active ]; then mode=image
+  elif [ "$fast" = active ] && [ "$router" = active ]; then mode=normal
+  elif [ "$router" = active ]; then mode=agent
+  fi
+  for m in normal agent image other; do
+    echo "llm_mode{mode=\"$m\"} $([ "$m" = "$mode" ] && echo 1 || echo 0)"
+  done
+  echo "sd_server_up $([ "$sd" = active ] && echo 1 || echo 0)"
+
+  # VRAM in use, from Intel's xpu-smi (~0.3 s); hwmon has temps and power only.
+  if vram=$(xpu-smi stats -d 0 -j 2>/dev/null \
+      | jq -e '.memory.used_mib.tile_0.current * 1048576 | floor'); then
+    echo "llm_gpu_vram_used_bytes $vram"
+  fi
+
+  # sd-proxy's counters; the file exists only while image mode is on.
+  cat /run/sd-proxy/sd.prom 2>/dev/null
 } > "$tmp"
 
 chmod 644 "$tmp"
