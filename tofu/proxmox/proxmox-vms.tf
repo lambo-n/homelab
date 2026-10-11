@@ -146,7 +146,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker1" {
     backup            = true
     cache             = "none"
     datastore_id      = "local-lvm"
-    discard           = "ignore"
+    discard           = "on"
     file_format       = "raw"
     file_id           = ""
     import_from       = ""
@@ -239,7 +239,7 @@ resource "proxmox_virtual_environment_vm" "k3s_control" {
     backup            = true
     cache             = "none"
     datastore_id      = "local-lvm"
-    discard           = "ignore"
+    discard           = "on"
     file_format       = "raw"
     file_id           = ""
     import_from       = ""
@@ -332,7 +332,7 @@ resource "proxmox_virtual_environment_vm" "dev" {
     backup            = true
     cache             = "none"
     datastore_id      = "local-lvm"
-    discard           = "ignore"
+    discard           = "on"
     file_format       = "raw"
     file_id           = ""
     import_from       = ""
@@ -425,7 +425,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker2" {
     backup            = true
     cache             = "none"
     datastore_id      = "local-lvm"
-    discard           = "ignore"
+    discard           = "on"
     file_format       = "raw"
     file_id           = ""
     import_from       = ""
