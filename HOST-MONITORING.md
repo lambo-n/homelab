@@ -141,6 +141,16 @@ What `host-metrics` exports (all labelled `instance="pve"` once scraped):
 | `host_lvm_vg_free_bytes` | `vgs pve` | room to grow the pool |
 | `host_metrics_collector_success{collector}`, `host_metrics_last_run_timestamp_seconds` | the script | one section failing doesn't blank the others |
 
+**`pve/data` extends itself.** The LVM profile `thin-autoextend`
+(`/etc/lvm/profile/thin-autoextend.profile`: `thin_pool_autoextend_threshold = 90`,
+`thin_pool_autoextend_percent = 10`) is attached to the pool, so at 90% full it
+grows by 10% of its size, bounded by `host_lvm_vg_free_bytes`. The alerts below
+fire first (80% and 90%). The profile file is host config, not in git. Check it
+with `lvs -o lv_name,lv_profile,seg_monitor pve/data`: `thin-autoextend` and
+`monitored`. Every guest root disk has `discard=on`, so `fstrim` in a guest returns
+space to the pool ([`runbooks/DISK-SPACE.md`](runbooks/DISK-SPACE.md)).
+History: [`archive/DISK-SPACE-HEADROOM.md`](archive/DISK-SPACE-HEADROOM.md).
+
 > ⚠️ **The PERC exposes every disk twice.** `smartctl --scan` finds each
 > drive as `sdX` *and* through the controller (`bus_2_megaraid_N`,
 > `bus_2_sat+megaraid_N`). The exporter runs with

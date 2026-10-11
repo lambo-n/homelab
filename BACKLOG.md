@@ -4,14 +4,6 @@ Every open item across this repo, in one place, so nothing is tracked only in
 a runbook nobody re-reads. Each entry says what it's waiting on and where the
 fuller context lives. Nothing here is blocking day-to-day operation.
 
-## Host monitoring
-
-- [ ] **Decide on thin-pool autoextend for `local-lvm` (`pve/data`).** The pool
-      is overcommitted (guest disks exceed its size) with ~16 GiB free in the
-      `pve` VG, and `thin_pool_autoextend_threshold` in `/etc/lvm/lvm.conf` is
-      off. `HostThinPoolData*`/`MetadataHigh` alert at 80% (`HOST-MONITORING.md`),
-      so this is whether LVM should also grow the pool into the VG by itself.
-
 ## GPU / LLM VM
 
 - [ ] **Verify the boot-time ReBAR resize across a real host reboot.** The first
@@ -69,8 +61,15 @@ From [`HARDWARE.md`](HARDWARE.md) → "Still unknown":
       See `tofu/README.md#versions` for the incident that motivated this
       (Renovate bumped a `versions.tf` without refreshing the lock file, and every
       tofu command failed on a fresh checkout for six days, unnoticed).
-- [ ] Loki + Promtail for logs — wants its own storage answer first (worker1's
-      root disk is already the TSDB's constraint).
+- [ ] Loki + Promtail for logs — wants its own storage answer first; the
+      dedicated worker1 data disk on `archive-pool` in
+      [`archive/DISK-SPACE-HEADROOM.md`](archive/DISK-SPACE-HEADROOM.md) (phase C)
+      is the fit.
+- [ ] A dedicated data disk for `k3s-worker1` on `archive-pool`, for the TSDB and
+      the other `local-path` volumes. Not needed at ~45% free; do it if the TSDB
+      needs more than ~6 GiB (longer retention, Loki) or worker1's `/` falls under
+      25% free despite the kubelet image-GC setting. The procedure is phase C of
+      [`archive/DISK-SPACE-HEADROOM.md`](archive/DISK-SPACE-HEADROOM.md).
 - [ ] Talos Linux for the k3s nodes — the real endgame for declarative node
       config, but a rebuild.
 - [ ] Gateway API / Envoy Gateway instead of Traefik Ingress (CRDs already present).
