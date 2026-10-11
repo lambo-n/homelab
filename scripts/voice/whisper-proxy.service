@@ -9,6 +9,8 @@ Requires=whisper-server.service
 
 [Service]
 ExecStart=/usr/local/sbin/whisper-proxy
+# Stops with whisper-server (Requires=), e.g. in image mode: report it down.
+ExecStopPost=/bin/sed -i "s/^whisper_up .*/whisper_up 0/" /var/lib/prometheus/node-exporter/whisper.prom
 Restart=on-failure
 RestartSec=5
 

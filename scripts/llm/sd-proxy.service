@@ -1,0 +1,17 @@
+# Install: GPU-VM.md -> Image generation. API-key check and save-to-disk in
+# front of sd-server; up exactly while sd-server is (BindsTo=).
+[Unit]
+Description=API-key and save-to-disk proxy for sd-server on :8082 (homelab GPU-VM.md)
+BindsTo=sd-server.service
+After=sd-server.service
+
+[Service]
+# llama: the group that can read /etc/llama/api-keys and owns /models/images.
+User=llama
+Group=llama
+ExecStart=/usr/local/sbin/sd-proxy
+# /run/sd-proxy: the proxy's counters (sd.prom), copied into node_exporter's
+# textfile directory by llama-metrics. Removed when the proxy stops.
+RuntimeDirectory=sd-proxy
+Restart=on-failure
+RestartSec=5

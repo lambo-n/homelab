@@ -1,0 +1,37 @@
+# Install: GPU-VM.md -> Image generation. FLUX.2-dev on the whole card.
+# Loopback only: sd-server has no API key option and never writes images to
+# disk, so sd-proxy.service (:8082) fronts it and does both.
+#
+# Not enabled: `sudo llm-mode image` starts it, `llm-mode normal` stops it.
+# Conflicts= keeps every other model off the card, in both directions: starting
+# this stops fast, the router and whisper-server; starting any of them stops
+# this. whisper-proxy stops with whisper-server (Requires=), and llama-fast's
+# Wants=whisper-proxy brings both back.
+[Unit]
+Description=stable-diffusion.cpp server (FLUX.2-dev) on 127.0.0.1:8092 (homelab GPU-VM.md)
+Conflicts=llama-fast.service llama-router.service whisper-server.service
+After=llama-fast.service llama-router.service whisper-server.service
+Wants=sd-proxy.service
+RequiresMountsFor=/models
+
+[Service]
+User=llama
+Group=llama
+SupplementaryGroups=render video
+# 25.5 GiB diffusion model + 13.3 GiB text encoder exceed the 31.9 GiB card
+# together; --offload-to-cpu keeps weights in RAM and moves each stage onto the
+# card only while it runs. -s -1: a random seed per request (default is 42).
+# --vae-tiling: decoding a 1024x1024 latent in one piece fails on SYCL ("range
+# does not fit in int", IM2COL); tiles stay under the limit.
+# The rest are request defaults from the FLUX.2 docs; requests can override.
+ExecStart=/usr/local/bin/llama-oneapi \
+  /models/src/stable-diffusion.cpp/build-sycl/bin/sd-server \
+  --listen-ip 127.0.0.1 --listen-port 8092 \
+  --diffusion-model /models/flux2/flux2-dev-Q6_K.gguf \
+  --vae /models/flux2/flux2-vae.safetensors \
+  --llm /models/flux2/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
+  --offload-to-cpu --diffusion-fa --vae-tiling \
+  --cfg-scale 1.0 --sampling-method euler --steps 28 \
+  -W 1024 -H 1024 -s -1
+Restart=on-failure
+RestartSec=10

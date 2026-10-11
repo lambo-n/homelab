@@ -2,7 +2,9 @@
 # because the router's LRU eviction counts instances, not VRAM, and cannot pin one.
 [Unit]
 Description=llama.cpp fast model (Qwen3.5-4B) on :8081 (homelab GPU-VM.md F5)
-Wants=network-online.target
+# Image mode (sd-server.service) stops whisper-server, and whisper-proxy with
+# it (Requires=). Wanting the proxy here brings both back however fast starts.
+Wants=network-online.target whisper-proxy.service
 After=network-online.target
 RequiresMountsFor=/models
 

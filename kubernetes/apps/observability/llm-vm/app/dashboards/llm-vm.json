@@ -8,7 +8,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 3,
+  "version": 4,
   "refresh": "30s",
   "time": {
     "from": "now-3h",
@@ -868,7 +868,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "fast is its own service (always on). The router holds one of qwen27 / qwen27-agent / chat at a time; collected every 15 s by llama-metrics on llm.",
+      "description": "fast is its own service (always on). The router holds one of qwen27 / qwen27-agent / chat at a time; flux2-dev is image mode (sd-server), loaded only while llm-mode image is on. BUSY = a request is being processed. Collected every 15 s by llama-metrics on llm.",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -881,7 +881,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"})",
+          "expr": "max(llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}) + (max(llamacpp:requests_processing{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}) > bool 0 or on() vector(0))",
           "legendFormat": "",
           "refId": "A",
           "range": false,
@@ -904,6 +904,10 @@
               {
                 "color": "green",
                 "value": 1
+              },
+              {
+                "color": "blue",
+                "value": 2
               }
             ]
           },
@@ -916,8 +920,12 @@
                   "color": "text"
                 },
                 "1": {
-                  "text": "LOADED",
+                  "text": "LOADED · idle",
                   "color": "green"
+                },
+                "2": {
+                  "text": "BUSY",
+                  "color": "blue"
                 }
               }
             }
@@ -947,7 +955,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Tokens generated ÷ time spent generating, over the last 5 minutes. Idle when nothing was generated.",
+      "description": "Tokens generated ÷ time spent generating, over the last 5 minutes. Idle when nothing was generated. flux2-dev: seconds per sampling step of the last completed image, from step 2 (step 1 also builds the graph).",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -963,6 +971,17 @@
           "expr": "(sum(increase(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) / sum(increase(llamacpp:tokens_predicted_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m]))) and (sum(increase(llamacpp:tokens_predicted_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) > 0)",
           "legendFormat": "",
           "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_step_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\"}) and on() llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"flux2-dev\", model=\"$model\"}",
+          "legendFormat": "per sampling step, last image",
+          "refId": "B",
           "range": false,
           "instant": true
         }
@@ -985,7 +1004,24 @@
           "decimals": 1,
           "noValue": "idle"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: s/step"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -1009,7 +1045,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Prompt tokens processed ÷ time spent on prompts (excludes tokens reused from cache).",
+      "description": "Prompt tokens processed ÷ time spent on prompts (excludes tokens reused from cache). flux2-dev: seconds the text encoder took on the last completed image's prompt, excluding loading its weights.",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -1025,6 +1061,17 @@
           "expr": "(sum(increase(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) / sum(increase(llamacpp:prompt_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m]))) and (sum(increase(llamacpp:prompt_seconds_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[5m])) > 0)",
           "legendFormat": "",
           "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_stage_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", stage=\"encode\"}) and on() llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"flux2-dev\", model=\"$model\"}",
+          "legendFormat": "prompt encoding, last image",
+          "refId": "B",
           "range": false,
           "instant": true
         }
@@ -1047,7 +1094,24 @@
           "decimals": 0,
           "noValue": "idle"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -1071,7 +1135,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "",
+      "description": "flux2-dev: 1 while sd-server is generating, through any API.",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -1147,7 +1211,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Across model reloads (increase() handles counter resets).",
+      "description": "Across model reloads (increase() handles counter resets). flux2-dev: images saved by sd-proxy.",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -1163,6 +1227,17 @@
           "expr": "sum(increase(llamacpp:tokens_predicted_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h]))",
           "legendFormat": "",
           "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(increase(sd_images_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\"}[24h])) and on() llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"flux2-dev\", model=\"$model\"}",
+          "legendFormat": "images",
+          "refId": "B",
           "range": false,
           "instant": true
         }
@@ -1209,7 +1284,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Share of prompt tokens served from the KV cache instead of recomputed. High is good for agent sessions.",
+      "description": "Share of prompt tokens served from the KV cache instead of recomputed. High is good for agent sessions. flux2-dev has no prompt cache: this shows the last image's request-to-response time instead.",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -1225,6 +1300,17 @@
           "expr": "(sum(increase(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])) / (sum(increase(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])) + sum(increase(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])))) and ((sum(increase(llamacpp:prompt_tokens_cached_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h])) + sum(increase(llamacpp:prompt_tokens_total{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"$model\"}[24h]))) > 0)",
           "legendFormat": "",
           "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_last_generation_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\"}) and on() llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"flux2-dev\", model=\"$model\"}",
+          "legendFormat": "last image, wall time",
+          "refId": "B",
           "range": false,
           "instant": true
         }
@@ -1255,7 +1341,31 @@
           "decimals": 0,
           "noValue": "—"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -1285,7 +1395,7 @@
         "x": 0,
         "y": 30
       },
-      "description": "Tokens per second over the rate window. Gaps are periods the model was not loaded.",
+      "description": "Tokens per second over the rate window. Gaps are periods the model was not loaded. flux2-dev: seconds per sampling step of the last completed image (right axis).",
       "targets": [
         {
           "datasource": {
@@ -1319,6 +1429,17 @@
           "refId": "C",
           "range": true,
           "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_step_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\"}) and on() llamacpp:model_loaded{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\", model=\"flux2-dev\", model=\"$model\"}",
+          "legendFormat": "s per sampling step",
+          "refId": "D",
+          "range": true,
+          "instant": false
         }
       ],
       "fieldConfig": {
@@ -1335,7 +1456,28 @@
             "mode": "palette-classic"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "s / step"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -1354,8 +1496,8 @@
     },
     {
       "type": "row",
-      "title": "Whisper — small.en (f16), 127.0.0.1:8910",
-      "id": 31,
+      "title": "Image generation — FLUX.2-dev (llm-mode image)",
+      "id": 36,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1367,18 +1509,637 @@
     },
     {
       "type": "stat",
+      "title": "Card mode",
+      "id": 37,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Which llm-mode the card is in, from systemd unit state (llama-metrics). normal = fast + router + whisper; agent = router alone; image = sd-server alone, with no LLM or speech-to-text.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 39
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(llm_mode{instance=\"llm\", mode=\"normal\"}) * 1 + max(llm_mode{instance=\"llm\", mode=\"agent\"}) * 2 + max(llm_mode{instance=\"llm\", mode=\"image\"}) * 3",
+          "legendFormat": "mode",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "other",
+                  "color": "orange"
+                },
+                "1": {
+                  "text": "normal",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "agent",
+                  "color": "blue"
+                },
+                "3": {
+                  "text": "image",
+                  "color": "purple"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "VRAM used",
+      "id": 38,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "From xpu-smi, every 15 s. The card has 31.9 GiB; FLUX.2-dev peaks near 29 GiB while sampling and drops to ~1 GiB between images (--offload-to-cpu).",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 39
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(llm_gpu_vram_used_bytes{instance=\"llm\"})",
+          "legendFormat": "VRAM",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30064771072
+              },
+              {
+                "color": "red",
+                "value": 32749125632
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Generating now",
+      "id": 39,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Whether sd-server is generating, through any API (async /sdcpp/v1 jobs included), from its log. No data = image mode off.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 39
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_busy{instance=\"llm\"})",
+          "legendFormat": "generating",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "idle",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "GENERATING",
+                  "color": "blue"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Images (24h)",
+      "id": 40,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Images saved to /models/images/ by sd-proxy. The counter resets when the proxy restarts; increase() accounts for that.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 39
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(increase(sd_images_total{instance=\"llm\"}[24h]))",
+          "legendFormat": "images",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last generation",
+      "id": 41,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Wall time of the most recent generation: request time for synchronous routes, started → completed for async jobs. ~7-8 min at the defaults (1024², 28 steps)",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 39
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_last_generation_seconds{instance=\"llm\"})",
+          "legendFormat": "seconds",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Failed generations (24h)",
+      "id": 42,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Synchronous generation requests that got a non-200 from sd-server, or no answer (502). journalctl -u sd-server on llm has the cause.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 39
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(increase(sd_errors_total{instance=\"llm\"}[24h]))",
+          "legendFormat": "errors",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "VRAM used",
+      "id": 43,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Whole-card VRAM in every mode, so the image-mode climb (text encoder ~11 GiB, then the diffusion model ~29 GiB) is visible next to normal-mode use.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(llm_gpu_vram_used_bytes{instance=\"llm\"})",
+          "legendFormat": "used",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "max": 34243936256
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Generation time",
+      "id": 44,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Per-image wall time. Steps and resolution dominate: ~12.5 s per sampling step at 1024², plus ~8-30 s prompt encoding and ~50 s moving the diffusion model onto the card.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_last_generation_seconds{instance=\"llm\"})",
+          "legendFormat": "last generation",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(sd_generation_seconds_sum{instance=\"llm\"}) / (max(sd_generation_seconds_count{instance=\"llm\"}) > 0)",
+          "legendFormat": "average since proxy start",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stages (last image)",
+      "id": 45,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Where the last completed image's time went, from sd-server's log. weights = moving each model onto the card (--offload-to-cpu); encode = text encoder on the prompt; sample = the diffusion steps; decode = VAE.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (stage) (sd_stage_seconds{instance=\"llm\", job=\"scrapeConfig/observability/llm-node\"})",
+          "legendFormat": "{{stage}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Whisper — small.en (f16), 127.0.0.1:8910",
+      "id": 31,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
       "title": "Reachable",
       "id": 32,
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "1 = the most recent real transcription reached whisper-server successfully, via whisper-proxy on llm. No fixed check interval any more: stale/no data means nobody has used the voice assistant recently, not that it's down.",
+      "description": "1 = whisper-proxy is running, which it does only once whisper-server has finished its warm-up; 0 = stopped, e.g. in image mode (llm-mode image stops whisper-server). Set on start and stop, not by a periodic check.",
       "gridPos": {
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 39
+        "y": 53
       },
       "targets": [
         {
@@ -1457,7 +2218,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 39
+        "y": 53
       },
       "targets": [
         {
@@ -1539,7 +2300,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 39
+        "y": 53
       },
       "targets": [
         {
@@ -1606,7 +2367,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 58
       },
       "targets": [
         {
@@ -1680,7 +2441,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 66
       },
       "panels": []
     },
@@ -1697,7 +2458,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 53
+        "y": 67
       },
       "targets": [
         {
@@ -1772,7 +2533,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 53
+        "y": 67
       },
       "targets": [
         {
@@ -1857,7 +2618,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 53
+        "y": 67
       },
       "targets": [
         {
