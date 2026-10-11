@@ -48,7 +48,7 @@ One directory per app under `kubernetes/apps/`, each `ks.yaml` (a Flux
 |---|---|
 | `sunfire` | MinIO, CloudNativePG, PostgREST, cloudflared — object storage and relational data behind a Cloudflare Worker |
 | `voice` | Home Assistant and the `voice-db` CNPG cluster for the voice assistant ([`VOICE.md`](VOICE.md)) |
-| `observability` | kube-prometheus-stack, flux-monitoring, and the VM 105 scrape config ([`GPU-VM.md`](GPU-VM.md)) |
+| `observability` | kube-prometheus-stack, flux-monitoring, the VM 105 and dev VM scrape configs ([`GPU-VM.md`](GPU-VM.md)) |
 | `cnpg-system` | CloudNativePG operator + `plugin-barman-cloud` |
 | `cert-manager` | present only for the barman plugin's mTLS |
 | `infisical` | Infisical Operator |

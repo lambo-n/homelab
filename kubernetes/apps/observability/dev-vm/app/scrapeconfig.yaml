@@ -1,0 +1,19 @@
+---
+# VM 101 `dev` (192.168.50.103), the workstation this repo is edited on, lives
+# outside the cluster, so it is scraped by static target, not discovered.
+#
+# node_exporter is Ubuntu's prometheus-node-exporter package on the guest. Its
+# ufw admits :9100 from the three k3s nodes (192.168.50.104-106); pod egress to
+# the LAN is masqueraded to the node's address, so that is where Prometheus'
+# scrapes appear to come from. Without that rule the target stays down and
+# DevVmDown fires.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: dev-node
+  namespace: observability
+spec:
+  staticConfigs:
+    - targets: ["192.168.50.103:9100"]
+      labels:
+        instance: dev

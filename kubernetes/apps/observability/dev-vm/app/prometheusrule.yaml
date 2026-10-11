@@ -1,0 +1,50 @@
+---
+# Two rules.
+#
+# NodeRootDiskLow covers EVERY node_exporter target's root filesystem (the three
+# k3s nodes, `llm`, `dev` and the Proxmox host), not just the dev VM. It is here
+# because the dev VM's missing scrape was what let its disk fill unnoticed, and
+# the stack's own NodeFilesystem* alerts fire only close to kubelet's 5% eviction
+# line, which is too late to act on a 20-30 GB root disk. 20% is above where any
+# node sits today (the lowest, k3s-worker2, is ~40% free), so it stays quiet
+# until a disk actually trends toward trouble.
+#
+# VERIFY THIS RULE RETURNS SERIES once deployed (a rule over a metric that
+# returns nothing is silently "inactive"):
+#   node_filesystem_avail_bytes{mountpoint="/",fstype=~"ext4|xfs|btrfs"}
+# must list one series per target, including instance="dev".
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dev-vm
+  namespace: observability
+spec:
+  groups:
+    - name: node-disk
+      rules:
+        - alert: NodeRootDiskLow
+          expr: |
+            node_filesystem_avail_bytes{mountpoint="/", fstype=~"ext4|xfs|btrfs"}
+              / node_filesystem_size_bytes{mountpoint="/", fstype=~"ext4|xfs|btrfs"}
+            < 0.20
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Root disk on {{ $labels.instance }} has {{ $value | humanizePercentage }} free"
+            description: >-
+              Under 20% free for 15 minutes. On a k3s node, old image versions
+              are the usual cause: run `sudo crictl --timeout 5m rmi --prune`.
+              runbooks/DISK-SPACE.md has the rest.
+    - name: dev-vm
+      rules:
+        - alert: DevVmDown
+          expr: up{instance="dev", job="scrapeConfig/observability/dev-node"} == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dev VM (VM 101) node-exporter is unreachable"
+            description: >-
+              The VM is off, node_exporter stopped, or its ufw rule for :9100
+              from the k3s nodes is missing.

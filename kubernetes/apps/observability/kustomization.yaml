@@ -5,4 +5,5 @@ resources:
   - kube-prometheus-stack/ks.yaml
   - flux-monitoring/ks.yaml
   - llm-vm/ks.yaml
+  - dev-vm/ks.yaml
   - host-monitoring/ks.yaml
