@@ -303,14 +303,14 @@ spec:
         # steady 2.56 GB, with 0 size-based retentions, so `retention: 15d` is
         # what binds.
         #
-        # 3GiB rather than 4GiB since Home Assistant moved onto this disk
-        # (2026-09-17) and left ~2.4 GB free. Kubelet evicts at 5% free
-        # (~0.96 GB), so a 4GiB cap was ~1.7 GB of permitted growth against
-        # ~1.4 GB of room: the node would have evicted pods before Prometheus
-        # reached its own limit. 3GiB keeps ~25% headroom over the 15-day
-        # steady state and stays under the eviction line even before the disk
-        # grow in BACKLOG.md.
-        retentionSize: 3GiB
+        # 5GiB. The 15-day steady state is ~2.7 GB at ~79,000 head series, so
+        # this leaves ~85% headroom before the size cap starts cutting
+        # retention below 15 days. Worst case the TSDB adds ~2.3 GB to
+        # worker1's root disk (~16 GB used of 31.8 GB), about 58% used: under
+        # the 65% image-GC threshold set in /etc/rancher/k3s/config.yaml on the
+        # node, and far from kubelet's hard-eviction line (5% free). The disk
+        # is shared with the image store, which is why the cap is not larger.
+        retentionSize: 5GiB
         walCompression: true
         nodeSelector:
           # See the header. This is the one placement decision in this file that

@@ -677,7 +677,7 @@ the three node IPs work; the web UI is the same URL without `format=json`.
 | | |
 |---|---|
 | Chart | **92.3.0** (appVersion `v0.94.1`), `observability` namespace, no `dependsOn` |
-| Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 3GiB`, ~79,000 active series, pinned to **k3s-worker1** |
+| Prometheus | 60s scrape, `retention: 15d`, `retentionSize: 5GiB`, ~79,000 active series, pinned to **k3s-worker1** |
 | Storage | `local-path` — TSDB 8Gi nominal, Grafana 2Gi, Alertmanager 1Gi, all on worker1 |
 | Grafana | LAN-only Traefik Ingress, no host rule (reached by node IP alone); admin password in `grafana-admin.sops.yaml`; Reloader-annotated |
 | Alerting | Alertmanager on the chart's `null` receiver. Flux alerts on two paths — a notification-controller `Provider`/`Alert`, and a `PrometheusRule` over `flux_resource_info` |
@@ -756,7 +756,7 @@ the three node IPs work; the web UI is the same URL without `format=json`.
 >
 > **`retention: 15d` is the binding limit, not `retentionSize`.** Check: the oldest sample is about 15 days old (time retention drops whole blocks, so a little over), `prometheus_tsdb_time_retentions_total` increases and `prometheus_tsdb_size_retentions_total` stays **0**. The TSDB levels off near 2.5 GB with 60–78k head series, depending on pod churn. Measure through the apiserver service proxy, because the image is distroless (no `wget`, no `sh`).
 >
-> **`retentionSize` is 3GiB so that Prometheus's own cap sits under the node's eviction line** (kubelet hard eviction is `nodefs.available<5%`), and worker1's disk is 32 GB for the same reason.
+> **`retentionSize` is 5GiB so that Prometheus's own cap sits well under the node's image-GC and eviction lines.** Kubelet hard eviction is `nodefs.available<5%`, and image garbage collection starts at 65% used on both workers (`image-gc-high-threshold=65` and `image-gc-low-threshold=55`, set in `/etc/rancher/k3s/config.yaml` on each node, outside git). At the 15-day steady state of ~2.7 GB the cap has ~85% headroom; worker1's disk is 32 GB, shared with the image store, which is why it is not larger.
 >
 > ⚠️ **`metricRelabelings` REPLACES the chart's list, it does not extend it.** Helm merges
 > maps and replaces lists, so overriding the key silently discards the chart's own
