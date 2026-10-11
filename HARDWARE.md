@@ -198,11 +198,11 @@ before ordering a replacement, these are inferences from the part number:
 | Device | `DELLBOSS VD`, 223.5 GiB, single virtual disk | `lsblk`, 2026-09-09 |
 | Layout | `sda1` 1007K (BIOS boot) · `sda2` 1 GiB `/boot/efi` · `sda3` 222.5 GiB LVM PV | `lsblk`, 2026-09-09 |
 | LVM | `pve-swap` 8 GiB · `pve-root` 65.6 GiB · `pve-data` thin pool 130.2 GiB | `lsblk`, 2026-09-09 |
-| `local-lvm` | 130.22 GiB total, **48.10 GiB used (36.94%)**, 82.12 GiB free | `pvesm status`, 2026-09-09 |
+| `local-lvm` | 130.2 GiB total, **~57.7 GiB used (44.3%)**, ~72.5 GiB free, 16 GiB unallocated in the VG | `host_lvm_thinpool_*` metrics, 2026-10-11 |
 | `local` (dir, on `pve-root`) | 64.04 GiB total, 7.51 GiB used (11.73%) | `pvesm status`, 2026-09-09 |
 
 Holds every guest root disk: `vm-100` 8 GiB, `vm-101` 32 GiB, `vm-102` 15 GiB,
-`vm-103` 20 GiB, `vm-104` 20 GiB, `vm-105` 32 GiB. VM 105's *models* disk is
+`vm-103` 32 GiB, `vm-104` 20 GiB, `vm-105` 32 GiB. VM 105's *models* disk is
 not here — it is a 1400 GiB zvol on `llm-pool`.
 
 > ⚠️ **`README.md:85` is wrong, twice.** It calls this "LVM-thin on an NVMe
@@ -218,11 +218,14 @@ not here — it is a 1400 GiB zvol on `llm-pool`.
 > ([`HOST-MONITORING.md`](HOST-MONITORING.md): `smartd` long tests, SMART
 > metrics and alerts); this mirror is iDRAC or nothing.
 
-> ⚠️ **Thin-pool free space is falling.** 90.5 GiB free on 2026-09-03, **82.12
-> GiB on 2026-09-09** — the `lvextend`/`resize2fs` work in `archive/STORAGE.md` §6 wrote
-> real blocks into the thin pool, as thin provisioning means it would. `local-lvm`
-> is shared by all five guests and **a full thin pool breaks every guest at
-> once** (`archive/STORAGE.md:306-308`). Watch `Data%` in `lvs`.
+> ⚠️ **A full thin pool breaks every guest at once.** `local-lvm` is shared by all
+> five guests and is overcommitted (the guest disks add up to more than the pool),
+> so it only stays healthy while freed space is returned to it: every guest root
+> disk has `discard=on`, so `fstrim` gives blocks back
+> ([`runbooks/DISK-SPACE.md`](runbooks/DISK-SPACE.md)), `pve/data` extends itself
+> at 90% full, and `HostThinPoolData*` alerts at 80% and 90%
+> ([`HOST-MONITORING.md`](HOST-MONITORING.md)). A pool filling is the failure in
+> `archive/STORAGE.md:306-308`. Watch `Data%` in `lvs`.
 
 ---
 
@@ -485,7 +488,7 @@ explicitly rather than trusting autodetection on a 512e drive.
 | `llm-pool` (`…150584Y`) | **1.68 TiB usable**, 1400 GiB earmarked for VM 105's models | claimed 2026-09-16 — single disk, **no redundancy and deliberately not snapshotted** ([`SANOID.md`](SANOID.md)); losing it costs a re-download ([`GPU-VM.md`](GPU-VM.md)) |
 | `sdf`, unallocated | 1.75 TiB | none — cold spare for `archive-pool`, still carries the old raidz2 label |
 | `archive-pool` free space | 1.61 TiB | none, but it is the *redundant* pool and already holds PGDATA + MinIO |
-| `local-lvm` | 82.12 GiB | guest root disks only |
+| `local-lvm` | ~72 GiB (44% used) | guest root disks only |
 
 ---
 
