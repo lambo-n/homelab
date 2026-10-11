@@ -119,7 +119,7 @@ a single failure domain and is the constraint behind most of the architecture.
 |---|---|
 | Proxmox VE | `192.168.50.101` (`pve`) |
 | Also runs | the **NFS server** exporting `/archive-pool` |
-| VM disks | `local-lvm` — LVM-thin on a **Dell BOSS-S2** pair of M.2 **SATA** SSDs in *hardware* RAID1, 130.2 GiB, 82.1 GiB free |
+| VM disks | `local-lvm` — LVM-thin on a **Dell BOSS-S2** pair of M.2 **SATA** SSDs in *hardware* RAID1, 130.2 GiB (free space: `pvesm status`, or `host_lvm_thinpool_data_percent`) |
 | Bulk storage | `archive-pool` — ZFS **3-way mirror** of 1.92 TB SATA SSDs, 1.68 TiB usable · `sas-pool` — ZFS **RAIDZ1** of 3 × 3.84 TB SAS SSDs, **6.85 TiB usable** |
 | Also on SATA | `llm-pool` — a single 1.92 TB SSD (`sde`), no redundancy, holding VM 105's model weights |
 | Unallocated | 1 × 1.92 TB SATA SSD (`sdf`), cold spare for `archive-pool` |
@@ -127,6 +127,13 @@ a single failure domain and is the constraint behind most of the architecture.
 *Host storage figures come from `pvesm status` on the host console. The dev VM
 has no route to the pool, but capacities can be re-read over the Proxmox API on
 `:8006` — devices and controllers cannot.*
+
+Every guest root disk has `discard=on`, so `fstrim` inside a guest returns freed
+blocks to the thin pool; each guest's weekly `fstrim.timer` does it, and after a
+large deletion `sudo fstrim -av` does it at once. Without discard the pool only
+grows, because LVM-thin never reclaims blocks the guest has stopped using. A
+change to a disk's `discard` takes effect at the next full VM restart
+(`qm reboot`), not a guest-side reboot.
 
 > ⚠️ **`local-lvm` is not NVMe and not an OS-level RAID.** It is a Dell BOSS-S2 card presenting two M.2 SATA SSDs as one hardware-mirrored virtual disk. The distinction is operational, not pedantic — **the OS cannot see the member disks**: no `/proc/mdstat` entry, no `zpool status`, and `smartctl /dev/sda` reads the *virtual* disk. A failed half of the boot mirror surfaces only in iDRAC or the BOSS CLI, which nothing here checks. The host's own node-exporter and `smartctl_exporter` are scraped ([`HOST-MONITORING.md`](HOST-MONITORING.md)), but they see the virtual disk too. See [`HARDWARE.md`](HARDWARE.md#sda--local-lvm--the-boot-device-and-a-correction).
 
