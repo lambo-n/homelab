@@ -430,6 +430,7 @@ Which tool owns what, and why Flux does not own everything:
 | Layer | Tool | Why not Flux |
 |---|---|---|
 | PVE host config — ZFS, network, NFS exports, packages | Ansible / manual | No declarative API; Flux cannot reach it |
+| k3s node settings — kubelet image-GC thresholds (`/etc/rancher/k3s/config.yaml` on the workers) | Manual | Per-node file; Flux cannot reach it |
 | VM and LXC lifecycle | OpenTofu + `bpg/proxmox` | Must survive the cluster being down |
 | k3s workloads | **Flux** | This is what Flux is for |
 
