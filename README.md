@@ -197,7 +197,8 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
   > [`GITOPS.md`](GITOPS.md#tailscale-host).
 
 - **The dev VM (`.103`) accepts SSH from the gateway only** (2026-09-17). `ufw`:
-  default deny incoming, allow `22/tcp` from `192.168.50.102`. Verified from `llm`
+  default deny incoming, allow `22/tcp` from `192.168.50.102` and `9100/tcp`
+  (node-exporter) from the three k3s nodes. Verified from `llm`
   and `k3s-worker1` that `:22` and rpcbind `:111` are blocked, and that the VM's
   outbound traffic (kubectl, GitHub, SSH to guests, HA, llama) still works. Tailnet
   traffic through the subnet route *also* arrives as `.102`, so this rule cannot
@@ -367,7 +368,7 @@ layer split exists to avoid.
 
 ### Observability
 
-**kube-prometheus-stack** chart `92.2.0` — Prometheus `v3.15.0`, Alertmanager
+**kube-prometheus-stack** chart `92.3.0` — Prometheus `v3.15.0`, Alertmanager
 `v0.34.1`, Grafana `13.2.3`, node-exporter and kube-state-metrics. 29 scrape
 targets, 240 rules (154 alerting). Alerts fire and are visible; nothing is pushed anywhere,
 deliberately.
@@ -382,6 +383,12 @@ llama.cpp and whisper.cpp metrics collectors, its dashboard, and alerts on GPU
 temperature and the VM being unreachable. The guest is outside the cluster;
 only the scraping lives here.
 → `kubernetes/apps/observability/llm-vm/`
+
+**dev-vm** — a `ScrapeConfig` for the dev VM's node-exporter, an alert on it
+being unreachable, and `NodeRootDiskLow`: any node-exporter target's root disk
+under 20% free for 15 minutes. The exporter runs on the guest, installed by
+hand; only the scraping lives here.
+→ `kubernetes/apps/observability/dev-vm/`
 
 **host-monitoring** — `ScrapeConfig`s for the Proxmox host's node-exporter and
 smartctl_exporter, alerts on pools, scrubs, sanoid snapshots, the `local-lvm`
@@ -446,6 +453,7 @@ kubernetes/apps/
   │     ├── kube-prometheus-stack/  Prometheus, Alertmanager, Grafana, exporters
   │     ├── flux-monitoring/        PodMonitors, Flux alerts, Flux dashboards
   │     ├── llm-vm/                 ScrapeConfig, dashboard and alerts for VM 105
+  │     ├── dev-vm/                 ScrapeConfig for VM 101, node root-disk alert
   │     └── host-monitoring/        ScrapeConfigs, dashboard and alerts for the Proxmox host
   ├── reloader/           restarts workloads when their Secrets change
   ├── search/
@@ -498,6 +506,7 @@ flowchart LR
     infisical_secrets_operator["infisical-secrets-operator"]
   end
   subgraph ns_observability["observability"]
+    dev_vm["dev-vm"]
     flux_monitoring["flux-monitoring"]
     host_monitoring["host-monitoring"]
     kube_prometheus_stack["kube-prometheus-stack"]
@@ -526,6 +535,7 @@ flowchart LR
     home_assistant["home-assistant"]
     voice_db["voice-db"]
   end
+  kube_prometheus_stack --> dev_vm
   kube_prometheus_stack --> flux_monitoring
   voice_db --> home_assistant
   kube_prometheus_stack --> host_monitoring
@@ -549,7 +559,7 @@ flowchart LR
 
 `reloader` and `kube-prometheus-stack` deliberately have **no** `dependsOn`
 of their own, so a stuck sunfire or cnpg Kustomization can never hold back
-restarts or monitoring. `flux-monitoring`, `llm-vm` and `host-monitoring` depend on the stack only because `PodMonitor`,
+restarts or monitoring. `flux-monitoring`, `llm-vm`, `dev-vm` and `host-monitoring` depend on the stack only because `PodMonitor`,
 `PrometheusRule` and `ScrapeConfig` do not exist as kinds until its CRDs are
 registered.
 
