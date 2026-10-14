@@ -1,0 +1,31 @@
+# Router presets (models.ini in GPU-VM.md) all default to Qwen's thinking-mode
+# sampling profile except `fast`. extra_body.chat_template_kwargs overrides
+# that per-request, the same override mechanism GPU-VM.md documents for any
+# client -- no change to models.ini needed.
+- name: openai/qwen27
+  edit_format: diff
+  use_repo_map: true
+  extra_params:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+- name: openai/qwen27-agent
+  edit_format: diff
+  use_repo_map: true
+  extra_params:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+- name: openai/chat
+  edit_format: diff
+  use_repo_map: true
+  extra_params:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+- name: openai/fast
+  edit_format: whole
+  use_repo_map: false

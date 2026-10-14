@@ -1,0 +1,64 @@
+# Hermes Agent trial config (BACKLOG.md → GPU / LLM VM). Installed to
+# /home/hermes/.hermes/config.yaml for the separate `hermes` user on the dev
+# VM. Pinned to Hermes v2026.9.24; keys checked against that tag's
+# cli-config.yaml.example.
+
+model:
+  # Plain preset name. A name containing "openai/" makes Hermes advertise
+  # OpenAI's V4A patch dialect to Qwen (tools/file_tools.py,
+  # _is_openai_family_main).
+  default: qwen27
+  provider: llama
+  # Router preset is 65,536; Hermes' floor is 64,000 (MINIMUM_CONTEXT_LENGTH).
+  context_length: 65536
+
+providers:
+  llama:
+    api: http://192.168.50.107:8080/v1
+    transport: chat_completions
+    # The agents key, from /etc/llama/api-keys line 3 on the llm guest.
+    key_cmd: "cat /home/hermes/.config/llama/api-key"
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+# Every side task on the one model the router holds. A second model would
+# evict qwen27 (--models-max 1).
+auxiliary:
+  compression:
+    provider: main
+  session_search:
+    provider: main
+  background_review:
+    provider: main
+  title_generation:
+    enabled: false
+
+# Small fixed prompt: the full default toolset plus system prompt can exceed
+# 32k on its own. No web, browser, vision, image, tts, cron or messaging.
+platform_toolsets:
+  cli: [file, terminal, memory, session_search, skills, todo, clarify]
+
+compression:
+  enabled: true
+  # Below 512K, Hermes floors this at 0.75 (~49k of 65,536).
+  threshold: 0.75
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  # Each review is a full-context request on the single slot; measure it.
+  nudge_interval: 10
+
+terminal:
+  backend: local
+  cwd: /home/hermes/homelab-trial
+  timeout: 180
+
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false
+
+updates:
+  check: false

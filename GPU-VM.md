@@ -105,16 +105,16 @@ ports directly.
   (`fast`), with the cluster API key (delivered via SOPS).
 - **CLI chat** — Simon Willison's `llm` (0.35, via `pipx`) on the guest itself,
   configured from `scripts/llm/extra-openai-models.yaml`.
-- **Claude Code** — `scripts/llm/claude-local` wraps `claude` to point at one
-  router preset (`CLAUDE_LOCAL_MODEL=qwen27|qwen27-agent|chat`), runs *from the
-  dev VM* (file edits, commands and MCP servers execute there; only model
-  requests go to the guest), and uses a separate settings/history directory
-  (`CLAUDE_CONFIG_DIR=~/.claude-local`) so the normal `claude` login is
-  untouched. Requires `scripts/llm/templates/qwen3.8-27b.jinja` — the stock
-  Qwen3.8 GGUF template rejects Claude Code's mid-conversation system messages.
-  Known limits: no WebSearch/WebFetch (both call Anthropic's own servers), no
-  MCP tool search on a non-first-party base URL, and any other machine using
-  this needs its own copy of the wrapper and key since the API is LAN-only.
+- **Coding: Aider** (`~/.local/bin/aider`) on the dev VM, against the router
+  (`openai/qwen27` by default). One request per instruction with diff edits,
+  rather than an agent loop, so the prompt stays small and the prompt cache
+  gets reused. Config in `scripts/llm/aider/`, installed as
+  `~/.aider.conf.yml` and `~/.aider.model.settings.yml`. The model settings
+  turn thinking off per request for every preset; `auto-commits` and
+  analytics are off. Edits and commands execute on the dev VM; only model requests reach the
+  guest. The key is read from `~/.config/aider/api.env`, sourced by hand.
+  Claude Code is not used against these models: its per-turn prompt is too
+  heavy for a 27B model on this card ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#claude-code-wrapper-retired-2026-10-14)).
 
 ### Tool calling
 
