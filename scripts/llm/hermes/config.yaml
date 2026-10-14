@@ -11,10 +11,13 @@ model:
   # Plain preset name. A name containing "openai/" makes Hermes advertise
   # OpenAI's V4A patch dialect to Qwen (tools/file_tools.py,
   # _is_openai_family_main).
-  default: qwen27
+  # qwen27-agent: the card to itself (`sudo llm-mode agent` on llm first,
+  # which stops llama-fast). For qwen27 beside fast, change this, the three
+  # auxiliary models below, and context_length to 65536 (Hermes' floor is
+  # 64,000, MINIMUM_CONTEXT_LENGTH).
+  default: qwen27-agent
   provider: llama
-  # Router preset is 65,536; Hermes' floor is 64,000 (MINIMUM_CONTEXT_LENGTH).
-  context_length: 65536
+  context_length: 195072
 
 providers:
   llama:
@@ -32,13 +35,13 @@ providers:
 auxiliary:
   compression:
     provider: llama
-    model: qwen27
+    model: qwen27-agent
   session_search:
     provider: llama
-    model: qwen27
+    model: qwen27-agent
   background_review:
     provider: llama
-    model: qwen27
+    model: qwen27-agent
   title_generation:
     enabled: false
 
@@ -49,7 +52,7 @@ platform_toolsets:
 
 compression:
   enabled: true
-  # Below 512K, Hermes floors this at 0.75 (~49k of 65,536).
+  # Below 512K, Hermes floors this at 0.75 (~146k of 195,072).
   threshold: 0.75
 
 memory:
