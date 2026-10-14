@@ -1,0 +1,10 @@
+# Points aider at VM 105's llama.cpp router (GPU-VM.md) instead of a cloud
+# provider. OPENAI_API_KEY comes from ~/.config/aider/api.env (sourced by
+# hand or from shell profile -- not committed anywhere, decrypted from this
+# repo's llm-api-key.sops.yaml).
+openai-api-base: http://192.168.50.107:8080/v1
+model: openai/qwen27
+edit-format: diff
+auto-commits: false
+# Never send usage data; also stops the opt-in prompt on first run.
+analytics-disable: true

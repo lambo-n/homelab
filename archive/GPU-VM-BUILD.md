@@ -2233,6 +2233,23 @@ while kernel 7.0 recommended `70.54.0`.
   line. The `chat` preset on `:8080/v1` answered `17*23` correctly (`391`),
   at 84.8 tok/s prompt and 55.6 tok/s generation.
 
+## Claude Code wrapper retired (2026-10-14)
+
+`scripts/llm/claude-local` (F6d) was removed, together with its copy in
+`~/.local/bin` and its `~/.claude-local` config directory.
+
+- **Why:** Claude Code sends roughly 15.5K tokens of system prompt and tool
+  definitions on every turn, and works in a tool-calling loop. On Qwen3.8-27B
+  on this card, that made sessions slow and used up the context quickly.
+- **What replaced it:** Aider handles coding: one request per instruction,
+  with diff edits (`GPU-VM.md` → *Consumers*). A trial of Hermes Agent as a
+  general agent with persistent memory is tracked in `BACKLOG.md`.
+- **Kept:** `scripts/llm/templates/qwen3.8-27b.jinja`. Any client that sends a
+  `system` message mid-conversation still needs it, and both `qwen27` presets
+  load it.
+- **Gotcha found during removal:** `~/.claude-local` had become a symlink to
+  `~/.claude`, the main Claude Code config. Only the link was removed.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4

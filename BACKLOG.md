@@ -13,6 +13,16 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       boot) has not yet been proven by an actual reboot. Check
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
+- [ ] **Trial Hermes Agent against `qwen27`** as a general agent with persistent
+      memory, editing with its own `patch` tool; Aider stays as the fallback
+      for multi-file Python work. Run it as a separate `hermes` user on the dev
+      VM (no kubeconfig, no `sops`/`age.key`), against a throwaway clone of
+      this repo. Record the prompt size with unused toolsets off, how many
+      edits needed a similarity match, and wall time per task.
+      Configure a custom provider with the model name `qwen27`: a model name
+      containing `openai/` makes Hermes offer Qwen OpenAI's patch format.
+      Waits on: the owner creating the user. Adopt or drop it, then
+      document the result in [`GPU-VM.md`](GPU-VM.md) → *Consumers*.
 
 ## Voice assistant — leftovers
 
