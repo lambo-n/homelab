@@ -3,6 +3,10 @@
 # VM. Pinned to Hermes v2026.9.24; keys checked against that tag's
 # cli-config.yaml.example.
 
+# That tag's schema version; without it `hermes doctor` offers a migration
+# that rewrites this file.
+_config_version: 46
+
 model:
   # Plain preset name. A name containing "openai/" makes Hermes advertise
   # OpenAI's V4A patch dialect to Qwen (tools/file_tools.py,
@@ -23,14 +27,18 @@ providers:
         enable_thinking: false
 
 # Every side task on the one model the router holds. A second model would
-# evict qwen27 (--models-max 1).
+# evict qwen27 (--models-max 1). Named explicitly: `main` works at runtime
+# but `hermes doctor` resolves it with the main-model resolver and fails.
 auxiliary:
   compression:
-    provider: main
+    provider: llama
+    model: qwen27
   session_search:
-    provider: main
+    provider: llama
+    model: qwen27
   background_review:
-    provider: main
+    provider: llama
+    model: qwen27
   title_generation:
     enabled: false
 
