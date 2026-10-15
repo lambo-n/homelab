@@ -108,7 +108,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker1" {
     vlan_id      = 0
   }]
   node_name           = "pve"
-  on_boot             = false
+  on_boot             = true
   pool_id             = ""
   protection          = false
   purge_on_destroy    = true
@@ -205,7 +205,7 @@ resource "proxmox_virtual_environment_vm" "k3s_control" {
     vlan_id      = 0
   }]
   node_name           = "pve"
-  on_boot             = false
+  on_boot             = true
   pool_id             = ""
   protection          = false
   purge_on_destroy    = true
@@ -215,7 +215,7 @@ resource "proxmox_virtual_environment_vm" "k3s_control" {
   started             = true
   stop_on_destroy     = false
   tablet_device       = true
-  tags                = []
+  tags                = ["k3s"]
   template            = false
   vm_id               = 102
   agent {
@@ -298,7 +298,7 @@ resource "proxmox_virtual_environment_vm" "dev" {
     vlan_id      = 0
   }]
   node_name           = "pve"
-  on_boot             = false
+  on_boot             = true
   pool_id             = ""
   protection          = false
   purge_on_destroy    = true
@@ -411,7 +411,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker2" {
     vlan_id      = 0
   }]
   node_name           = "pve"
-  on_boot             = false
+  on_boot             = true
   pool_id             = ""
   protection          = false
   purge_on_destroy    = true
@@ -421,7 +421,7 @@ resource "proxmox_virtual_environment_vm" "k3s_worker2" {
   started             = true
   stop_on_destroy     = false
   tablet_device       = true
-  tags                = []
+  tags                = ["k3s"]
   template            = false
   vm_id               = 104
   agent {

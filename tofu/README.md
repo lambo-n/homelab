@@ -522,3 +522,31 @@ tofu plan -refresh=false     # expect: No changes.
 **The general rule:** whenever a change is made on the host and reconciled in
 config afterwards — the "config-follows-reality" shape this repo uses for
 anything ForceNew — finish with `tofu apply -refresh-only`, not `tofu plan`.
+
+### A disk added on the host needs a re-import, not a refresh
+
+> ⚠️ **`tofu apply -refresh-only` does not add a disk that was attached
+> outside tofu.** bpg/proxmox refreshes the disks already in state and ignores
+> the rest, so after a `qm set <vmid> --scsiN …` the plan keeps proposing
+> `+ disk { interface = "scsiN" … }`. **Do not apply that**: it would allocate
+> a second volume on top of the one that exists.
+
+The VM's `import` block reads every disk, as the original import did. With the
+`TofuDisk` grant in place (above) and the `!import` token:
+
+```bash
+cp -p terraform.tfstate ~/tfstate-before-reimport.json
+tofu state rm proxmox_virtual_environment_vm.dev
+tofu plan -refresh=false -var-file=...   # expect: 1 to import, 0 to add/change
+tofu apply -var-file=...
+tofu plan -refresh=false -var-file=...   # expect: No changes.
+```
+
+`1 to add` instead of `1 to import` means the import block didn't match:
+restore the backup rather than applying. `state rm` touches state only, and
+`prevent_destroy` does not stop a create.
+
+Run the refresh for the other guests in the same pass anyway. It is what
+catches settings changed on the host (`onboot`, tags, a disk's `discard`), and
+each one it finds belongs in `proxmox-vms.tf` too, or the next plan proposes
+reverting it.
