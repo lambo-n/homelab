@@ -13,10 +13,11 @@ model:
   # qwen27-agent: the card to itself (`sudo llm-mode agent` on llm first,
   # which stops llama-fast). For qwen27 beside fast, change this, the three
   # auxiliary models below, and context_length to 65536 (Hermes' floor is
-  # 64,000, MINIMUM_CONTEXT_LENGTH).
+  # 64,000, MINIMUM_CONTEXT_LENGTH). Must equal the preset's ctx-size in
+  # models.ini.
   default: qwen27-agent
   provider: llama
-  context_length: 195072
+  context_length: 163840
 
 providers:
   llama:
@@ -79,7 +80,7 @@ agent:
 
 compression:
   enabled: true
-  # Below 512K, Hermes floors this at 0.75 (~146k of 195,072).
+  # Below 512K, Hermes floors this at 0.75 (~123k of 163,840).
   threshold: 0.75
 
 memory:
