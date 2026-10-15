@@ -375,8 +375,8 @@ layer split exists to avoid.
 
 ### Observability
 
-**kube-prometheus-stack** chart `92.3.0` — Prometheus `v3.15.0`, Alertmanager
-`v0.34.1`, Grafana `13.2.3`, node-exporter and kube-state-metrics. 30 scrape
+**kube-prometheus-stack** chart `92.6.0` — Prometheus `v3.15.0`, Alertmanager
+`v0.34.1`, Grafana `13.2.4`, node-exporter and kube-state-metrics. 30 scrape
 targets, 242 rules (156 alerting). Alerts fire and are visible; nothing is pushed anywhere,
 deliberately.
 → `kubernetes/apps/observability/kube-prometheus-stack/`

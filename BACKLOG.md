@@ -13,11 +13,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       boot) has not yet been proven by an actual reboot. Check
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
-- [ ] **Benchmark MTP speculative decoding on `qwen27-agent`.** The SYCL
-      build has `--spec-type draft-mtp` and the Qwen3.8-27B GGUF carries its
-      MTP head (`nextn_predict_layers = 1`); published gains on NVIDIA range
-      from none to +60%. Measure generation tok/s and VRAM at the full
-      195,072 context before adding it to `models.ini`.
 
 ## Voice assistant — leftovers
 
