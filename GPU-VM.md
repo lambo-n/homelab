@@ -362,6 +362,14 @@ collector) plus two textfile collectors:
   `whisper-server`'s warm-up) and to 0 by its unit's `ExecStopPost`, so it
   reads 0 in image mode.
 
+> ⚠️ **One malformed line in `llama.prom` hides every llama metric.**
+> node_exporter rejects the whole textfile (`node_textfile_scrape_error 1`),
+> so `llamacpp:*`, `llm_mode` and VRAM all vanish while `LlmVmDown` stays
+> quiet. `llama-metrics` adds `model="…"` inside a metric's existing label set
+> (MTP's `spec_decode_num_accepted_tokens_per_pos_total{position="N"}` has
+> one); `LlmMetricsTextfileBroken` alerts after 5 minutes, since the chart's
+> own textfile alert matches only `job="node-exporter"`.
+
 Both write to node_exporter's textfile collector, scraped by the cluster's
 Prometheus via `kubernetes/apps/observability/llm-vm/`; dashboard `LLM VM —
 Arc Pro B70` (`uid llm-vm-gpu`) in Grafana. `PrometheusRule llm-vm` alerts on
