@@ -71,10 +71,17 @@ class TextExtractor(HTMLParser):
         return ' '.join(' '.join(self.text).split())
 
 
+# IPv6 forms whose last 32 bits are an IPv4 address: mapped (::ffff:0:0/96),
+# compatible (::/96) and NAT64 (64:ff9b::/96). Each is judged by that IPv4,
+# since ipaddress calls ::192.168.50.107 and 64:ff9b::c0a8:326b global.
+V4_EMBEDDED = tuple(ipaddress.ip_network(n)
+                    for n in ('::ffff:0:0/96', '::/96', '64:ff9b::/96'))
+
+
 def _is_public(ip: str) -> bool:
     addr = ipaddress.ip_address(ip)
-    if addr.version == 6 and addr.ipv4_mapped:
-        addr = addr.ipv4_mapped
+    if addr.version == 6 and any(addr in net for net in V4_EMBEDDED):
+        addr = ipaddress.IPv4Address(addr.packed[12:])
     return addr.is_global and not addr.is_multicast
 
 
