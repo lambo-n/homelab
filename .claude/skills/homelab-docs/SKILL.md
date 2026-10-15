@@ -48,7 +48,7 @@ if the homelab had always been this way? If not, it's history.
 `.github/scripts/doc-history-check.py` flags history-style wording in added
 lines (it runs as a PostToolUse hook and in CI). It's a heuristic. When it
 flags a line, decide; if the line really is current state and must quote a
-pattern, end it with `<!-- doc-history:ignore -->`. Fix older violations in a
+pattern, end it with `<!-- doc-history:allow -->`. Fix older violations in a
 section when you're editing that section anyway, not as drive-by sweeps.
 
 ## House style

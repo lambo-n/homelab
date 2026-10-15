@@ -1,7 +1,6 @@
-# Hermes Agent trial config (BACKLOG.md → GPU / LLM VM). Installed to
-# /home/hermes/.hermes/config.yaml for the separate `hermes` user on the dev
-# VM. Pinned to Hermes v2026.9.24; keys checked against that tag's
-# cli-config.yaml.example.
+# Hermes Agent config for the dev user (GPU-VM.md → Consumers). Installed to
+# ~/.hermes/config.yaml. Pinned to Hermes v2026.9.24; keys checked against
+# that tag's cli-config.yaml.example.
 
 # That tag's schema version; without it `hermes doctor` offers a migration
 # that rewrites this file.
@@ -24,14 +23,21 @@ providers:
     api: http://192.168.50.107:8080/v1
     transport: chat_completions
     # The agents key, from /etc/llama/api-keys line 3 on the llm guest.
-    key_cmd: "cat /home/hermes/.config/llama/api-key"
+    key_cmd: "cat /home/dev/.config/llama/api-key"
+    # Thinking off, so Qwen's non-thinking sampling profile rather than the
+    # thinking-mode defaults in models.ini [*]. presence_penalty 1.5 is the
+    # model card's fix for repeated text.
     extra_body:
       chat_template_kwargs:
         enable_thinking: false
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+      presence_penalty: 1.5
 
 # Every side task on the one model the router holds. A second model would
-# evict qwen27 (--models-max 1). Named explicitly: `main` works at runtime
-# but `hermes doctor` resolves it with the main-model resolver and fails.
+# evict it (--models-max 1). Named explicitly: `main` works at runtime but
+# `hermes doctor` resolves it with the main-model resolver and fails.
 auxiliary:
   compression:
     provider: llama
@@ -50,6 +56,27 @@ auxiliary:
 platform_toolsets:
   cli: [file, terminal, memory, session_search, skills, todo, clarify]
 
+agent:
+  # A focused task runs in well under 40 tool calls; a runaway one stops.
+  max_turns: 40
+  # Nudge it to verify after editing code (on in the CLI, off in chat apps).
+  verify_on_stop: auto
+  # The three failures the trial showed (archive/HERMES-TRIAL.md).
+  coding_instructions:
+    - >-
+      Before editing, check the request can be done as stated. If a
+      constraint can't be met, say so with numbers, offer the closest option,
+      and don't edit until I choose.
+    - >-
+      If a term, range or name could mean two things, state your reading and
+      ask with the clarify tool before editing. Don't present a guess as fact.
+    - >-
+      Do only what was asked. List anything related you noticed as a
+      suggestion; don't implement it.
+    - >-
+      Follow AGENTS.md. Never decrypt or print a secret (no `sops -d`, no
+      reading age.key or a Secret's data): this session is stored in full.
+
 compression:
   enabled: true
   # Below 512K, Hermes floors this at 0.75 (~146k of 195,072).
@@ -58,12 +85,13 @@ compression:
 memory:
   memory_enabled: true
   user_profile_enabled: true
-  # Each review is a full-context request on the single slot; measure it.
+  # Each review is a full-context request on the single slot.
   nudge_interval: 10
 
 terminal:
   backend: local
-  cwd: /home/hermes/homelab-trial
+  # The directory hermes was started in.
+  cwd: "."
   timeout: 180
 
 telemetry:

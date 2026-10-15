@@ -133,7 +133,7 @@ the doc that describes it.
    [`archive/README.md`](archive/README.md)), and the root doc links to it in
    one line.
    - **Does not belong at the root:** "closed / corrected / fixed / found /
-     verified *\<date\>*", "an earlier revision said…", "used to", "no longer", <!-- doc-history:ignore -->
+     verified *\<date\>*", "an earlier revision said…", "used to", "no longer", <!-- doc-history:allow -->
      "since *\<date\>*", how-it-was-found narratives, before/after test
      tables, strike-throughs or ✅ markers on finished work.
    - **Does belong:** the current config, why it is that way, the gotchas,

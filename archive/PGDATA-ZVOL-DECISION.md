@@ -154,7 +154,7 @@
 > new)*. `kubectl exec` against a pod is
 > refused by this environment's tooling *(true when written; no longer true
 > since at least 2026-09-21: see AGENTS.md rule 3)*, and `.101` had no SSH key
-> for the dev VM either *(no longer true; scoped now to the Ansible host-config layer — see AGENTS.md rule 3)* <!-- doc-history:ignore -->. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
+> for the dev VM either *(no longer true; scoped now to the Ansible host-config layer — see AGENTS.md rule 3)* <!-- doc-history:allow -->. So: `scripts/minio-barman-account.sh` (creates the backup bucket and a
 > service account scoped to it, and writes the credential into the repo already
 > SOPS-encrypted — the keys are generated in the pod, piped into `sops`, and
 > never printed), and `SANOID.md` in full. The barman account deliberately
