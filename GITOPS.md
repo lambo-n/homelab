@@ -797,9 +797,9 @@ the three node IPs work; the web UI is the same URL without `format=json`.
 ## sanoid (host)
 
 **Config at a glance** — runs on the Proxmox host `.101`, not in the cluster.
-**Four** datasets: `minio-data`, the PGDATA zvol
-`vm-104-disk-0`, and `ts-ssh-records` on `archive-pool`, plus `sas-pool/data` on
-`sas-pool`. Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
+**Five** datasets: `minio-data`, the PGDATA zvol
+`vm-104-disk-0`, and `ts-ssh-records` on `archive-pool`, plus `sas-pool/data` and
+`sas-pool/vm` (the dev VM's Hermes disk) on `sas-pool`. Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
 Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 
 > **What `sanoid` does and does not cover.** It snapshots ZFS datasets across both

@@ -115,6 +115,43 @@ ports directly.
   guest. The key is read from `~/.config/aider/api.env`, sourced by hand.
   Claude Code is not used against these models: its per-turn prompt is too
   heavy for a 27B model on this card ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#claude-code-wrapper-retired-2026-10-14)).
+- **Agent: Hermes Agent** (v2026.9.24, `~/.local/bin/hermes`) as `dev` on the
+  dev VM, against `qwen27-agent` (`sudo llm-mode agent` first). It edits with
+  its own `patch` tool and keeps memory and full session history in
+  `~/.hermes`, a separate 20 GiB disk (`sas-vm:vm-101-disk-0` on `sas-pool`,
+  ext4 labelled `hermes`, `nofail` in `/etc/fstab`), mounted at exactly that
+  path because the venv holds absolute paths ([`SAS-STORAGE.md`](SAS-STORAGE.md)). Config `scripts/llm/hermes/config.yaml` and
+  `scripts/llm/hermes/SOUL.md`, installed into `~/.hermes/`:
+  - every side task (compression, session search, memory review) on the same
+    preset, since a second model would evict it;
+  - non-thinking sampling sent per request in `extra_body`, overriding the
+    thinking-mode defaults in `models.ini`;
+  - seven toolsets (file, terminal, memory, session search, skills, todo,
+    clarify); no web, browser, messaging or cron;
+  - `max_turns: 40`, `verify_on_stop: auto`, and standing rules to push back
+    on impossible asks, ask when a term is ambiguous, stay in scope, and never
+    decrypt a secret.
+
+  History and results: [`archive/HERMES-TRIAL.md`](archive/HERMES-TRIAL.md).
+
+  > ⚠️ **Hermes runs with all of `dev`'s access** (kubeconfig, `~/.ssh`
+  > including the Proxmox host key, `sops`, `age.key`), and every session,
+  > tool output included, is stored in `~/.hermes/state.db` indefinitely. The
+  > never-decrypt rule is an instruction to the model, not a control. A
+  > secret that does land there is in `sas-pool/vm`'s snapshots for six months.
+
+  > ⚠️ **A repo HTML comment containing `ignore`, `override`, `system`,
+  > `secret` or `hidden` blocks the whole file.** Hermes' context scanner
+  > replaces AGENTS.md with a `[BLOCKED]` notice and the session runs without
+  > it. That is why the doc-history marker is `<!-- doc-history:allow -->`.
+
+  **Checking it:**
+
+  | Command | Healthy |
+  |---|---|
+  | `hermes doctor` | `auxiliary task routing resolves: … custom@192.168.50.107`, `Config version up to date (v46)`; only the npm warnings left |
+  | `hermes chat -q "Reply with just OK"`, then on `llm`: `curl -H "Authorization: Bearer …" localhost:8080/slots?model=qwen27-agent` | `temperature` 0.7, `top_p` 0.8, `top_k` 20, `presence_penalty` 1.5, `n_ctx` 195072 |
+  | `grep "Context file" ~/.hermes/logs/agent.log` after a session in `~/homelab` | no `blocked` line |
 
 ### Tool calling
 

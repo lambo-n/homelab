@@ -345,6 +345,26 @@ resource "proxmox_virtual_environment_vm" "dev" {
     size              = 32
     ssd               = false
   }
+  # Hermes Agent's ~/.hermes (session database), off the boot SSD. sanoid
+  # snapshots it as part of sas-pool/vm, hence no vzdump backup.
+  disk {
+    aio               = "io_uring"
+    backup            = false
+    cache             = "none"
+    datastore_id      = "sas-vm"
+    discard           = "on"
+    file_format       = "raw"
+    file_id           = ""
+    import_from       = ""
+    interface         = "scsi1"
+    iothread          = true
+    path_in_datastore = "vm-101-disk-0"
+    queues            = 0
+    replicate         = true
+    serial            = ""
+    size              = 20
+    ssd               = true
+  }
   memory {
     dedicated      = 32768
     floating       = 0

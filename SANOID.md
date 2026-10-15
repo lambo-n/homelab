@@ -51,6 +51,7 @@ Five datasets are covered:
 | `archive-pool/vm-104-disk-0` | **PGDATA** (the zvol) | a zvol does not appear in a plain `zfs list` — use `-t volume` or `-t all` |
 | `archive-pool/ts-ssh-records` | Tailscale SSH session recordings | added 2026-09-09 |
 | `sas-pool/data` | Personal storage / Samba share | added 2026-09-09, `recursive = yes` |
+| `sas-pool/vm` | the dev VM's Hermes Agent disk (`vm-101-disk-0`, session database) | `recursive = yes`, so each zvol under it |
 
 **`llm-pool` is deliberately not in `sanoid.conf`.** It holds VM 105's model
 weights: multi-GB files that are re-downloadable, where every snapshot would
@@ -69,6 +70,7 @@ edit separately. 24 hourly / 30 daily / 6 monthly:
 | `archive-pool/vm-104-disk-0` | `archival` | no |
 | `archive-pool/ts-ssh-records` | `archival` | no |
 | `sas-pool/data` | `archival` | yes |
+| `sas-pool/vm` | `archival` | yes |
 
 Tabs, not spaces, for the indented lines in the rendered file — sanoid's INI
 parser is strict about it and a space-indented key is silently ignored rather

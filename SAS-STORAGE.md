@@ -71,6 +71,7 @@ zpool create -o ashift=12 -O acltype=posixacl -O xattr=sa -O compression=zstd sa
   /dev/disk/by-id/scsi-35002538a48872be0
 
 zfs create sas-pool/data
+zfs create sas-pool/vm
 ```
 
 Status verification:
@@ -89,15 +90,37 @@ config:
 errors: No known data errors
 ```
 
+### `sas-pool/vm` — the `sas-vm` Proxmox storage
+
+`sas-pool/vm` is registered as a Proxmox `zfspool` storage, so guests can have
+disks here. It holds one zvol, `sas-pool/vm/vm-101-disk-0` (20 GiB, the dev
+VM's `scsi1`), which is Hermes Agent's `~/.hermes` ([`GPU-VM.md`](GPU-VM.md) →
+*Consumers*). It sits beside `data`, not under it, so the `[data]` share never
+sees it.
+
+```bash
+pvesm add zfspool sas-vm --pool sas-pool/vm --content images --sparse 1
+```
+
+> ⚠️ **VM 101 won't start while `sas-pool` is unimported.** Proxmox refuses to
+> start a guest whose disk's storage is missing, and `sas-pool` is
+> host-native, so nothing but `zfs-import-scan` imports it. Check `zpool list`
+> first if the dev VM fails to start after a host reboot. Inside the guest the
+> mount is `nofail`, so a missing disk can't hang the guest's own boot.
+
 ---
 
 ## Snapshot Protection (Sanoid)
 
-`sas-pool/data` is protected under `/etc/sanoid/sanoid.conf` using the `archival`
-template:
+`sas-pool/data` and `sas-pool/vm` are protected under `/etc/sanoid/sanoid.conf`
+using the `archival` template:
 
 ```ini
 [sas-pool/data]
+	use_template = archival
+	recursive = yes
+
+[sas-pool/vm]
 	use_template = archival
 	recursive = yes
 ```
