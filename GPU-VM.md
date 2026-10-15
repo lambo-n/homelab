@@ -106,13 +106,15 @@ preset today.
 key, except `/health`, which answers `200` to anyone on the LAN. Three keys exist in `/etc/llama/api-keys` (owner, cluster, agents), each a
 64-character line generated with `openssl rand -hex 32`.
 
-**Firewall (`ufw` on the guest):** LAN-only. Port 22 open from anywhere
-(ProxyJump SSH arrives via the tailscale gateway); ports 8080/8081/8082 open to
-`192.168.50.0/24` but explicitly denied to the gateway's own address
-(`192.168.50.102`), because routed tailnet traffic arrives as that address.
-The tailnet policy also grants nothing on `.107`
-([`GITOPS.md`](GITOPS.md#tailscale-host)), so a routed device is refused
-twice. Ports 9100
+**Firewall (`ufw` on the guest):** Port 22 open from anywhere (ProxyJump SSH
+arrives via the tailscale gateway). Port 8080 (the router) is open to
+`192.168.50.0/24`, which includes the gateway (`192.168.50.102`) that routed
+tailnet traffic arrives as, so tailnet members reach it too; the tailnet policy
+grants `.107` `tcp:8080` and nothing else
+([`GITOPS.md`](GITOPS.md#tailscale-host)). Ports 8081/8082 are LAN-only: open
+to `192.168.50.0/24` but explicitly denied to `.102`. ufw cannot tell tailnet
+devices apart, so the tailnet policy is the only filter on who reaches 8080
+from outside; the API key is the second. Ports 9100
 (node-exporter) and 10200/10300 (Wyoming Piper and Whisper, for Home Assistant)
 are open to the three k3s node IPs only, so the dev VM cannot reach the Wyoming
 ports directly.
@@ -161,8 +163,10 @@ ports directly.
 
   **Another machine** needs only the key: `install.sh` stops until
   `~/.config/llama/api-key` (mode 600) holds the agents key, which the owner
-  copies (`dev` has it at the same path). The router is LAN-only, so a machine
-  reached over the tailnet can't use it. What stays per machine, and out of
+  copies (`dev` has it at the same path). Off the LAN, a tailnet member with
+  `--accept-routes` uses the same `192.168.50.107:8080` address unchanged; it
+  shares the one loaded model with LAN clients, so a mode switch from either
+  side evicts the other's. What stays per machine, and out of
   git because this repo is public: `~/.hermes/state.db` (sessions),
   `memories/MEMORY.md` and `USER.md`.
 
