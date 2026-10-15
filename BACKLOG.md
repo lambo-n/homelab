@@ -13,16 +13,11 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       boot) has not yet been proven by an actual reboot. Check
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
-- [ ] **Trial Hermes Agent against `qwen27-agent`** as a general agent with persistent
-      memory, editing with its own `patch` tool; Aider stays as the fallback
-      for multi-file Python work. Run it as a separate `hermes` user on the dev
-      VM (no kubeconfig, no `sops`/`age.key`), against a throwaway clone of
-      this repo. Record the prompt size with unused toolsets off, how many
-      edits needed a similarity match, and wall time per task.
-      Configure a custom provider with a plain preset name (no `openai/`): a model name
-      containing `openai/` makes Hermes offer Qwen OpenAI's patch format.
-      Waits on: the owner creating the user. Adopt or drop it, then
-      document the result in [`GPU-VM.md`](GPU-VM.md) → *Consumers*.
+- [ ] **Benchmark MTP speculative decoding on `qwen27-agent`.** The SYCL
+      build has `--spec-type draft-mtp` and the Qwen3.8-27B GGUF carries its
+      MTP head (`nextn_predict_layers = 1`); published gains on NVIDIA range
+      from none to +60%. Measure generation tok/s and VRAM at the full
+      195,072 context before adding it to `models.ini`.
 
 ## Voice assistant — leftovers
 

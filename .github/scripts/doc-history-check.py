@@ -7,7 +7,9 @@ archive/. See AGENTS.md rule 8 and archive/README.md.
 
 Only *added* lines are checked, so existing text never trips it. The patterns
 are a heuristic: a hit is a prompt to look, not proof of a violation. A line
-that quotes the patterns on purpose can end in <!-- doc-history:ignore -->.
+that quotes the patterns on purpose can end in <!-- doc-history:allow -->.
+(Not "ignore": Hermes Agent blocks a context file holding an HTML comment with
+that word, as a prompt-injection pattern. The old spelling is still accepted.)
 
   --hook        Claude Code PostToolUse hook. Reads the tool call from stdin;
                 on a hit, prints to stderr and exits 2 so the agent sees it.
@@ -34,6 +36,7 @@ PATTERNS = [
     r"\bhow it was found\b",
 ]
 RX = re.compile("|".join(f"(?:{p})" for p in PATTERNS), re.IGNORECASE)
+ALLOW_RX = re.compile(r"doc-history:(?:allow|ignore)")
 
 MESSAGE = (
     "Root docs describe the homelab's current state only (AGENTS.md rule 8). "
@@ -80,7 +83,7 @@ def added_lines(root: Path, rel: str, base: str):
 
 def hits(root: Path, rel: str, base: str):
     return [(n, t) for n, t in added_lines(root, rel, base)
-            if RX.search(t) and "doc-history:ignore" not in t]
+            if RX.search(t) and not ALLOW_RX.search(t)]
 
 
 def hook() -> int:
