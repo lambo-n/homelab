@@ -68,3 +68,18 @@ had nobody to ask), on a clone with the pre-fix `fetch.py`:
 
 Better on speed and on surfacing ambiguity; the domain error and trusting its
 own tests remain.
+
+## `clarify` with nobody to answer (2026-10-15)
+
+Prompt: *"In scripts/llm/models.ini, raise the context of the 27B preset."*
+(two 27B presets, no target size), run with `hermes chat -q`, where
+`clarify` returns "Clarify tool is not available in this execution context."
+
+| Config | Asked? | Then |
+|---|---|---|
+| four `coding_instructions` | yes: named both presets and asked which, and to what | guessed `qwen27` → 81,920 and edited five files, VOICE.md and the whisper unit among them |
+| plus "if clarify is unavailable, stop… don't edit" | yes, and said it needed a call before editing | guessed `qwen27-agent` → 262,144, a context that can't load with MTP, with a comment asserting it fits |
+
+The rules make it ask; nothing in the prompt makes it stop once the tool
+refuses. Non-interactive modes are for questions, not edits
+(`GPU-VM.md` → *Consumers*).

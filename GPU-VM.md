@@ -133,13 +133,16 @@ ports directly.
   guest. The key is read from `~/.config/aider/api.env`, sourced by hand.
   Claude Code is not used against these models: its per-turn prompt is too
   heavy for a 27B model on this card ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#claude-code-wrapper-retired-2026-10-14)).
-- **Agent: Hermes Agent** (v2026.9.24, `~/.local/bin/hermes`) as `dev` on the
-  dev VM, against `qwen27-agent` (`sudo llm-mode agent` first). It edits with
-  its own `patch` tool and keeps memory and full session history in
-  `~/.hermes`, a separate 20 GiB disk (`sas-vm:vm-101-disk-0` on `sas-pool`,
-  ext4 labelled `hermes`, `nofail` in `/etc/fstab`), mounted at exactly that
-  path because the venv holds absolute paths ([`SAS-STORAGE.md`](SAS-STORAGE.md)). Config `scripts/llm/hermes/config.yaml` and
-  `scripts/llm/hermes/SOUL.md`, installed into `~/.hermes/`:
+- **Agent: Hermes Agent** (v2026.9.24, `~/.local/bin/hermes`), against
+  `qwen27-agent` (`sudo llm-mode agent` first). It edits with its own `patch`
+  tool and keeps memory and full session history in `~/.hermes`. Runs as `dev`
+  on the dev VM, where `~/.hermes` is a separate 20 GiB disk
+  (`sas-vm:vm-101-disk-0` on `sas-pool`, ext4 labelled `hermes`, `nofail` in
+  `/etc/fstab`), mounted at exactly that path because the venv holds absolute
+  paths ([`SAS-STORAGE.md`](SAS-STORAGE.md)). **`scripts/llm/hermes/` is the
+  whole setup**: `config.yaml`, `SOUL.md`, and `install.sh`, which installs the
+  pinned release and copies both into `~/.hermes/` on any Linux machine on the
+  LAN (re-run with `--config-only` after editing either). The config:
   - every side task (compression, session search, memory review) on the same
     preset, since a second model would evict it;
   - non-thinking sampling sent per request in `extra_body`, overriding the
@@ -151,6 +154,19 @@ ports directly.
     decrypt a secret.
 
   History and results: [`archive/HERMES-TRIAL.md`](archive/HERMES-TRIAL.md).
+
+  **Another machine** needs only the key: `install.sh` stops until
+  `~/.config/llama/api-key` (mode 600) holds the agents key, which the owner
+  copies (`dev` has it at the same path). The router is LAN-only, so a machine
+  reached over the tailnet can't use it. What stays per machine, and out of
+  git because this repo is public: `~/.hermes/state.db` (sessions),
+  `memories/MEMORY.md` and `USER.md`.
+
+  > ⚠️ **The "ask, don't guess" rules hold only where someone can answer.**
+  > With no user (`hermes chat -q`, cron), `clarify` returns "not available"
+  > and Qwen proceeds on a guess regardless of `coding_instructions`; one test
+  > raised `qwen27-agent` to a context that cannot load. Use those modes for
+  > questions, not edits.
 
   > ⚠️ **Hermes runs with all of `dev`'s access** (kubeconfig, `~/.ssh`
   > including the Proxmox host key, `sops`, `age.key`), and every session,
