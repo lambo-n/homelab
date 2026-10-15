@@ -1,6 +1,7 @@
-# Hermes Agent config for the dev user (GPU-VM.md → Consumers). Installed to
-# ~/.hermes/config.yaml. Pinned to Hermes v2026.9.24; keys checked against
-# that tag's cli-config.yaml.example.
+# Hermes Agent config, for any Linux machine on the LAN (GPU-VM.md →
+# Consumers). scripts/llm/hermes/install.sh puts it in ~/.hermes/config.yaml.
+# Pinned to Hermes v2026.9.24; keys checked against that tag's
+# cli-config.yaml.example.
 
 # That tag's schema version; without it `hermes doctor` offers a migration
 # that rewrites this file.
@@ -24,7 +25,9 @@ providers:
     api: http://192.168.50.107:8080/v1
     transport: chat_completions
     # The agents key, from /etc/llama/api-keys line 3 on the llm guest.
-    key_cmd: "cat /home/dev/.config/llama/api-key"
+    # key_cmd runs through a shell (agent/command_token_source.py), so ~ is
+    # the user running Hermes.
+    key_cmd: "cat ~/.config/llama/api-key"
     # Thinking off, so Qwen's non-thinking sampling profile rather than the
     # thinking-mode defaults in models.ini [*]. presence_penalty 1.5 is the
     # model card's fix for repeated text.
@@ -71,6 +74,9 @@ agent:
     - >-
       If a term, range or name could mean two things, state your reading and
       ask with the clarify tool before editing. Don't present a guess as fact.
+    - >-
+      If clarify is unavailable, stop: put the question in your reply and end
+      the turn. Don't guess, and don't edit anything.
     - >-
       Do only what was asked. List anything related you noticed as a
       suggestion; don't implement it.
