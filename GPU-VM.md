@@ -74,7 +74,25 @@ user `llama`, plus an image-generation server that has the card to itself
 |---|---|---:|
 | `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 65,536 (sized to leave room for `whisper-server` — see [`VOICE.md`](VOICE.md)) |
 | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | 262,144 (full) |
-| `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone | ~195,072 (`sudo llm-mode agent` first — stops `llama-fast`) |
+| `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone, MTP speculative decoding | 163,840 (`sudo llm-mode agent` first — stops `llama-fast`) |
+
+**`qwen27-agent` decodes speculatively with the model's own MTP head**
+(`spec-type = draft-mtp`, two draft tokens, q8_0 draft KV cache): about
+**39 tok/s** generation against 18.5 without it. Code accepts 89–94% of
+drafted tokens; prose about 47%, so prose gains less. Prompt processing is
+unchanged (~477 tok/s on a 135k prompt, so a full window takes minutes).
+
+> ⚠️ **The MTP layer's KV cache is why this preset is 163,840, not 195,072.**
+> At 195,072 the load fails with `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` even
+> with a q8_0 draft cache. 163,840 leaves ~1 GiB free (33.2 GB in use);
+> 180,224 loads with ~250 MB. Hermes' `context_length` must match `ctx-size`.
+
+| Check | Healthy |
+|---|---|
+| `journalctl -u llama-router \| grep "draft acceptance"` after a request | `draft acceptance = 0.8…–0.9…` on code, `mean len` ≈ 2.8 |
+| `llm_gpu_vram_used_bytes` in `/var/lib/prometheus/node-exporter/llama.prom` with the preset loaded | ≈ 33.2 GB |
+
+History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
 
 `llm-mode agent|normal|image|status` (on the guest) switches between the
 always-on `fast` service, the long-context solo mode, and image mode.
@@ -150,7 +168,7 @@ ports directly.
   | Command | Healthy |
   |---|---|
   | `hermes doctor` | `auxiliary task routing resolves: … custom@192.168.50.107`, `Config version up to date (v46)`; only the npm warnings left |
-  | `hermes chat -q "Reply with just OK"`, then on `llm`: `curl -H "Authorization: Bearer …" localhost:8080/slots?model=qwen27-agent` | `temperature` 0.7, `top_p` 0.8, `top_k` 20, `presence_penalty` 1.5, `n_ctx` 195072 |
+  | `hermes chat -q "Reply with just OK"`, then on `llm`: `curl -H "Authorization: Bearer …" localhost:8080/slots?model=qwen27-agent` | `temperature` 0.7, `top_p` 0.8, `top_k` 20, `presence_penalty` 1.5, `n_ctx` 163840 |
   | `grep "Context file" ~/.hermes/logs/agent.log` after a session in `~/homelab` | no `blocked` line |
 
 ### Tool calling

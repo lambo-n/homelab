@@ -2250,6 +2250,43 @@ while kernel 7.0 recommended `70.54.0`.
 - **Gotcha found during removal:** `~/.claude-local` had become a symlink to
   `~/.claude`, the main Claude Code config. Only the link was removed.
 
+## MTP speculative decoding on `qwen27-agent` (2026-10-15)
+
+Found while looking for speed after the Hermes trial
+([`HERMES-TRIAL.md`](HERMES-TRIAL.md)): the SYCL build's `llama-server --help`
+lists `--spec-type … draft-mtp …`, and the GGUF's metadata carries
+`qwen35.nextn_predict_layers = 1`, so no draft model was needed. Published
+results were NVIDIA-only and ranged from no gain (q4_K_M) to +60% (RTX 3090).
+
+**Benchmark:** one greedy 400-token completion (an nginx log parser with
+tests), twice per setting, `llm-mode agent`, via the router.
+
+| Setting | Context | Generation | Drafts accepted | VRAM in use |
+|---|---:|---:|---:|---:|
+| no MTP | 195,072 | 18.72 tok/s | — | 32.68 GB |
+| no MTP | 131,072 | 18.31 | — | 29.77 GB |
+| `draft-mtp`, `n-max 2`, f16 draft KV | 195,072 | failed to load: `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` | | |
+| same, q8_0 draft KV | 195,072 | failed to load, same error | | |
+| same, q8_0 draft KV | 131,072 | 37.96 | 255/286 (89%) | 31.67 GB |
+| same, q8_0 draft KV | 163,840 | 38.08 | 255/286 | 33.22 GB |
+| same, q8_0 draft KV | 180,224 | 38.09 | 256/284 | 33.99 GB |
+| **adopted**: 163,840, installed from `scripts/llm/models.ini` | 163,840 | 39.11 / 39.45 | 260/277 (94%) | 33.22 GB |
+
+- **Prose accepts less.** A Hermes answer in prose logged
+  `draft acceptance = 0.46667 (28 / 60), mean len = 1.93`.
+- **Long prompt.** 134,701 tokens (a 5,500-line numbered list, then a
+  recall question): correct answer, 0 `OUT_OF_DEVICE`, VRAM unchanged at
+  33.27 GB because the KV cache is allocated at load. Prefill 477 tok/s,
+  282 s. A first attempt at 9,000 lines was 221,813 tokens and was refused
+  with `exceed_context_size_error` before allocating anything.
+- **Why 163,840 and not 180,224:** same speed, and ~1 GiB of headroom
+  instead of ~250 MB.
+- **First try was blocked** by the assistant's permission check (editing the
+  guest's `/etc/llama/models.ini` and restarting the shared router); it ran
+  once the owner asked for it explicitly. The guest was restored to the
+  repo's `models.ini` between the experiment and the adopted change, and
+  diffed clean against git after each.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
