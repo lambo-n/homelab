@@ -143,8 +143,12 @@ ports directly.
   whole setup**: `config.yaml`, `SOUL.md`, and `install.sh`, which installs the
   pinned release and copies both into `~/.hermes/` on any Linux machine on the
   LAN (re-run with `--config-only` after editing either). The config:
-  - every side task (compression, session search, memory review) on the same
-    preset, since a second model would evict it;
+  - every side task (compression, session search, memory review, `/goal`'s
+    judge) on the same preset, since a second model would evict it; the judge
+    gets a 300 s timeout instead of 60 s;
+  - compaction at 64k tokens (`compression.threshold_tokens`), not the
+    75%-of-window floor (~123k): at ~477 tok/s prefill a 123k summary takes
+    ~4 min;
   - non-thinking sampling sent per request in `extra_body`, overriding the
     thinking-mode defaults in `models.ini`;
   - seven toolsets (file, terminal, memory, session search, skills, todo,
