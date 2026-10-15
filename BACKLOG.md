@@ -13,7 +13,7 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       boot) has not yet been proven by an actual reboot. Check
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
-- [ ] **Trial Hermes Agent against `qwen27-agent`, then `qwen27`**, as a general agent with persistent
+- [ ] **Trial Hermes Agent against `qwen27-agent`** as a general agent with persistent
       memory, editing with its own `patch` tool; Aider stays as the fallback
       for multi-file Python work. Run it as a separate `hermes` user on the dev
       VM (no kubeconfig, no `sops`/`age.key`), against a throwaway clone of
