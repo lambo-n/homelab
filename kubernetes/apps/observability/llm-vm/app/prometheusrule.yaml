@@ -45,3 +45,19 @@ spec:
             description: >-
               VM 105 is off, node_exporter stopped, or its ufw rule for :9100
               no longer admits the k3s nodes.
+        # The chart's NodeTextFileCollectorScrapeError matches job="node-exporter"
+        # only, so this scrapeConfig job needs its own. One malformed line in
+        # llama.prom makes node-exporter drop the whole file: every llamacpp:,
+        # llm_mode and VRAM series disappears while LlmVmDown stays quiet.
+        - alert: LlmMetricsTextfileBroken
+          expr: node_textfile_scrape_error{instance="llm", job="scrapeConfig/observability/llm-node"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "node_exporter on VM 105 rejects llama.prom"
+            description: >-
+              Every llama metric on VM 105 is missing. `journalctl -u
+              prometheus-node-exporter` on llm names the bad line; it is
+              usually a new llama-server metric that scripts/llm/llama-metrics
+              doesn't relabel correctly.

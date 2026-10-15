@@ -28,10 +28,17 @@ emit() { # <model> <url>
   local body
   if body=$(curl -fsS -m 5 -H @<(hdr) "$2" 2>/dev/null); then
     echo "llamacpp:model_loaded{model=\"$1\"} 1"
-    # llama-server's metrics carry no labels: "name value". Drop HELP/TYPE lines
-    # (repeating them per model is invalid in one file); rate() doesn't need them.
+    # Most llama-server metrics carry no labels ("name value"), but some do: with
+    # speculative decoding, spec_decode_num_accepted_tokens_per_pos_total has
+    # {position="N"}. Add model inside an existing label set rather than after
+    # it: "name{a}{model=…}" is invalid, and node-exporter then drops the WHOLE
+    # file (node_textfile_scrape_error 1, every llama metric gone). Drop
+    # HELP/TYPE lines (repeating them per model is invalid in one file);
+    # rate() doesn't need them.
     printf '%s\n' "$body" \
-      | awk -v m="$1" '!/^#/ && NF == 2 { print $1 "{model=\"" m "\"} " $2 }'
+      | awk -v m="$1" '!/^#/ && NF == 2 {
+          if (sub(/}$/, ",model=\"" m "\"}", $1)) print $1, $2
+          else print $1 "{model=\"" m "\"}", $2 }'
   else
     echo "llamacpp:model_loaded{model=\"$1\"} 0"
   fi
