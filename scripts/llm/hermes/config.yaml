@@ -52,6 +52,12 @@ auxiliary:
   background_review:
     provider: llama
     model: qwen27-agent
+  # /goal's done/continue/blocked verdict after every turn, and contract
+  # drafting. 60 s by default, too short for a long prefill at ~477 tok/s.
+  goal_judge:
+    provider: llama
+    model: qwen27-agent
+    timeout: 300
   title_generation:
     enabled: false
 
@@ -88,6 +94,9 @@ compression:
   enabled: true
   # Below 512K, Hermes floors this at 0.75 (~123k of 163,840).
   threshold: 0.75
+  # Compress at the lower of the two. At ~477 tok/s prefill, summarising 123k
+  # takes ~4 min; 64k keeps each compaction ~2 min and every turn shorter.
+  threshold_tokens: 64000
 
 memory:
   memory_enabled: true
