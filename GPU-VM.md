@@ -107,15 +107,16 @@ key, except `/health`, which answers `200` to anyone on the LAN. Three keys exis
 64-character line generated with `openssl rand -hex 32`.
 
 **Firewall (`ufw` on the guest):** Port 22 open from anywhere (ProxyJump SSH
-arrives via the tailscale gateway). Port 8080 (the router) is open to
-`192.168.50.0/24`, which includes the gateway (`192.168.50.102`) that routed
-tailnet traffic arrives as, so tailnet members reach it too; the tailnet policy
-grants `.107` `tcp:8080` and nothing else
-([`GITOPS.md`](GITOPS.md#tailscale-host)). Ports 8081/8082 are LAN-only: open
-to `192.168.50.0/24` but explicitly denied to `.102`. ufw cannot tell tailnet
-devices apart, so the tailnet policy is the only filter on who reaches 8080
-from outside; the API key is the second. History:
-[`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#router-opened-to-the-tailnet-2026-10-15).
+arrives via the tailscale gateway). Ports 8080 (the router) and 8082 (image
+generation) are open to `192.168.50.0/24`, which includes the gateway
+(`192.168.50.102`) that routed tailnet traffic arrives as, so tailnet members
+reach them too; the tailnet policy grants `.107` `tcp:8080` and `tcp:8082` and
+nothing else ([`GITOPS.md`](GITOPS.md#tailscale-host)). Port 8081 is LAN-only:
+open to `192.168.50.0/24` but explicitly denied to `.102`. ufw cannot tell
+tailnet devices apart, so the tailnet policy is the only filter on who reaches
+8080/8082 from outside; the API key is the second. History:
+[`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#router-opened-to-the-tailnet-2026-10-15),
+[`…#image-generation-opened-to-the-tailnet-2026-10-16`](archive/GPU-VM-BUILD.md#image-generation-opened-to-the-tailnet-2026-10-16).
 Ports 9100
 (node-exporter) and 10200/10300 (Wyoming Piper and Whisper, for Home Assistant)
 are open to the three k3s node IPs only, so the dev VM cannot reach the Wyoming
@@ -343,10 +344,7 @@ sudo install -d -o llama -g llama /models/images
 sudo systemctl daemon-reload
 ```
 ```bash
-sudo ufw insert 2 deny from 192.168.50.102 to any port 8082 proto tcp
-```
-```bash
-sudo ufw insert 4 allow from 192.168.50.0/24 to any port 8082 proto tcp
+sudo ufw allow from 192.168.50.0/24 to any port 8082 proto tcp
 ```
 
 **Checking it** — `python3 -m unittest scripts/llm/test_sd_proxy.py` passes

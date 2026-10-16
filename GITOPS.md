@@ -841,11 +841,11 @@ state.
 | gateway `100.75.44.72` `tcp:22` | the `ProxyJump` hop |
 | `192.168.50.101` `tcp:8006` | Proxmox UI/API |
 | `192.168.50.104` `tcp:80`, `tcp:8123` | Traefik (Grafana) and Home Assistant |
-| `192.168.50.107` `tcp:8080` | the LLM router, for Hermes off the LAN; API key still required ([`GPU-VM.md`](GPU-VM.md)) |
+| `192.168.50.107` `tcp:8080`, `tcp:8082` | the LLM router, for Hermes off the LAN, and image generation (only answers in image mode); API key still required ([`GPU-VM.md`](GPU-VM.md)) |
 | `autogroup:internet` | the exit node |
 
 Everything else through the route is denied: NFS, the k3s API, the LLM
-API's other ports (8081/8082), SSH straight to a guest, and traffic between the laptop and the home PC.
+API's `fast` port (8081), SSH straight to a guest, and traffic between the laptop and the home PC.
 `ProxyJump` to every host in `ssh-config` works, because the second hop is the
 gateway's *own* LAN traffic, which grants do not govern. The `ssh` block is the
 console default (check mode, `autogroup:self`).
@@ -870,6 +870,7 @@ fish-safe one-liners:
 | `curl -sI 192.168.50.104 \| head -1` | `302 Found` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8080/v1/models` | `401` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8081/v1/models` | `000` |
+| `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8082/v1/models` | `401` in image mode; `000` otherwise, as `:8082` is closed outside it |
 | `curl -sk -m5 -o /dev/null -w '%{http_code}' https://192.168.50.104:6443/version` | `000` |
 
 Read `000` as routing or policy and any HTTP status as reachable. A `401` or
