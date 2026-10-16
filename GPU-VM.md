@@ -114,7 +114,9 @@ grants `.107` `tcp:8080` and nothing else
 ([`GITOPS.md`](GITOPS.md#tailscale-host)). Ports 8081/8082 are LAN-only: open
 to `192.168.50.0/24` but explicitly denied to `.102`. ufw cannot tell tailnet
 devices apart, so the tailnet policy is the only filter on who reaches 8080
-from outside; the API key is the second. Ports 9100
+from outside; the API key is the second. History:
+[`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#router-opened-to-the-tailnet-2026-10-15).
+Ports 9100
 (node-exporter) and 10200/10300 (Wyoming Piper and Whisper, for Home Assistant)
 are open to the three k3s node IPs only, so the dev VM cannot reach the Wyoming
 ports directly.
