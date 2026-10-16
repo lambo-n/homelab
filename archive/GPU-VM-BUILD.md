@@ -2311,6 +2311,23 @@ LAN instead of only on the dev VM (PR #164).
   From the dev VM, both returned `401` as before. Hermes on the laptop
   connected to `qwen27-agent`.
 
+## Image generation opened to the tailnet (2026-10-16)
+
+`:8082` (`sd-proxy`, FLUX.2-dev) was LAN-only for no reason of its own: it
+inherited F6a's deny on the gateway, and PR #164 opened only the router
+because Hermes was the only remote client then. It is now reachable from
+tailnet members too, so images can be requested off the LAN.
+
+- **Tailnet policy:** the `.107` grant became `tcp:8080`, `tcp:8082`.
+- **`ufw` on `llm`:** deleted `deny 8082/tcp from 192.168.50.102`; the
+  existing `allow 8082/tcp from 192.168.50.0/24` then admits the gateway.
+  `:8081` stays LAN-only.
+- **Why this is acceptable:** the same reasoning as the router. `sd-proxy`
+  requires the `/etc/llama/api-keys` Bearer keys on every path but
+  `/health`, `sd-server` stays on loopback, and the tailnet's members are
+  only the owner's laptop and home PC. A remote client cannot switch the
+  card into image mode; that still takes `ssh llm sudo llm-mode image`.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4

@@ -28,10 +28,11 @@
 		// One node IP is enough; klipper answers on all three.
 		{"src": ["autogroup:member"], "dst": ["k3s-control"], "ip": ["tcp:80", "tcp:8123"]},
 
-		// Model router on VM 105 (llama-router), for Hermes and other clients
-		// off the LAN. Every request still needs an API key. 8081/8082 stay
-		// LAN-only. See GPU-VM.md → Firewall.
-		{"src": ["autogroup:member"], "dst": ["llm"], "ip": ["tcp:8080"]},
+		// VM 105: the model router (llama-router, 8080), for Hermes and other
+		// clients off the LAN, and image generation (sd-proxy, 8082, answers
+		// only in image mode). Every request still needs an API key. 8081
+		// stays LAN-only. See GPU-VM.md → Firewall.
+		{"src": ["autogroup:member"], "dst": ["llm"], "ip": ["tcp:8080", "tcp:8082"]},
 
 		// Exit node. Delete if unused.
 		{"src": ["autogroup:member"], "dst": ["autogroup:internet"], "ip": ["*"]},
