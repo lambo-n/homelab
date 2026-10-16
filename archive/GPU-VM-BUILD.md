@@ -2287,6 +2287,30 @@ tests), twice per setting, `llm-mode agent`, via the router.
   repo's `models.ini` between the experiment and the adopted change, and
   diffed clean against git after each.
 
+## Router opened to the tailnet (2026-10-15)
+
+F6a made `:8080`/`:8081` LAN-only. The router (`:8080`) is now reachable
+from tailnet members as well, so Hermes Agent can run on the laptop off the
+LAN instead of only on the dev VM (PR #164).
+
+- **Tailnet policy:** a grant from `autogroup:member` to `192.168.50.107`
+  `tcp:8080`, pasted into the admin console.
+- **`ufw` on `llm`:** the F6a rule `deny 8080,8081/tcp from 192.168.50.102`
+  became `deny 8081/tcp from 192.168.50.102`. The existing
+  `allow 8080,8081/tcp from 192.168.50.0/24` then admits the gateway on
+  `:8080`. `:8081` and `:8082` stay LAN-only.
+- **Why this is acceptable:** every request still needs an API key. The
+  tailnet's members are only the owner's laptop and home PC. The laptop gets
+  the agents key, copied from the dev VM by `scp`, never printed.
+- **Trade-offs accepted:** ufw can't tell tailnet devices apart (all arrive
+  as `.102`), so the tailnet policy is the only network filter; routed
+  requests produce no session log; remote and LAN clients share the one
+  loaded model.
+- **Verified 2026-10-15**, from the laptop off the LAN with
+  `--accept-routes`: `:8080/v1/models` → `401`, `:8081/v1/models` → `000`.
+  From the dev VM, both returned `401` as before. Hermes on the laptop
+  connected to `qwen27-agent`.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
