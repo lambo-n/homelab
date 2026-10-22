@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: transcribe-api
-          image: python:3.15-slim@sha256:7bd9bc5a5ebfe5f5cae5419bbb7fceee8b74d6049893fc39549ebfdcb0a5151d
+          image: python:3.15-slim@sha256:b23bb42e5298783f81e7e6f09e1175f68eb46000a789b3ee272ac231c212c4cf
           # No custom image is built for this personal tool -- install ffmpeg
           # and the Python deps at container start on a stock image instead.
           command:
