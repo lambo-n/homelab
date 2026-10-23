@@ -4,7 +4,7 @@
     // The home-operations preset gives us: Flux/Kubernetes/Kustomize/Helm
     // managers, mise manager, custom regex managers for `# renovate:`
     // annotations, semantic commit scoping, and zer0ver handling.
-    "github>home-operations/renovate-presets#8.1.0",
+    "github>home-operations/renovate-presets#10.0.1",
     // Local overrides live in .renovate/ alongside this file.
     "github>lambo-n/homelab//.renovate/autoMerge.json5",
     "github>lambo-n/homelab//.renovate/allowedVersions.json5",
