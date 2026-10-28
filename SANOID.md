@@ -51,7 +51,7 @@ Five datasets are covered:
 | `archive-pool/vm-104-disk-0` | **PGDATA** (the zvol) | a zvol does not appear in a plain `zfs list` — use `-t volume` or `-t all` |
 | `archive-pool/ts-ssh-records` | Tailscale SSH session recordings | added 2026-09-09 |
 | `sas-pool/data` | Personal storage / Samba share | added 2026-09-09, `recursive = yes` |
-| `sas-pool/vm` | the dev VM's Hermes Agent disk (`vm-101-disk-0`, session database) | `recursive = yes`, so each zvol under it |
+| `sas-pool/vm` | the dev VM's Hermes Agent disk (`vm-101-disk-0`, session database) and all three of `win11`'s disks (`vm-106-disk-0..2`) | `recursive = yes`, so each zvol under it |
 
 **`llm-pool` is deliberately not in `sanoid.conf`.** It holds VM 105's model
 weights: multi-GB files that are re-downloadable, where every snapshot would

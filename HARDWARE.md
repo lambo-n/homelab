@@ -201,9 +201,11 @@ before ordering a replacement, these are inferences from the part number:
 | `local-lvm` | 130.2 GiB total, **~57.7 GiB used (44.3%)**, ~72.5 GiB free, 16 GiB unallocated in the VG | `host_lvm_thinpool_*` metrics, 2026-10-11 |
 | `local` (dir, on `pve-root`) | 64.04 GiB total, 7.51 GiB used (11.73%) | `pvesm status`, 2026-09-09 |
 
-Holds every guest root disk: `vm-100` 8 GiB, `vm-101` 32 GiB, `vm-102` 15 GiB,
-`vm-103` 32 GiB, `vm-104` 20 GiB, `vm-105` 32 GiB. VM 105's *models* disk is
-not here — it is a 1400 GiB zvol on `llm-pool`.
+Holds every guest root disk except VM 106's: `vm-100` 8 GiB, `vm-101` 32 GiB,
+`vm-102` 15 GiB, `vm-103` 32 GiB, `vm-104` 20 GiB, `vm-105` 32 GiB. VM 105's
+*models* disk is not here — it is a 1400 GiB zvol on `llm-pool`. VM 106
+(`win11`) has all three of its disks on `sas-pool` through the `sas-vm`
+storage ([`SAS-STORAGE.md`](SAS-STORAGE.md)).
 
 > ⚠️ **`README.md:85` is wrong, twice.** It calls this "LVM-thin on an NVMe
 > RAID1 pair". It is neither NVMe nor an OS-level RAID: it is a **Dell BOSS-S2**

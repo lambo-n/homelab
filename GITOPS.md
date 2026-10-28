@@ -799,7 +799,7 @@ the three node IPs work; the web UI is the same URL without `format=json`.
 **Config at a glance** — runs on the Proxmox host `.101`, not in the cluster.
 **Five** datasets: `minio-data`, the PGDATA zvol
 `vm-104-disk-0`, and `ts-ssh-records` on `archive-pool`, plus `sas-pool/data` and
-`sas-pool/vm` (the dev VM's Hermes disk) on `sas-pool`. Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
+`sas-pool/vm` (the dev VM's Hermes disk and VM 106 `win11`'s disks) on `sas-pool`. Policy 24 hourly / 30 daily / 6 monthly, `sanoid.timer` active.
 Procedure and the rollback drill: [`SANOID.md`](SANOID.md).
 
 > **What `sanoid` does and does not cover.** It snapshots ZFS datasets across both
@@ -900,7 +900,7 @@ verification runs): [`archive/TAILSCALE-SUBNET-ROUTE.md`](archive/TAILSCALE-SUBN
 
 | | |
 |---|---|
-| Version | **1.13.1**, pinned in `mise.toml`. State lives on the dev VM and is backed up with it |
+| Version | **1.13.2**, pinned in `mise.toml`. State lives on the dev VM and is backed up with it |
 | Applies | run **by hand from the dev VM, never reconciled from inside the cluster** — see the [scope split](#scope-flux-manages-the-cluster-not-the-hypervisor) |
 | Layout | two roots with separate state: `tofu/proxmox/` and `tofu/cloudflare/`. A plan in one needs no token for the other |
 | Proxmox | `tofu/proxmox/proxmox-vms.tf` (dev, control, two workers) + `tofu/proxmox/proxmox-container.tf` (`tailscale-gateway`, CTID 100). All five carry `prevent_destroy`; every body generated from the live guest with `-generate-config-out`, then reviewed |

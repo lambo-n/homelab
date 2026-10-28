@@ -93,20 +93,34 @@ errors: No known data errors
 ### `sas-pool/vm` — the `sas-vm` Proxmox storage
 
 `sas-pool/vm` is registered as a Proxmox `zfspool` storage, so guests can have
-disks here. It holds one zvol, `sas-pool/vm/vm-101-disk-0` (20 GiB, the dev
-VM's `scsi1`), which is Hermes Agent's `~/.hermes` ([`GPU-VM.md`](GPU-VM.md) →
-*Consumers*). It sits beside `data`, not under it, so the `[data]` share never
+disks here. It sits beside `data`, not under it, so the `[data]` share never
 sees it.
+
+| Zvol | Size | Guest | What it is |
+|---|---|---|---|
+| `vm-101-disk-0` | 20 GiB | `dev` (101) | `scsi1`, Hermes Agent's `~/.hermes` ([`GPU-VM.md`](GPU-VM.md) → *Consumers*) |
+| `vm-106-disk-0` | 1 MiB | `win11` (106) | `efidisk0`, OVMF variables (Secure Boot keys pre-enrolled, 2023 MS cert) |
+| `vm-106-disk-1` | 256 GiB | `win11` (106) | `scsi0`, the Windows system disk; `discard=on`, `ssd=1`, so trimmed blocks return to the pool |
+| `vm-106-disk-2` | 4 MiB | `win11` (106) | `tpmstate0`, the vTPM 2.0 state |
+
+Check it with `zfs list -t volume -r -o name,volsize,used sas-pool/vm`.
 
 ```bash
 pvesm add zfspool sas-vm --pool sas-pool/vm --content images --sparse 1
 ```
 
-> ⚠️ **VM 101 won't start while `sas-pool` is unimported.** Proxmox refuses to
-> start a guest whose disk's storage is missing, and `sas-pool` is
+> ⚠️ **VMs 101 and 106 won't start while `sas-pool` is unimported.** Proxmox
+> refuses to start a guest whose disk's storage is missing, and `sas-pool` is
 > host-native, so nothing but `zfs-import-scan` imports it. Check `zpool list`
-> first if the dev VM fails to start after a host reboot. Inside the guest the
-> mount is `nofail`, so a missing disk can't hang the guest's own boot.
+> first if the dev VM or `win11` fails to start after a host reboot. Inside the
+> dev VM the mount is `nofail`, so a missing disk can't hang its own boot;
+> `win11` boots from the pool and has no such fallback.
+
+> ⚠️ **Sanoid snapshots `win11`'s whole system disk.** `sas-pool/vm` is
+> `recursive = yes`, so VM 106's zvols get the `archival` policy (6 monthly
+> snapshots). Windows Update and pagefile churn stays pinned in those
+> snapshots, so watch `usedbysnapshots` on `vm-106-disk-1`, and anything
+> written to the disk can be recovered from snapshots for six months.
 
 ---
 

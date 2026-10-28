@@ -14,6 +14,14 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
 
+## Windows 11 VM (106)
+
+- [ ] **Detach `win11`'s install ISOs** (`ide0` virtio-win, `ide2` Windows)
+      and drop them from the boot order.
+- [ ] **Import `win11` into OpenTofu** with `prevent_destroy`, by the same
+      generate-from-live sequence as the other imported guests. Needs the
+      owner's `!import` token. See [`tofu/README.md`](tofu/README.md).
+
 ## Voice assistant — leftovers
 
 **Working end to end.** The satellite is flashed, adopted at `192.168.50.70`, and answering on the

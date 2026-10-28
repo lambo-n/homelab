@@ -237,8 +237,9 @@ itself is a separate credential from that key.
 | `k3s-control` (102, `.104`) | QEMU | imported — `proxmox/proxmox-vms.tf` |
 | `k3s-worker1` (103, `.105`) | QEMU | imported — `proxmox/proxmox-vms.tf`; minio |
 | `k3s-worker2` (104, `.106`) | QEMU | imported — `proxmox/proxmox-vms.tf`; PGDATA zvol as `archive-pool:vm-104-disk-0`, scsi1, 64 GiB |
+| `win11` (106, `.108`) | QEMU | **not in state** — to be imported ([`../BACKLOG.md`](../BACKLOG.md)); disks on `sas-vm` |
 
-All five carry `prevent_destroy`. A config that ever proposes replacing one of
+All five imported guests carry `prevent_destroy`. A config that ever proposes replacing one of
 them fails the plan rather than running it.
 
 The fifth guest was `vpn-gateway` at an unknown CTID in the earlier draft here.
@@ -357,7 +358,7 @@ curl -sk -H "Authorization: PVEAPIToken=$PROXMOX_VE_API_TOKEN" \
   | jq -r '.data[] | "\(.type)\t\(.vmid)\t\(.node)\t\(.name)"' | sort
 ```
 
-Import IDs are `<node>/<vmid>` for both kinds; the node is `pve`. It returns exactly the five rows in the table above.
+Import IDs are `<node>/<vmid>` for both kinds; the node is `pve`. It returns seven rows: the five imported guests, `llm` (105) and `win11` (106).
 
 ### The sequence — for the next guest, or to regenerate an existing body
 
