@@ -4,7 +4,7 @@
 # kubectl tracks the k3s server minor (v1.35.x) — see GITOPS.md "Known gaps".
 
 [tools]
-kubectl = "1.35.9"
+kubectl = "1.35.10"
 flux2 = "2.10.0"
 helm = "4.3.1"
 sops = "3.13.3"
