@@ -13,6 +13,22 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       boot) has not yet been proven by an actual reboot. Check
       `journalctl -u gpu-rebar -b` after the next one. See
       [`GPU-VM.md`](GPU-VM.md) and [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → D4.
+- [ ] **Finish and install the int64 `sd-server` build (FLUX.2 edit crash).**
+      Large FLUX.2 requests crash the card (`UR_RESULT_ERROR_DEVICE_LOST`) or
+      silently corrupt the image. The copy kernels in
+      `ggml/src/ggml-sycl/cpy.cpp` take strides and offsets as 32-bit `int`,
+      and FLUX.2's fused single-block tensor (221,184 B row stride) overflows
+      them once the sequence passes **9,709 tokens**: 512 text + W·H/256 +
+      each reference at up to min(1 MiP, W·H)/256. Two refs at 1024², or
+      text-only at 1792², are enough. The patched build (offsets → `int64_t`)
+      is in `/models/src/sdcpp-i64/build-sycl` and passes 2 refs at 1024²;
+      `sd-server.service` still runs `/models/src/stable-diffusion.cpp/build-sycl`.
+      Left to test: text-only 1792², segmented 1680², 3–4 refs at 1024²,
+      identical output to the old build below 9,709 tokens, and one real
+      2-photo edit at full steps. Then point the service at the new build,
+      add the build steps to `scripts/llm/` and a ⚠️ to
+      [`GPU-VM.md`](GPU-VM.md) → *Image generation*, and consider an upstream
+      llama.cpp PR (the bug is still in `master`).
 
 ## Windows 11 VM (106)
 
