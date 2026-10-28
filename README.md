@@ -155,11 +155,13 @@ change to a disk's `discard` takes effect at the next full VM restart
 | `k3s-worker1` | VM | 103 | `.105` | 4 vCPU, 128 GiB RAM, 30.2 GiB root |
 | `k3s-worker2` | VM | 104 | `.106` | 4 vCPU, 128 GiB RAM, 17.83 GiB root |
 | `llm` | VM | 105 | `.107` | 8 vCPU (`host`), 64 GiB RAM (pinned — passthrough), 32 GiB root, 1400 GiB models disk on `llm-pool`, **Intel Arc Pro B70 passed through whole**. The only guest authored in tofu rather than imported. See [`GPU-VM.md`](GPU-VM.md) |
+| `win11` | VM | 106 | `.108` | Windows 11 workstation for the owner's remote sysadmin work for DeKalb. 4 vCPU (`host`), 8 GiB RAM, 256 GiB disk on `sas-vm` (`sas-pool`), OVMF with Secure Boot keys enrolled and a vTPM 2.0, QEMU guest agent enabled (`qm agent 106 ping` returns nothing when healthy). Not in OpenTofu state |
 
-> **VMID + 2 = last octet holds for the four VMs by coincidence, not by rule** —
+> **VMID + 2 = last octet holds for the VMs by coincidence, not by rule** —
 > the LXC at CTID 100 sits outside that run. Do not rely on it.
 
-All six are in OpenTofu state with `prevent_destroy`. Five were imported, each
+The first six are in OpenTofu state with `prevent_destroy`; `win11` is not
+yet ([`BACKLOG.md`](BACKLOG.md)). Five were imported, each
 body generated from the live guest rather than hand-written; `llm` is the one
 authored here and created by `tofu apply`. 256 GiB of worker RAM against ~1% CPU and
 <1% memory utilisation is the reason "we have headroom" never appears as an
@@ -176,6 +178,7 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 | Prometheus TSDB | `k3s-worker1` root disk | `local-path`, capped by `retentionSize` |
 | LLM model weights | `llm-pool` (single disk, `sde`) | 1400 GiB zvol attached to VM 105 as `/models` (ext4, `largefile4`). **No redundancy, no snapshots** — weights are re-downloadable |
 | SSH session logs (a daemon on the gateway, not Tailscale's recorder) | `archive-pool` | `/archive-pool/ts-ssh-records`, bind-mounted into CTID 100 as `/var/log/ts-ssh-records` |
+| Windows 11 workstation (VM 106) | `sas-pool` | `sas-pool/vm/vm-106-disk-*` (EFI vars, 256 GiB system disk, vTPM state) through the `sas-vm` storage, under sanoid via `sas-pool/vm`'s `recursive = yes` |
 | Personal storage / media | `sas-pool` | `/sas-pool/data`, native host RAIDZ1 under sanoid, exported via Samba (`[data]`) |
 
 > ⚠️ **Destroying or rebuilding `archive-pool` takes `k3s-worker2`'s database disk with it** (PGDATA is a zvol on that pool), so pool work requires that VM stopped first.
@@ -183,6 +186,9 @@ argument in `GITOPS.md`; the scarce resource here is **disk**, not compute.
 ### Network
 
 Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
+The homelab's addresses (`.101`–`.108`) are the only static IPs on the
+network; every other device takes a DHCP lease. A new guest's address goes
+in the *Guests* table before it is set.
 
 - **Inbound from the internet:** none. The only path in is the outbound cloudflared
   tunnel, gated by Cloudflare Access.
@@ -214,6 +220,10 @@ Flat `192.168.50.0/24`, gateway `.1`. No VLANs, no BGP, nothing to peer with.
   access to `.103`, so only the ProxyJump hop reaches it. Rescue if locked out:
   the PVE console,
   `sudo ufw disable`.
+- **`win11` (VM 106, `.108`) has no remote-access service.** RDP, SSH and
+  WinRM are closed, and the tailnet policy grants nothing on `.108`. The
+  Proxmox console (`:8006`, which the tailnet does grant) is the way in,
+  from the LAN or a tailnet device.
 - **SSH from the dev VM to guests is one-way** (2026-09-17). Its own key,
   `~/.ssh/id_ed25519_homelab`, is in `authorized_keys` on `llm` and the three k3s
   nodes, pinned with `from="192.168.50.103"`. No guest holds a key the dev VM
@@ -367,7 +377,7 @@ klipper LoadBalancer on `:8123` directly. Any future LAN-only UI goes here rathe
 than on the tunnel.
 → ships with k3s, not managed here
 
-**OpenTofu** `1.13.1` — declares the two Cloudflare DNS records and all six
+**OpenTofu** `1.13.2` — declares the two Cloudflare DNS records and all six
 Proxmox guests. Runs **by hand from the dev VM, never from inside the cluster** —
 a reconciler that can delete the VMs it runs on is the failure mode this whole
 layer split exists to avoid.
