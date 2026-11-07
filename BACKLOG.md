@@ -32,8 +32,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Windows 11 VM (106)
 
-- [ ] **Detach `win11`'s install ISOs** (`ide0` virtio-win, `ide2` Windows)
-      and drop them from the boot order.
 - [ ] **Import `win11` into OpenTofu** with `prevent_destroy`, by the same
       generate-from-live sequence as the other imported guests. Needs the
       owner's `!import` token. See [`tofu/README.md`](tofu/README.md).

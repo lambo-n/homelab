@@ -135,7 +135,10 @@ pvesm add zfspool sas-vm --pool sas-pool/vm --content images --sparse 1
 >   the system disk restored alone or into a new VM, `disk-2` lost or
 >   recreated, the EFI disk, Secure Boot keys or machine type changed, and
 >   possibly a Proxmox upgrade that updates OVMF. Have the key in reach before
->   any of those.
+>   any of those. The TPM protector validates through Secure Boot (PCR 7).
+> - **Keep install media detached.** VM 106 boots `order=scsi0` with no `ide`
+>   drives; `manage-bde` warns that a bootable CD/DVD in the boot path can stop
+>   the TPM unlocking C:. Attach an ISO only while it is needed, then remove it.
 > - **The recovery key (password and its ID) is in LastPass**, never in this
 >   repo, on the host or on the VM's own disk. The recovery screen shows the
 >   key ID; match it against the LastPass entry.
