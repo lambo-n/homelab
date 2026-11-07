@@ -53,3 +53,4 @@ backup.
 | 2026-09-04 | `minio-data`, PGDATA zvol (`vm-104-disk-0`) | ✅ Both clones passed. `minio-data` clone showed the real layout (`.minio.sys/`, both buckets, 97 M). Zvol clone's `blkid` UUID (`47470f9d-…`) matched the filesystem's creation-time UUID exactly. |
 | 2026-09-09 | `ts-ssh-records` | ✅ Initial snapshots confirmed (monthly/daily/hourly, 108K REFER) after being added to the `archival` template. |
 | 2026-09-09 | `sas-pool/data` | ✅ Initial snapshots confirmed across the new RAIDZ1 pool; 17 tabs verified in the config. |
+| 2026-11-07 | `sas-pool/vm/vm-101-disk-0`, `sas-pool/vm/vm-106-disk-1` | ✅ Both `@autosnap_2026-11-07_19:00:24_hourly` clones passed. Hermes disk: `TYPE="ext4" LABEL="hermes"`, UUID `eb85e303-…` matches the live `/dev/sdb`. win11 system disk: GPT intact, `part1` vfat (EFI), `part2` MSR, `part3` **BitLocker**, `part4` ntfs (recovery). `blkid` cannot see inside `part3`; see the ⚠️ in [`../SAS-STORAGE.md`](../SAS-STORAGE.md). |

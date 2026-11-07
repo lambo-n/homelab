@@ -63,6 +63,17 @@ custom "Hey Doofus" wake word; the items below are what is left. See [`VOICE.md`
       when VM 105 is off, and Prometheus metrics on the pipeline. Each measured
       against the V3e heap baseline.
 
+## Backups
+
+- [ ] **Find why `offsite-backup` runs hit `activeDeadlineSeconds` (1800).**
+      Three Jobs failed `DeadlineExceeded`: 2026-10-24 06:23 and 12:23 (the
+      due run; 18:23 then succeeded) and 2026-11-02 00:23 (a not-due run that
+      only lists snapshots). Nodes were up both times. Pod logs were already
+      gone, so catch the next failure live:
+      `kubectl -n sunfire logs job/<name> --all-containers`. Suspect B2
+      latency or a stuck restic lock. Check that `KubeJobFailed` reaches
+      someone. See [`runbooks/OFFSITE-RESTORE.md`](runbooks/OFFSITE-RESTORE.md).
+
 ## Hardware — still unknown
 
 From [`HARDWARE.md`](HARDWARE.md) → "Still unknown":
