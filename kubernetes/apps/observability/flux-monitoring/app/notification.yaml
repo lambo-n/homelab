@@ -35,7 +35,7 @@ spec:
   # namespace runs no ingress policy of its own.
   address: http://kube-prometheus-stack-alertmanager.observability.svc.cluster.local:9093/api/v2/alerts
 ---
-apiVersion: notification.toolkit.fluxcd.io/v1beta3
+apiVersion: notification.toolkit.fluxcd.io/v1
 kind: Alert
 metadata:
   name: alertmanager
