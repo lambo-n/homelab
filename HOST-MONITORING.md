@@ -38,7 +38,7 @@ flowchart LR
 |---|---|---|---|
 | **G1** | Scheduled **SMART long tests** on the SAS and SATA SSDs | `smartd` (`/etc/smartd.conf`) | host |
 | **G2** | Scheduled **scrubs** of every pool | Proxmox's `/etc/cron.d/zfsutils-linux` | host |
-| **G3** | **Pool state**, ARC, dataset I/O, host CPU/memory/disk as metrics | `prometheus-node-exporter` (Debian), `zfs` collector | host |
+| **G3** | **Pool state**, ARC, dataset I/O, host CPU/memory/disk as metrics, CPU core and chipset temperatures and system power | `prometheus-node-exporter` (Debian), `zfs` and `hwmon` collectors | host |
 | **G4** | **Per-drive SMART** as metrics | `smartctl_exporter` (upstream binary) | host |
 | **G5** | **Pool capacity and health, scrub age, sanoid snapshot age, `local-lvm` thin pool** as metrics | `host-metrics` → node-exporter's textfile collector | host |
 | **G6** | *Folded into G5* — see below | — | — |
