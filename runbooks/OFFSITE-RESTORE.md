@@ -65,7 +65,7 @@ spec:
       volumeMounts: [{ name: r, mountPath: /r }]
   containers:
     - name: pg
-      image: docker.io/library/postgres:16.15-alpine
+      image: docker.io/library/postgres:17.11-alpine
       env: [{ name: POSTGRES_HOST_AUTH_METHOD, value: trust }]
       volumeMounts: [{ name: r, mountPath: /r }]
   volumes: [{ name: r, emptyDir: {} }]
@@ -73,6 +73,12 @@ EOF
 ```
 
 Pin the images to the digests in `cronjob.yaml` when you run this. Then:
+
+> ⚠️ **The restore side needs `pg_restore` at least as new as the `pg_dump`
+> that wrote the file**, which is the `postgres` image in `cronjob.yaml`, not
+> the live cluster's version. A Postgres 17 dump fed to 16's `pg_restore`
+> fails with `unsupported version (1.16) in file header`. Keep the image above
+> on the same major as the CronJob's.
 
 ```bash
 T='kubectl -n sunfire exec offsite-restore-test -c pg --'
@@ -107,7 +113,8 @@ restic snapshots --tag monthly
 restic restore latest --tag monthly --target ./restore
 ```
 
-Then, once a Postgres 16+ and a MinIO (or any S3) exist again:
+Then, once a Postgres at least as new as the CronJob's `pg_dump` (17+) and a
+MinIO (or any S3) exist again:
 
 1. Create the roles: apply `cluster.yaml` (CNPG) or run the grants SQL.
 2. `pg_restore -d sunfire ./restore/postgres/sunfire.dump`
@@ -121,3 +128,4 @@ Data written after the snapshot is lost. That is the accepted cost of monthly.
 | Date | Snapshot | Result |
 |---|---|---|
 | 2026-09-21 | `cd4a985a` (first, 84.9 MiB) | ✅ `restic check` clean; `pg_restore` exit 0; 58/58 rows hash-identical to live |
+| 2026-11-07 | `1105ee59` (2026-10-24, first by `pg_dump` 17) | ✅ `pg_restore` 17 exit 0; 58/58 rows hash-identical to live, the 2 extra live rows dated 2026-11-02 (after the snapshot). `pg_restore` 16 rejects the file (`unsupported version (1.16)`); §2's image and §3's version were moved to 17 |

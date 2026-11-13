@@ -12,7 +12,7 @@
 #
 # WHAT IS COPIED, and why not the barman bucket:
 #   - `pg_dump -Fc` of the `sunfire` database. Restorable with plain
-#     pg_restore into any Postgres 16+, with no barman tooling and no MinIO,
+#     pg_restore into Postgres 17+ (the pg_dump major below), with no barman tooling and no MinIO,
 #     which is the point of an off-site copy. Roles are NOT in it: they are
 #     declared in postgres-cnpg/app/cluster.yaml (managed.roles) and the
 #     grants in sunfire/homelab/postgres/0002_grants.sql.

@@ -470,7 +470,7 @@ job runs `cd /work/data` before `restic backup`, even though `restic
 snapshots` lists them as `/work/data/…`. So `--include /postgres` works, and
 `--include /work/data/postgres` silently restores 0 files.
 
-**Checking it.** `restic check` reports no errors. Right after a snapshot, a manual run of the CronJob takes the `0d old: not due` path. The proof of recoverability is restoring `sunfire.dump` **from B2** into a throwaway `postgres:16.15`: `pg_restore` exits 0 and the row hashes match the live database.
+**Checking it.** `restic check` reports no errors. Right after a snapshot, a manual run of the CronJob takes the `0d old: not due` path. The proof of recoverability is restoring `sunfire.dump` **from B2** into a throwaway `postgres:17` (the CronJob's `pg_dump` major; 16's `pg_restore` rejects the file): `pg_restore` exits 0 and the row hashes match the live database.
 
 **Force a run** (e.g. to test) with
 `kubectl -n sunfire create job --from=cronjob/offsite-backup offsite-manual`.
