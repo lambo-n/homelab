@@ -122,6 +122,33 @@ pvesm add zfspool sas-vm --pool sas-pool/vm --content images --sparse 1
 > snapshots, so watch `usedbysnapshots` on `vm-106-disk-1`, and anything
 > written to the disk can be recovered from snapshots for six months.
 
+> ⚠️ **`win11`'s system partition is BitLocker-encrypted, deliberately** (`part3`
+> of `vm-106-disk-1`, `TYPE="BitLocker"`): the VM holds proprietary work data.
+> Protectors are the vTPM and a 48-digit recovery password; `manage-bde
+> -status C:` reports `Protection On`. It unlocks through the vTPM in
+> `vm-106-disk-2`, so:
+>
+> - **A whole-VM rollback needs no key**, as long as `disk-0`, `disk-1` and
+>   `disk-2` come from the **same** snapshot name (sanoid's recursive snapshots
+>   share one).
+> - **The 48-digit recovery key is needed** whenever the vTPM and the disk don't match:
+>   the system disk restored alone or into a new VM, `disk-2` lost or
+>   recreated, the EFI disk, Secure Boot keys or machine type changed, and
+>   possibly a Proxmox upgrade that updates OVMF. Have the key in reach before
+>   any of those. The TPM protector validates through Secure Boot (PCR 7).
+> - **Keep install media detached.** VM 106 boots `order=scsi0` with no `ide`
+>   drives; `manage-bde` warns that a bootable CD/DVD in the boot path can stop
+>   the TPM unlocking C:. Attach an ISO only while it is needed, then remove it.
+> - **The recovery key (password and its ID) is in LastPass**, never in this
+>   repo, on the host or on the VM's own disk. The recovery screen shows the
+>   key ID; match it against the LastPass entry.
+> - **Snapshots from before protection was enabled hold the volume with a clear
+>   key** (Windows' "waiting for activation" state), so they are readable
+>   without the recovery key until sanoid prunes them.
+>
+> The snapshot drill ([`runbooks/SANOID-VERIFY.md`](runbooks/SANOID-VERIFY.md))
+> sees the partition header only, not the contents.
+
 ---
 
 ## Snapshot Protection (Sanoid)

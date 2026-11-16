@@ -188,8 +188,10 @@ kubectl -n pg-restore-drill exec -it pg-drill-1 -- \
   -c "select current_user; set role sunfire_readwrite; select current_user;"
 ```
 
-Expected: `rolcanlogin` true for `authenticator` only, `rolinherit` false for
-`authenticator`, and the `SET ROLE` succeeding. Take `$PW` from
+Expected: `rolcanlogin` true for `authenticator` and for `sunfire` (the
+database owner CNPG creates, `owner: sunfire` in `cluster.yaml`) and false for
+`anon` and `sunfire_readwrite`, `rolinherit` false for `authenticator`, and the
+`SET ROLE` succeeding. The restored attributes must match the live cluster's. Take `$PW` from
 `sops -d kubernetes/apps/sunfire/postgres-cnpg/app/authenticator-secret.sops.yaml`
 into a shell variable — do not paste it into a command line that lands in
 history.
@@ -214,6 +216,32 @@ Pick a time *after* the base backup and *before* now. If the cluster reaches
 that target and stops, PITR is real. If it can only ever restore to the base
 backup's instant, WAL is not arriving and the ObjectStore's `wal:` block is
 where to look.
+
+> ⚠️ **On an idle database, "now" is past the end of the archive.** Postgres
+> archives a segment only when it fills or `archive_timeout` (5 min) expires
+> *with* writes pending, so a quiet `sunfire` can go hours with no new WAL. A
+> `targetTime` later than the last archived record fails with `FATAL: recovery
+> ended before configured recovery target was reached`, which looks like a
+> broken archive but is not. Check where the archive ends first:
+>
+> ```bash
+> kubectl -n sunfire exec postgres-cnpg-1 -c postgres -- \
+>   psql -U postgres -AtX -c \
+>   "select last_archived_wal, last_archived_time from pg_stat_archiver"
+> ```
+>
+> Then either write marker rows (two inserts into a throwaway non-`public`
+> schema, a few seconds apart, then `select pg_switch_wal()`) and aim
+> `targetTime` between them, or, to leave live untouched, use a `targetLSN`
+> inside the last archived segment, e.g. `"0/D0000100"` for segment `…D0`.
+> With `targetLSN`, the pass condition is the new timeline's history file:
+>
+> ```bash
+> kubectl -n pg-restore-drill exec pg-drill-pitr-1 -c postgres -- \
+>   cat /var/lib/postgresql/data/pgdata/pg_wal/00000002.history
+> ```
+>
+> Expected: `1  <lsn>  after LSN <your target>`.
 
 ## 6. Tear down
 
@@ -242,6 +270,27 @@ file when the drill passes:
 | Date | Base backup restored | WAL replayed | PITR target hit | Roles verified |
 |---|---|---|---|---|
 | 2026-09-04 | ✅ 56s to healthy | ✅ | ✅ exact | ✅ hash-matched |
+| 2026-11-07 | ✅ 62s to healthy | ✅ `CF`→`D0` from archive | ✅ exact (`targetLSN`) | ✅ hash-matched |
+
+**2026-11-07 — re-run after `plugin-barman-cloud` 0.7.1 → 0.8.1 and CNPG
+chart 0.29.1. Passed.**
+
+- `pg-drill` restored base backup `backup-20261107023000` and was healthy in
+  62 seconds, `1/1` (no plugin sidecar). All 60 `guide_media_assets` rows
+  hash-identical to live.
+- Roles matched live exactly. `sunfire` has `rolcanlogin` true as the database
+  owner; §4's expectation was corrected to say so.
+- `authenticator`'s `rolpassword` fingerprint matched live (`SCRAM-SHA-256`),
+  and `SET ROLE authenticator → sunfire_readwrite` resolved.
+- PITR: the first attempt used `targetTime` 30 minutes before the drill and
+  failed with `recovery ended before configured recovery target was reached`,
+  because the database had been idle since the last archived segment (`D0`,
+  02:35). Writing marker rows to live was not done this run. The second attempt
+  used `targetLSN: "0/D0000100"`, fetched `CF` and `D0` from the archive, and
+  the history file read `1  0/D0000178  after LSN 0/D0000100`: it stopped at
+  the target and promoted to timeline 2. §5 has the ⚠️ for this.
+- The bucket held only `postgres-cnpg/`, timeline 1, newest object `D0`: the
+  drill wrote nothing. Teardown left no PV and no directory on worker2.
 
 **2026-09-04 — first run, passed on every check.**
 

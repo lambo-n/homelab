@@ -32,8 +32,6 @@ fuller context lives. Nothing here is blocking day-to-day operation.
 
 ## Windows 11 VM (106)
 
-- [ ] **Detach `win11`'s install ISOs** (`ide0` virtio-win, `ide2` Windows)
-      and drop them from the boot order.
 - [ ] **Import `win11` into OpenTofu** with `prevent_destroy`, by the same
       generate-from-live sequence as the other imported guests. Needs the
       owner's `!import` token. See [`tofu/README.md`](tofu/README.md).
@@ -62,6 +60,17 @@ custom "Hey Doofus" wake word; the items below are what is left. See [`VOICE.md`
 - [ ] **V5, deferred** — an LVGL status display, a CPU-only STT fallback for
       when VM 105 is off, and Prometheus metrics on the pipeline. Each measured
       against the V3e heap baseline.
+
+## Backups
+
+- [ ] **Find why `offsite-backup` runs hit `activeDeadlineSeconds` (1800).**
+      Three Jobs failed `DeadlineExceeded`: 2026-10-24 06:23 and 12:23 (the
+      due run; 18:23 then succeeded) and 2026-11-02 00:23 (a not-due run that
+      only lists snapshots). Nodes were up both times. Pod logs were already
+      gone, so catch the next failure live:
+      `kubectl -n sunfire logs job/<name> --all-containers`. Suspect B2
+      latency or a stuck restic lock. Check that `KubeJobFailed` reaches
+      someone. See [`runbooks/OFFSITE-RESTORE.md`](runbooks/OFFSITE-RESTORE.md).
 
 ## Hardware — still unknown
 
