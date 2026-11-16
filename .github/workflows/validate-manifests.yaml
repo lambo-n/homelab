@@ -80,7 +80,7 @@ jobs:
       # -- the version skew this repo pins tools to avoid. kubectl embeds
       # kustomize, so nothing else needs installing.
       - name: Install pinned kubectl
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install_args: kubectl
         env:
@@ -150,7 +150,7 @@ jobs:
 
       # helm from mise.toml -- the same pin the operator uses by hand.
       - name: Install pinned helm
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           install_args: helm
         env:
