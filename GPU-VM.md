@@ -73,6 +73,7 @@ user `llama`, plus an image-generation server that has the card to itself
 | Preset | Model | Context (beside `fast`) |
 |---|---|---:|
 | `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 65,536 (sized to leave room for `whisper-server` — see [`VOICE.md`](VOICE.md)) |
+| `neo-coder` | Qwen3.8-27B "Brainwaves HERETIC" NEO-CODER Q6_K (community fine-tune, uncensored), MTP speculative decoding | 65,536 |
 | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | 262,144 (full) |
 | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone, MTP speculative decoding | 163,840 (`sudo llm-mode agent` first — stops `llama-fast`) |
 
@@ -92,6 +93,12 @@ unchanged (~477 tok/s on a 135k prompt, so a full window takes minutes).
 | `journalctl -u llama-router \| grep "draft acceptance"` after a request | `draft acceptance = 0.8…–0.9…` on code, `mean len` ≈ 2.8 |
 | `llm_gpu_vram_used_bytes` in `/var/lib/prometheus/node-exporter/llama.prom` with the preset loaded | ≈ 33.2 GB |
 
+**`neo-coder` runs MTP beside `fast`.** Its Q6_K is 1.27 GB lighter than
+UD-Q6_K_XL, enough for the draft cache at 65,536: about **38 tok/s**, 93%
+acceptance on code, and 29.1 GB on the card with `fast` and `whisper` running
+beside it. Its GGUF embeds an older Qwen template that raises on mid-conversation
+system messages, so the preset uses the patched base template (same tokenizer).
+
 History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
 
 `llm-mode agent|normal|image|status` (on the guest) switches between the
@@ -99,7 +106,9 @@ always-on `fast` service, the long-context solo mode, and image mode.
 `llama-fast.service` `Wants=whisper-proxy.service`, so however `fast` starts,
 `whisper-server` and its proxy start with it. All models live in `/models`
 (the `llm-pool` disk) and are checksum-verified against Hugging Face at
-download time. Llama 3.1 8B Q8_0 is also downloaded but not wired into a
+download time, except `neo-coder`'s GGUF, which was copied in by hand from
+no pinned upstream revision: its hash is in `/models/gguf/SHA256SUMS`
+(`sha256sum -c` there). Llama 3.1 8B Q8_0 is also downloaded but not wired into a
 preset today.
 
 **Access control:** every model role, every port answers `401` without an API
@@ -200,7 +209,7 @@ ports directly.
 
 ### Tool calling
 
-`scripts/llm/tools/` gives the `llm` CLI three tools (all four presets are
+`scripts/llm/tools/` gives the `llm` CLI three tools (all five presets are
 `supports_tools: true`): `web_search` (SearXNG in the cluster,
 [`GITOPS.md`](GITOPS.md) → *searxng*), `fetch_url` (a page's readable text) and
 `ocr_url` (text from a PDF or image; `fetch_url` answers

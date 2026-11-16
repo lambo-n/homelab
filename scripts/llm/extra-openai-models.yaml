@@ -23,6 +23,12 @@
   api_key_name: llama
   supports_tools: true
 
+- model_id: neo-coder
+  model_name: neo-coder
+  api_base: "http://127.0.0.1:8080/v1"
+  api_key_name: llama
+  supports_tools: true
+
 # Needs `sudo llm-mode agent` first (stops llama-fast); otherwise the load fails.
 - model_id: qwen27-agent
   model_name: qwen27-agent
