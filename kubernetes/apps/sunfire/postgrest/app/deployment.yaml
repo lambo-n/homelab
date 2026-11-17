@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: postgrest
-          image: postgrest/postgrest:v16.5@sha256:1347d7552b88f17832912c06afbf7c43209af6eeeb60834b04aae12c9bd9d5cc
+          image: postgrest/postgrest:v16.6@sha256:5ce030c153500fe90ba157da4da8ba99ab51d3bc7b95e071bd0b544b67a632f7
           env:
             - name: PGRST_DB_URI
               valueFrom:
