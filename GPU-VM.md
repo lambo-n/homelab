@@ -148,7 +148,9 @@ ports directly.
   Claude Code is not used against these models: its per-turn prompt is too
   heavy for a 27B model on this card ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#claude-code-wrapper-retired-2026-10-14)).
 - **Agent: Hermes Agent** (v2026.9.24, `~/.local/bin/hermes`), against
-  `qwen27-agent` (`sudo llm-mode agent` first). It edits with its own `patch`
+  `qwen27-agent` by default (`sudo llm-mode agent` first), or `neo-coder`
+  beside `fast` with `hermes -m neo-coder` (no mode switch, 65,536 context).
+  It edits with its own `patch`
   tool and keeps memory and full session history in `~/.hermes`. Runs as `dev`
   on the dev VM, where `~/.hermes` is a separate 20 GiB disk
   (`sas-vm:vm-101-disk-0` on `sas-pool`, ext4 labelled `hermes`, `nofail` in
@@ -158,11 +160,17 @@ ports directly.
   pinned release and copies both into `~/.hermes/` on any Linux machine on the
   LAN (re-run with `--config-only` after editing either). The config:
   - every side task (compression, session search, memory review, `/goal`'s
-    judge) on the same preset, since a second model would evict it; the judge
-    gets a 300 s timeout instead of 60 s;
-  - compaction at 64k tokens (`compression.threshold_tokens`), not the
-    75%-of-window floor (~123k): at ~477 tok/s prefill a 123k summary takes
-    ~4 min;
+    judge) on whichever preset the session runs: each names the provider but
+    no model, so it follows `-m` and `/model`, since a second model would
+    evict the first; the judge gets a 300 s timeout instead of 60 s;
+  - each preset's window: `model.context_length` (163,840) for the default,
+    `providers.llama.models.<preset>.context_length` for any other. Without
+    the entry Hermes takes `neo-coder` as 256,000 and never compacts before
+    the server's 65,536 overflows. Each must equal `ctx-size` in `models.ini`;
+  - compaction at 64k tokens (`compression.threshold_tokens`) on
+    `qwen27-agent`, not the 75%-of-window floor (~123k): at ~477 tok/s
+    prefill a 123k summary takes ~4 min. On `neo-coder` the window's own
+    threshold (55,705) comes first;
   - non-thinking sampling sent per request in `extra_body`, overriding the
     thinking-mode defaults in `models.ini`;
   - seven toolsets (file, terminal, memory, session search, skills, todo,
@@ -205,6 +213,8 @@ ports directly.
   |---|---|
   | `hermes doctor` | `auxiliary task routing resolves: … custom@192.168.50.107`, `Config version up to date (v46)`; only the npm warnings left |
   | `hermes chat -q "Reply with just OK"`, then on `llm`: `curl -H "Authorization: Bearer …" localhost:8080/slots?model=qwen27-agent` | `temperature` 0.7, `top_p` 0.8, `top_k` 20, `presence_penalty` 1.5, `n_ctx` 163840 |
+  | `hermes -m neo-coder chat -q "Reply with just OK"`, then the same `curl` with `?model=neo-coder` | the same sampling, `n_ctx` 65536 |
+  | `grep "API call" ~/.hermes/logs/agent.log` after that session | `model=neo-coder`, never `qwen27-agent` |
   | `grep "Context file" ~/.hermes/logs/agent.log` after a session in `~/homelab` | no `blocked` line |
 
 ### Tool calling
