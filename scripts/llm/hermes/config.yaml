@@ -13,9 +13,10 @@ model:
   # _is_openai_family_main).
   # qwen27-agent: the card to itself (`sudo llm-mode agent` on llm first,
   # which stops llama-fast). `hermes -m neo-coder` runs beside fast instead,
-  # with no mode switch. context_length applies to this default only and
-  # must equal the preset's ctx-size in models.ini; any other preset takes
-  # its window from providers.llama.models below (Hermes' floor is 64,000,
+  # with no mode switch; `-m neo-coder-agent` after `sudo llm-mode heretic`.
+  # context_length applies to this default only and must equal the preset's
+  # ctx-size in models.ini; any other preset takes its window from
+  # providers.llama.models below (Hermes' floor is 64,000,
   # MINIMUM_CONTEXT_LENGTH).
   default: qwen27-agent
   provider: llama
@@ -46,6 +47,8 @@ providers:
     models:
       neo-coder:
         context_length: 65536
+      neo-coder-agent:
+        context_length: 196608
 
 # Every side task on whichever preset the session runs, since a second model
 # would evict it (--models-max 1). With no model named, each task takes the
