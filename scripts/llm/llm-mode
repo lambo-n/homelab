@@ -10,6 +10,31 @@
 # Installed to /usr/local/sbin/llm-mode; run with sudo.
 set -euo pipefail
 U=http://127.0.0.1:8080
+
+usage() {
+  cat <<'USAGE'
+usage: sudo llm-mode MODE
+
+  normal            fast + router (all presets beside fast) + whisper
+  agent             router only; request qwen27-agent (163,840 ctx)
+  heretic           router only, neo-coder-agent loaded (196,608 ctx);
+                    whisper off, no voice STT until normal
+  music-instrument  fast + whisper, router off; then run
+                    music-instrument-gen as dev (not through llm-mode)
+  image             sd-server alone (FLUX.2-dev)
+  status            services, current mode, router presets
+USAGE
+}
+
+case "${1:-}" in
+  -h|--help|help) usage; exit 0 ;;
+  agent|heretic|music-instrument|normal|image|status) ;;
+  *) usage >&2; exit 2 ;;
+esac
+if [ "$(id -u)" -ne 0 ]; then
+  echo "llm-mode: run with sudo (sudo llm-mode $1)" >&2
+  exit 1
+fi
 K=$(head -n1 /etc/llama/api-keys)
 
 unload() {
@@ -109,13 +134,27 @@ case "${1:-}" in
     echo "llama-router: $(systemctl is-active llama-router || true)"
     echo "whisper:      $(systemctl is-active whisper-server || true)"
     echo "sd-server:    $(systemctl is-active sd-server || true)"
-    if systemctl -q is-active llama-router; then
+    a() { systemctl -q is-active "$1"; }
+    if a sd-server; then mode=image
+    elif a llama-router && a llama-fast; then mode=normal
+    elif a llama-router; then mode="agent or heretic"
+    elif a llama-fast; then mode=music-instrument
+    else mode="none (nothing running)"
+    fi
+    echo "mode:         $mode"
+    echo "presets:"
+    # The router lists its presets only while it runs; otherwise read them
+    # from the file it would load.
+    if a llama-router; then
       curl -fsS -H "Authorization: Bearer $K" "$U/models" \
-        | jq -r '.data[] | "\(.id)\t\(.status.value)"'
+        | jq -r '.data[] | "  \(.id)\t\(.status.value)"'
+    else
+      sed -n 's/^\[\([^]*][^]]*\)\]$/  \1\trouter stopped/p' \
+        /etc/llama/models.ini
     fi
     ;;
   *)
-    echo "usage: llm-mode agent|heretic|music-instrument|normal|image|status" >&2
+    usage >&2
     exit 2
     ;;
 esac
