@@ -1,0 +1,36 @@
+#!/bin/bash
+# Generate instrumental music with Stable Audio 3 Medium (F16 GGUF) on the B70
+# through audio.cpp's SYCL build. GPU-VM.md → Music generation.
+# Installed to /usr/local/bin/music-instrument-gen; run as dev (render group),
+# after `sudo llm-mode music-instrument`.
+# usage: music-instrument-gen "<style description>" [seconds] [seed]
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo 'usage: music-instrument-gen "<style>" [seconds] [seed]' >&2
+  exit 2
+fi
+# A router preset or FLUX.2 beside this would run the card out of memory.
+for u in llama-router sd-server; do
+  if systemctl -q is-active "$u"; then
+    echo "$u holds the card; run: sudo llm-mode music-instrument" >&2
+    exit 1
+  fi
+done
+
+M=/models/stable-audio-3-medium
+out=/models/music/$(date +%Y%m%d-%H%M%S).wav
+seed=${3:-$((RANDOM * 32768 + RANDOM))}
+export ONEAPI_DEVICE_SELECTOR=level_zero:gpu
+# Unlike MiniMax Music 3, this model needs no GGML_SYCL_DISABLE_DNN: its SYCL
+# output matches the CPU backend's with oneDNN on or off.
+
+/usr/local/bin/llama-oneapi \
+  /models/src/audio.cpp/build-sycl/bin/audiocpp_cli \
+  --task gen --family stable_audio --model "$M" \
+  --backend sycl --threads 8 \
+  --text "$1" \
+  --duration-seconds "${2:-30}" \
+  --seed "$seed" \
+  --out "$out" --metrics
+echo "saved $out (seed $seed)"

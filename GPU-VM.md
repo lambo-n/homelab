@@ -101,9 +101,10 @@ system messages, so the preset uses the patched base template (same tokenizer).
 
 History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
 
-`llm-mode agent|heretic|music-lyrics|normal|image|status` (on the guest)
-switches between the always-on `fast` service, the long-context solo mode,
-image mode, music mode (*Music generation* below) and heretic mode. **`sudo llm-mode heretic`** stops `fast` and `whisper-server` and loads
+`llm-mode agent|heretic|music-lyrics|music-instrument|normal|image|status`
+(on the guest) switches between the always-on `fast` service, the
+long-context solo mode, image mode, the two music modes (*Music generation*
+below) and heretic mode. **`sudo llm-mode heretic`** stops `fast` and `whisper-server` and loads
 `neo-coder` through the router's `/models/load`, so it is the only model on
 the card. It keeps the preset's 65,536 context, so the extra room goes unused,
 and Home Assistant has no speech-to-text until `sudo llm-mode normal`.
@@ -407,25 +408,34 @@ third line of `/etc/llama/api-keys`.
 
 ### Music generation
 
-`sudo llm-mode music-lyrics` stops the router and `sd-server` and keeps `fast`
-and whisper, then `music-lyrics-gen` (as `dev`) writes a song with lyrics using
-MiniMax Music 3 through [audio.cpp](https://github.com/0xShug0/audio.cpp)
+Two models, both through [audio.cpp](https://github.com/0xShug0/audio.cpp)
 (`v0.9.5`, `61c7838b`, SYCL build in `/models/src/audio.cpp/build-sycl`, one
-local patch). `sudo llm-mode normal` gives the card back to the router.
+local patch): **MiniMax Music 3** for songs with sung lyrics
+(`music-lyrics-gen`) and **Stable Audio 3 Medium** for instrumentals
+(`music-instrument-gen`). `sudo llm-mode music-lyrics` and
+`sudo llm-mode music-instrument` are the same state: the router and
+`sd-server` stop, `fast` and whisper stay, so the voice assistant keeps
+working. Either wrapper runs in either mode, as `dev`. `sudo llm-mode normal`
+gives the card back to the router.
 
-| | |
-|---|---|
-| Weights (`/models/minimax-music3/`) | `audio-cpp/MiniMax-Music3-GGUF` at revision `46fe77f8`, the Q8_0 set: `language_model_q8_0.gguf` (9.2 GiB), `transformer_q8_0.gguf` (2.4 GiB), `rvq_depth_decoder_q8_0.gguf`, plus `condition_encoder.gguf`, `vocoder.gguf`, `config/` and `tokenizer/`. Hashes in `SHA256SUMS` there (`sha256sum -c`). Licence: MiniMax Music 3 community licence (`LICENSE` in the same directory) |
-| Why Q8_0 | Near-lossless and well supported by ggml-sycl; the audio.cpp default mixes in Q4_0 to save VRAM this card doesn't need, and BF16 is ~1.7× slower |
-| Wrapper | `music-lyrics-gen "<style>" "<lyrics>" [seconds] [seed]` → `scripts/llm/music-lyrics-gen`. Selects the Q8_0 components, sets `GGML_SYCL_DISABLE_DNN=1`, refuses to start while the router or `sd-server` is up. `seconds` (default 30) is an upper budget, not an exact length |
-| Memory | `fast` + whisper hold ~5.9 GB; a 10 s song peaks at **16.0 of 31.9 GiB** with them loaded (~10 GB for audio.cpp, `mem_saver` on by default). Longer songs reserve more |
-| Speed | RTF ≈ 9.3: a 10 s song takes ~93 s, including first-use SYCL kernel compilation |
-| Output | `/models/music/<YYYYmmdd-HHMMSS>.wav`, 44.1 kHz stereo, owner `dev`; the wrapper prints the path and seed |
+| | MiniMax Music 3 (`music-lyrics`) | Stable Audio 3 Medium (`music-instrument`) |
+|---|---|---|
+| Weights | `/models/minimax-music3/`: `audio-cpp/MiniMax-Music3-GGUF` at revision `46fe77f8`, the Q8_0 set (`language_model_q8_0.gguf` 9.2 GiB, `transformer_q8_0.gguf` 2.4 GiB, `rvq_depth_decoder_q8_0.gguf`, plus `condition_encoder.gguf`, `vocoder.gguf`, `config/`, `tokenizer/`) | `/models/stable-audio-3-medium/`: `stable-audio-3-medium-f16.gguf` (5.8 GB, self-contained: configs and T5Gemma tokenizer embedded), from `audio-cpp/audio.cpp-gguf` at revision `7a103b33`, the package audio.cpp's `model_specs/stable_audio.json` points to. Ungated, unlike the upstream `stabilityai/stable-audio-3-medium` |
+| Why this precision | Q8_0: near-lossless and well supported by ggml-sycl. audio.cpp's default mixes in Q4_0 to save VRAM this card doesn't need; BF16 is ~1.7× slower | F16: the whole model is 5.8 GB, so Q8_0's saving buys nothing here |
+| Checksums | `SHA256SUMS` in each directory (`sha256sum -c`) | ← same |
+| Wrapper | `music-lyrics-gen "<style>" "<lyrics>" [seconds] [seed]` → `scripts/llm/music-lyrics-gen`. Selects the Q8_0 components and sets `GGML_SYCL_DISABLE_DNN=1`. `seconds` (default 30) is an upper budget, not an exact length | `music-instrument-gen "<style>" [seconds] [seed]` → `scripts/llm/music-instrument-gen`. `seconds` (default 30) is the file's length; the music fades out over the last 2–4 s. No env fix needed |
+| Memory, with `fast` + whisper (~5.9 GB) loaded | 10 s song: **16.0 of 31.9 GiB** (~10 GB for audio.cpp, `mem_saver` on by default). Longer songs reserve more | 10 s or 30 s clip: **11.4 of 31.9 GiB** (~5.5 GB for audio.cpp) |
+| Speed | RTF ≈ 9.3: a 10 s song takes ~93 s | 30 s clip in ~8 s (RTF ≈ 0.27, mostly fixed overhead); 17 s on the first run after boot |
+| Input | Style description plus lyrics, which are required. Section tags `[Intro]`, `[Verse]`, `[Pre-Chorus]`, `[Chorus]`, `[Bridge]`, `[Instrumental]`, `[Solo]`, `[Outro]`; no instrumental-only switch | English style description only; no vocals |
+| Licence | MiniMax Music 3 community licence (`LICENSE` in the weights directory) | Stability AI Community License: free under USD 1M yearly revenue, commercial use registered with Stability AI and shown as "Powered by Stability AI". The embedded T5Gemma encoder is under the Gemma Terms of Use → `docs/model_licenses.md` in audio.cpp |
 
-Lyrics are required (`[verse]`, `[chorus]`, `[Instrumental]`, `[Solo]` and
-similar section tags are accepted). There is no instrumental-only switch.
+Both wrappers refuse to start while the router or `sd-server` is up, and
+write `/models/music/<YYYYmmdd-HHMMSS>.wav` (44.1 kHz stereo, owner `dev`),
+printing the path and seed. Neither model is on audio.cpp's own SYCL
+validation list; both were checked on this card (*Checking it* below).
+Neither has been measured past 30 s.
 
-> ⚠️ **oneDNN corrupts this model on SYCL without an error.** With oneDNN
+> ⚠️ **oneDNN corrupts MiniMax Music 3 on SYCL without an error.** With oneDNN
 > matmuls on, every sample comes out at full scale (peak 1.000, RMS 1.000) and
 > the run exits 0. `GGML_SYCL_DISABLE_DNN=1` alone fixes it at no measurable
 > cost; graph replay, the reorder optimization and oneDNN attention are not
@@ -458,7 +468,8 @@ cmake -S . -B build-sycl -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-sycl --target audiocpp_cli -j 8
 ```
 ```bash
-sudo install -m 755 ~/llm/music-lyrics-gen /usr/local/bin/
+cd ~/llm
+sudo install -m 755 music-lyrics-gen music-instrument-gen /usr/local/bin/
 ```
 ```bash
 sudo install -d -o dev -g dev /models/music
@@ -469,16 +480,21 @@ sudo install -d -o dev -g dev /models/music
 | Command | Healthy |
 |---|---|
 | `sudo llm-mode music-lyrics` then `sudo llm-mode status` | `llama-fast` and `whisper` `active`; `llama-router` and `sd-server` `inactive` |
-| `music-lyrics-gen x y` while the router is up | `llama-router holds the card; run: sudo llm-mode music-lyrics`, exit 1 |
+| `music-lyrics-gen x y` while the router is up | `llama-router holds the card; run: sudo llm-mode music-lyrics`, exit 1 (`music-instrument-gen x` names `music-instrument`) |
 | a 10 s song (see below) | `saved /models/music/….wav`; ~90 s |
-| the file's samples (any WAV reader) | peak below 1.0, no clipped samples, loudness varying second to second. Every sample at ±1.0 means oneDNN ran: `GGML_SYCL_DISABLE_DNN=1` was not set |
+| a 30 s instrumental (see below) | `saved /models/music/….wav`; ~8 s |
+| the file's samples (any WAV reader) | clipped samples none or a tiny fraction, loudness varying second to second. MiniMax peaks below 1.0; Stable Audio often peaks at 1.0 with a few dozen clipped samples per 20 s, as its CPU-backend output does. Nearly every sample at ±1.0 means MiniMax ran with oneDNN: `GGML_SYCL_DISABLE_DNN=1` was not set |
+| `cd /models/stable-audio-3-medium && sha256sum -c SHA256SUMS` | `stable-audio-3-medium-f16.gguf: OK` |
 | `git -C /models/src/audio.cpp apply --check -R ~/llm/audiocpp/sycl-f32-bf16.patch` | no output, exit 0 (the patch is applied) |
 
-#### Generating a song
+#### Generating a song or an instrumental
 
 ```bash
 music-lyrics-gen "Bright pop rock, female vocal" \
   "[verse] City lights are shining low. [chorus] Turn it up." 10 42
+```
+```bash
+music-instrument-gen "Warm lo-fi hip hop, 80 BPM, dusty Rhodes" 30
 ```
 
 Other agents follow [`scripts/llm/MUSIC-AGENT.md`](scripts/llm/MUSIC-AGENT.md),
