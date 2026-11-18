@@ -101,8 +101,14 @@ system messages, so the preset uses the patched base template (same tokenizer).
 
 History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
 
-`llm-mode agent|normal|image|status` (on the guest) switches between the
-always-on `fast` service, the long-context solo mode, and image mode.
+`llm-mode agent|heretic|music-instrument|normal|image|status` (on the guest)
+switches between the always-on `fast` service, the long-context solo mode,
+image mode, music mode (*Music generation* below) and heretic mode. **`sudo llm-mode heretic`** stops `fast` and `whisper-server` and loads
+`neo-coder` through the router's `/models/load`, so it is the only model on
+the card. It keeps the preset's 65,536 context, so the extra room goes unused,
+and Home Assistant has no speech-to-text until `sudo llm-mode normal`.
+`llm_mode` reports heretic mode as `agent`, because both run the router
+without `fast`.
 `llama-fast.service` `Wants=whisper-proxy.service`, so however `fast` starts,
 `whisper-server` and its proxy start with it. All models live in `/models`
 (the `llm-pool` disk) and are checksum-verified against Hugging Face at
@@ -392,6 +398,95 @@ curl -s -D- -o /dev/null localhost:8082/v1/images/generations \
 The `X-Saved-Images` line names the file under `/models/images/`. Size, steps
 and seed go in `<sd_cpp_extra_args>` inside the prompt for the OpenAI route,
 or as fields of the native `/sdcpp/v1/img_gen` body.
+
+Other agents drive image mode over SSH from
+[`scripts/llm/IMAGE-AGENT.md`](scripts/llm/IMAGE-AGENT.md), installed as
+`~/IMAGE-AGENT.md` for `dev` on the guest: rules (never print the key or a raw
+job body), the async submit-and-poll flow, and troubleshooting. It reads the
+third line of `/etc/llama/api-keys`.
+
+### Music generation
+
+`sudo llm-mode music-instrument` stops the router and `sd-server` and keeps
+`fast` and whisper, so the voice assistant keeps working. Then
+`music-instrument-gen` (as `dev`) writes an instrumental with **Stable Audio 3
+Medium** through [audio.cpp](https://github.com/0xShug0/audio.cpp) (`v0.9.5`,
+`61c7838b`, unmodified SYCL build in `/models/src/audio.cpp/build-sycl`).
+`sudo llm-mode normal` gives the card back to the router.
+
+| | |
+|---|---|
+| Weights (`/models/stable-audio-3-medium/`) | `stable-audio-3-medium-f16.gguf` (5.8 GB, self-contained: configs and T5Gemma tokenizer embedded), from `audio-cpp/audio.cpp-gguf` at revision `7a103b33`, the package audio.cpp's `model_specs/stable_audio.json` points to. Ungated, unlike the upstream `stabilityai/stable-audio-3-medium`. Hash in `SHA256SUMS` there (`sha256sum -c`) |
+| Why F16 | The whole model is 5.8 GB, so Q8_0's saving buys nothing on this card |
+| Wrapper | `music-instrument-gen "<style>" [seconds] [seed]` → `scripts/llm/music-instrument-gen`. Refuses to start while the router or `sd-server` is up. `seconds` (default 30) is the file's length; the music fades out over the last 2–4 s |
+| Memory | `fast` + whisper hold ~5.9 GB; a 10 s or 30 s clip peaks at **11.4 of 31.9 GiB** with them loaded (~5.5 GB for audio.cpp) |
+| Speed | A 30 s clip takes ~8–12 s (RTF ≈ 0.27–0.4, mostly fixed overhead); 17 s on the first run after boot |
+| Input | An English style description; no vocals, no lyrics |
+| Output | `/models/music/<YYYYmmdd-HHMMSS>.wav`, 44.1 kHz stereo, owner `dev`; the wrapper prints the path and seed |
+| Licence | Stability AI Community License: free under USD 1M yearly revenue, commercial use registered with Stability AI and shown as "Powered by Stability AI". The embedded T5Gemma encoder is under the Gemma Terms of Use → `docs/model_licenses.md` in audio.cpp |
+
+Stable Audio is not on audio.cpp's own SYCL validation list. On this card its
+GPU output matches the CPU backend's (correlation 0.994) with oneDNN on or
+off, so the wrapper sets no `GGML_SYCL_*` switches. Neither memory nor output
+has been measured past 30 s.
+
+**MiniMax Music 3 (songs with lyrics) is downloaded but not set up.** Its
+Q8_0 weights are in `/models/minimax-music3/` (`audio-cpp/MiniMax-Music3-GGUF`
+at `46fe77f8`, `SHA256SUMS` there), kept for a later audio.cpp release. On
+`v0.9.5` it needs a local ggml-sycl patch, needs oneDNN off, and still
+produces noise for a 30 s song on the GPU. Findings:
+[`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#minimax-music-3-tried-and-shelved-2026-11-18).
+
+> ⚠️ **`/models/music/` is not backed up**, like `/models/images/`.
+
+`llm_mode` reports music mode as `other`: `fast` without the router matches
+neither `normal` nor `agent`.
+
+Build and install (on the guest, with `scripts/llm/` copied to `~/llm`):
+
+```bash
+cd /models/src
+git clone --branch v0.9.5 --recurse-submodules \
+  https://github.com/0xShug0/audio.cpp
+cd audio.cpp
+source /opt/intel/oneapi/setvars.sh
+cmake -S . -B build-sycl -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DENGINE_ENABLE_SYCL=ON \
+  -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx
+cmake --build build-sycl --target audiocpp_cli -j 8
+```
+```bash
+sudo install -m 755 ~/llm/music-instrument-gen /usr/local/bin/
+```
+```bash
+sudo install -d -o dev -g dev /models/music
+```
+
+**Checking it**, on the guest:
+
+| Command | Healthy |
+|---|---|
+| `sudo llm-mode music-instrument` then `sudo llm-mode status` | `llama-fast` and `whisper` `active`; `llama-router` and `sd-server` `inactive` |
+| `music-instrument-gen x` while the router is up | `llama-router holds the card; run: sudo llm-mode music-instrument`, exit 1 |
+| a 30 s clip (see below) | `saved /models/music/….wav`; ~10 s |
+| the file's samples (any WAV reader) | loudness varying second to second, and clipped samples a tiny fraction: Stable Audio often peaks at 1.0 with a few hundred clipped samples per 30 s, as its CPU-backend output does. Nearly every sample at ±1.0 is a broken GPU run |
+| `cd /models/stable-audio-3-medium && sha256sum -c SHA256SUMS` | `stable-audio-3-medium-f16.gguf: OK` |
+| `git -C /models/src/audio.cpp status --short` | no output (unmodified upstream) |
+
+#### Generating an instrumental
+
+```bash
+music-instrument-gen "Warm lo-fi hip hop, 80 BPM, dusty Rhodes" 30
+```
+
+Other agents follow [`scripts/llm/MUSIC-AGENT.md`](scripts/llm/MUSIC-AGENT.md),
+installed as `~/MUSIC-AGENT.md` for `dev` on the guest: rules, prompt
+guidance, a `bash -s` heredoc that keeps quotes intact over SSH, a
+full-scale-noise check, and troubleshooting. Install both guides with:
+
+```bash
+install -m 664 ~/llm/IMAGE-AGENT.md ~/llm/MUSIC-AGENT.md ~/
+```
 
 ### Observability
 

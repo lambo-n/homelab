@@ -1,7 +1,10 @@
 #!/bin/bash
 # Switch the llm VM between normal mode (fast + router), agent mode (router
-# only, so qwen27-agent gets the whole card) and image mode (sd-server alone:
-# FLUX.2-dev, no other model on the card). GPU-VM.md F5, Image generation.
+# only, so qwen27-agent gets the whole card), heretic mode (router only, with
+# neo-coder loaded and whisper stopped), music-instrument mode (fast and
+# whisper, no router: audio.cpp's music-instrument-gen takes the rest) and
+# image mode (sd-server alone: FLUX.2-dev, no other model on the card).
+# GPU-VM.md F5, Image generation, Music generation.
 # sd-server.service Conflicts= with fast, the router and whisper-server, so
 # starting either side stops the other; llama-fast brings whisper back.
 # Installed to /usr/local/sbin/llm-mode; run with sudo.
@@ -21,6 +24,54 @@ case "${1:-}" in
     # Coming from image mode: the router and whisper were stopped by it.
     systemctl start llama-router whisper-proxy
     echo "llama-fast stopped; request model qwen27-agent on :8080"
+    ;;
+  heretic)
+    # neo-coder alone: fast and whisper off (the voice satellite has no STT
+    # until `llm-mode normal`). Starting the router stops sd-server
+    # (Conflicts=); --models-max 1 evicts any other preset on load.
+    systemctl stop llama-fast whisper-server
+    systemctl start llama-router
+    for _ in $(seq 60); do
+      curl -fs -o /dev/null "$U/health" && break
+      sleep 1
+    done
+    curl -fsS -H "Authorization: Bearer $K" \
+      -H 'Content-Type: application/json' \
+      -d '{"model":"neo-coder"}' "$U/models/load" >/dev/null
+    echo "fast and whisper stopped; loading neo-coder..."
+    for i in $(seq 300); do
+      s=$(curl -fsS -H "Authorization: Bearer $K" "$U/models" \
+        | jq -r '.data[] | select(.id=="neo-coder") | .status.value')
+      if [ "$s" = loaded ]; then
+        echo "neo-coder loaded alone; request it on :8080"
+        exit 0
+      fi
+      # Allow a few seconds for the router to report "loading" at all.
+      if [ "$s" != loading ] && [ "$i" -gt 5 ]; then
+        echo "neo-coder: $s; see journalctl -u llama-router" >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "neo-coder not loaded after 300 s;" \
+      "see journalctl -u llama-router" >&2
+    exit 1
+    ;;
+  music-instrument)
+    # Stable Audio 3 Medium (music-instrument-gen) beside fast and whisper:
+    # the router and sd-server stop, so no preset can take the card's
+    # remaining ~26 GB. It peaks near 5.5 GB, so the voice assistant stays.
+    systemctl stop llama-router sd-server
+    systemctl start llama-fast
+    for _ in $(seq 180); do
+      if curl -fs -o /dev/null http://127.0.0.1:8081/health; then
+        echo "router stopped; fast and whisper kept; run music-instrument-gen as dev"
+        exit 0
+      fi
+      sleep 1
+    done
+    echo "llama-fast not ready after 180 s; see journalctl -u llama-fast" >&2
+    exit 1
     ;;
   normal)
     unload qwen27-agent
@@ -62,7 +113,7 @@ case "${1:-}" in
     fi
     ;;
   *)
-    echo "usage: llm-mode agent|normal|image|status" >&2
+    echo "usage: llm-mode agent|heretic|music-instrument|normal|image|status" >&2
     exit 2
     ;;
 esac

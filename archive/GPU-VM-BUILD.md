@@ -2328,6 +2328,52 @@ tailnet members too, so images can be requested off the LAN.
   only the owner's laptop and home PC. A remote client cannot switch the
   card into image mode; that still takes `ssh llm sudo llm-mode image`.
 
+## MiniMax Music 3 tried and shelved (2026-11-18)
+
+Music generation went in through audio.cpp `v0.9.5` (SYCL), with MiniMax
+Music 3 for songs with lyrics and Stable Audio 3 Medium for instrumentals.
+Stable Audio worked first time and is the music mode now. MiniMax was
+shelved at the owner's request after a day of fixes. Its Q8_0 weights stay in
+`/models/minimax-music3/` for a later audio.cpp release.
+
+What each step found:
+
+1. **Crash: `ggml_sycl_cpy: unsupported type combination (f32 to bf16)`.**
+   The port rounds through bf16 (`global_lm.cpp` `readback_round_type` and
+   `lm_head_input_type`), and vendored ggml-sycl had only the bf16→f32
+   direction. A local patch added `cpy_1_f32_bf16` with the CPU backend's
+   round-to-nearest-even and quiet NaN, plus its `supports_op` entry. It
+   passed every f32→bf16 `CPY` case in `test-backend-ops` (built from the
+   vendored ggml with `-DGGML_SYCL=ON -DGGML_BUILD_TESTS=ON`; audio.cpp only
+   builds it for WebGPU). The upstream files are CRLF, so the patch had to
+   keep CRLF. It was reverted once MiniMax was shelved, because Stable Audio
+   doesn't need it.
+2. **Silent full-scale output.** With the patch, a 10 s clip exited 0 with
+   every sample at ±1.0. Toggling each switch alone isolated oneDNN:
+   `GGML_SYCL_DISABLE_DNN=1` fixed it, while `DISABLE_GRAPH`, `DISABLE_OPT`
+   and `FA_ONEDNN=0` did not. The fix cost no measurable speed (RTF ≈ 9.3).
+3. **No words were sung.** The owner heard humming on both the GPU clip and
+   a CPU-backend reference (RTF ≈ 124). Peak and RMS statistics had passed
+   both. Cause: audio.cpp's `normalize_lyrics` (`prompt.cpp`) keeps only the
+   tags of a line that starts with `[tag]` and drops the rest of the line,
+   so `[verse] City lights…` on one line reached the model as `[verse]`.
+   audio.cpp's own documentation example uses that one-line form. A wrapper
+   that put every tag on its own line fixed the input.
+4. **Full-scale output again at 30 s.** With real lyrics and oneDNN off, a
+   30 s song (RTF 8.6) came out at ±1.0 everywhere. Flash attention off
+   (`GGML_SYCL_ENABLE_FLASH_ATTN=0`) aborts; `GGML_SYCL_PRIORITIZE_DMMV=1`
+   changed nothing. Not investigated: the flow transformer's chunking past
+   10 s, `mem_saver=false`, and a full `test-backend-ops` run on SYCL.
+
+Lessons: check generated audio by listening, or at least by
+zero-crossing rate per second, not only peak and RMS. A collapse to a low
+flat hum passed both. And check what audio.cpp actually feeds the model,
+not only what the CLI was given.
+
+After the revert, Stable Audio's 30 s seed-42 clip from the unmodified build
+matched the patched build's at correlation 0.9997, within its own run-to-run
+variation.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
