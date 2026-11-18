@@ -74,14 +74,16 @@ case "${1:-}" in
     exit 1
     ;;
   normal)
+    # Both solo presets fill the card; fast cannot load beside either.
     unload qwen27-agent
+    unload neo-coder-agent
     sleep 5
     systemctl start llama-router llama-fast
     echo "waiting for llama-fast to load (usually ~10 s)..."
     # /health answers 503 while the model loads; -f makes that a failure.
     for _ in $(seq 180); do
       if curl -fs -o /dev/null http://127.0.0.1:8081/health; then
-        echo "qwen27-agent unloaded; llama-fast ready"
+        echo "solo presets unloaded; llama-fast ready"
         exit 0
       fi
       sleep 1
