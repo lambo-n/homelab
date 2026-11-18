@@ -101,8 +101,14 @@ system messages, so the preset uses the patched base template (same tokenizer).
 
 History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
 
-`llm-mode agent|normal|image|status` (on the guest) switches between the
-always-on `fast` service, the long-context solo mode, and image mode.
+`llm-mode agent|heretic|normal|image|status` (on the guest) switches between the
+always-on `fast` service, the long-context solo mode, image mode, and heretic
+mode. **`sudo llm-mode heretic`** stops `fast` and `whisper-server` and loads
+`neo-coder` through the router's `/models/load`, so it is the only model on
+the card. It keeps the preset's 65,536 context, so the extra room goes unused,
+and Home Assistant has no speech-to-text until `sudo llm-mode normal`.
+`llm_mode` reports heretic mode as `agent`, because both run the router
+without `fast`.
 `llama-fast.service` `Wants=whisper-proxy.service`, so however `fast` starts,
 `whisper-server` and its proxy start with it. All models live in `/models`
 (the `llm-pool` disk) and are checksum-verified against Hugging Face at
