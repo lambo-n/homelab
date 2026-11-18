@@ -5,11 +5,15 @@ with passwordless `sudo`. It runs Stable Audio 3 Medium, which makes
 **instrumental music from a text description**. It has no vocals and takes no
 lyrics. Each run writes a 44.1 kHz stereo WAV file to `/models/music/` on the
 VM, and you copy it back with `scp`. All commands below run on your machine;
-each `ssh llm '…'` runs one command on the VM.
+each `ssh llm '…'` runs one command on the VM. Logged in on the VM itself,
+drop the `ssh llm` and the quotes around it, e.g.
+`music-instrument-gen "lo-fi piano, vinyl crackle" 60`.
 
 ## Rules
 
 - **Only use `music-instrument-gen`.** Don't run `audiocpp_cli` directly.
+  It's a command of its own, run as `dev` without `sudo`: not a subcommand
+  of `llm` (the chat CLI) or of `llm-mode` (which only switches modes).
 - **Music mode takes the GPU from the chat models.** While it's on, the
   homelab's chat and coding models (the `:8080` router) are offline. The small
   `fast` model and the voice assistant keep working. Switch back to normal mode
@@ -28,10 +32,14 @@ each `ssh llm '…'` runs one command on the VM.
 ssh llm sudo llm-mode status
 ```
 
-- `llama-router: inactive` with `llama-fast: active`: music mode is already
-  on; go to step 3.
-- `sd-server: active`: someone is generating images. Don't switch modes; wait,
-  or ask the owner.
+Read the `mode:` line:
+
+- `mode: music-instrument`: music mode is already on; go to step 3.
+- `mode: normal`: go to step 2.
+- `mode: image`: someone is generating images. Don't switch modes; wait, or
+  ask the owner.
+- `mode: agent or heretic`: someone has a long-context model session on the
+  GPU. Switching ends it, so ask the owner first.
 
 ## 2. Switch to music mode
 
@@ -133,7 +141,7 @@ ssh llm ls -t /models/music | head
 ssh llm sudo llm-mode normal
 ```
 
-It prints `llama-fast ready` on success.
+It ends with `llama-fast ready` on success.
 
 ## Troubleshooting
 
@@ -142,6 +150,9 @@ It prints `llama-fast ready` on success.
 | `llama-router holds the card; run: sudo llm-mode music-instrument` | Music mode is off; do step 2 |
 | `sd-server holds the card` | Image mode is on; wait, or ask the owner |
 | `usage: music-instrument-gen …` | The style was missing or empty |
+| `Error: Connection error.` | You ran `llm music-instrument-gen`, which asks the chat CLI, whose models music mode stops. Drop the `llm` |
+| `usage: sudo llm-mode MODE` | You passed `llm-mode` something that isn't a mode, e.g. `music-instrument-gen`. Run the generator on its own |
+| `llm-mode: run with sudo` | `llm-mode` needs `sudo`; `music-instrument-gen` doesn't |
 | `out of memory` / `OUT_OF_DEVICE_MEMORY` in the log | The clip was too long for the GPU; try fewer seconds and report it |
 | Nearly every sample clipped | The GPU produced noise; report it, don't retry |
 | No `saved` line after 2 minutes | Report `ssh llm tail -n 20 ~/music-last.log` |
