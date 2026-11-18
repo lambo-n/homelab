@@ -399,6 +399,12 @@ The `X-Saved-Images` line names the file under `/models/images/`. Size, steps
 and seed go in `<sd_cpp_extra_args>` inside the prompt for the OpenAI route,
 or as fields of the native `/sdcpp/v1/img_gen` body.
 
+Other agents drive image mode over SSH from
+[`scripts/llm/IMAGE-AGENT.md`](scripts/llm/IMAGE-AGENT.md), installed as
+`~/IMAGE-AGENT.md` for `dev` on the guest: rules (never print the key or a raw
+job body), the async submit-and-poll flow, and troubleshooting. It reads the
+third line of `/etc/llama/api-keys`.
+
 ### Music generation
 
 `sudo llm-mode music-lyrics` stops the router and `sd-server` and keeps `fast`
@@ -473,6 +479,15 @@ sudo install -d -o dev -g dev /models/music
 ```bash
 music-lyrics-gen "Bright pop rock, female vocal" \
   "[verse] City lights are shining low. [chorus] Turn it up." 10 42
+```
+
+Other agents follow [`scripts/llm/MUSIC-AGENT.md`](scripts/llm/MUSIC-AGENT.md),
+installed as `~/MUSIC-AGENT.md` for `dev` on the guest: rules, prompt and
+lyric-tag guidance, a `bash -s` heredoc that keeps lyrics' quotes intact over
+SSH, a full-scale-noise check, and troubleshooting. Install both guides with:
+
+```bash
+install -m 664 ~/llm/IMAGE-AGENT.md ~/llm/MUSIC-AGENT.md ~/
 ```
 
 ### Observability
