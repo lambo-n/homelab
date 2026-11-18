@@ -1,8 +1,9 @@
 #!/bin/bash
 # Switch the llm VM between normal mode (fast + router), agent mode (router
 # only, so qwen27-agent gets the whole card), heretic mode (router only, with
-# neo-coder loaded and whisper stopped) and image mode (sd-server alone:
-# FLUX.2-dev, no other model on the card). GPU-VM.md F5, Image generation.
+# neo-coder loaded and whisper stopped), music-lyrics mode (fast and whisper, no
+# router: audio.cpp's music-lyrics-gen takes the rest) and image mode (sd-server
+# alone: FLUX.2-dev, no other model on the card). GPU-VM.md F5, Image generation.
 # sd-server.service Conflicts= with fast, the router and whisper-server, so
 # starting either side stops the other; llama-fast brings whisper back.
 # Installed to /usr/local/sbin/llm-mode; run with sudo.
@@ -55,6 +56,21 @@ case "${1:-}" in
       "see journalctl -u llama-router" >&2
     exit 1
     ;;
+  music-lyrics)
+    # audio.cpp (music-lyrics-gen) beside fast and whisper: the router and
+    # sd-server stop, so no preset can take the card's remaining ~26 GB.
+    systemctl stop llama-router sd-server
+    systemctl start llama-fast
+    for _ in $(seq 180); do
+      if curl -fs -o /dev/null http://127.0.0.1:8081/health; then
+        echo "router stopped; fast and whisper kept; run music-lyrics-gen as dev"
+        exit 0
+      fi
+      sleep 1
+    done
+    echo "llama-fast not ready after 180 s; see journalctl -u llama-fast" >&2
+    exit 1
+    ;;
   normal)
     unload qwen27-agent
     sleep 5
@@ -95,7 +111,7 @@ case "${1:-}" in
     fi
     ;;
   *)
-    echo "usage: llm-mode agent|heretic|normal|image|status" >&2
+    echo "usage: llm-mode agent|heretic|music-lyrics|normal|image|status" >&2
     exit 2
     ;;
 esac

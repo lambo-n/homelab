@@ -32,9 +32,9 @@ above.
 
 Not everything here is a Kubernetes workload. **VM 105** runs the GPU and the
 local inference stack — `llama.cpp` on an Intel Arc Pro B70, plus the
-speech-to-text and text-to-speech services the voice assistant calls, and a
-FLUX.2 image-generation mode that takes the whole card — outside the cluster
-entirely. See [`GPU-VM.md`](GPU-VM.md) and [`VOICE.md`](VOICE.md).
+speech-to-text and text-to-speech services the voice assistant calls, a
+FLUX.2 image-generation mode that takes the whole card, and a MiniMax Music 3
+song-generation mode through audio.cpp — outside the cluster entirely. See [`GPU-VM.md`](GPU-VM.md) and [`VOICE.md`](VOICE.md).
 
 ### Voice assistant — Home Assistant plus VM 105
 
