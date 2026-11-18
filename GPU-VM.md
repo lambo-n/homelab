@@ -100,11 +100,24 @@ acceptance on code, and 29.1 GB on the card with `fast` and `whisper` running
 beside it. Its GGUF embeds an older Qwen template that raises on mid-conversation
 system messages, so the preset uses the patched base template (same tokenizer).
 
-**`neo-coder-agent` is the same model with the card to itself.** Its window
-is sized from `qwen27-agent`'s: the KV plus MTP draft cache costs about
-46 KiB per token at q8_0, and the lighter weights buy another ~27k tokens,
-so 196,608 should leave ~0.75 GiB free. If the load fails with
-`UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY`, 180,224 leaves ~1.5 GiB.
+**`neo-coder-agent` is the same model with the card to itself**, at
+196,608 context, 3× `neo-coder`'s. The KV plus MTP draft cache costs about
+46 KiB per token at q8_0, and the lighter weights buy ~27k tokens over
+`qwen27-agent`. It holds 33.5 GB on the card (~0.7 GB free) and stays
+there through a 189k-token prompt: ~485 tok/s prefill (about 6.5 min),
+~35 tok/s generation on a short prompt, ~12 tok/s at a full window, 97%
+draft acceptance on code. 180,224 is the fallback if a llama.cpp upgrade
+grows the compute buffers.
+
+| Check | Healthy |
+|---|---|
+| `sudo llm-mode heretic` | `neo-coder-agent loaded alone` |
+| `curl` `/slots?model=neo-coder-agent` | `n_ctx` 196608 |
+| `llm_gpu_vram_used_bytes` with it loaded | ≈ 33.5 GB |
+
+> ⚠️ **Any request naming another preset evicts it** (`--models-max 1`),
+> including `GET /slots?model=neo-coder`, which loads the preset it names.
+> Poll `/slots` only for the preset that is already loaded.
 
 History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
 
