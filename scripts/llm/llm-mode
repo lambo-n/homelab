@@ -1,11 +1,10 @@
 #!/bin/bash
 # Switch the llm VM between normal mode (fast + router), agent mode (router
 # only, so qwen27-agent gets the whole card), heretic mode (router only, with
-# neo-coder loaded and whisper stopped), music-lyrics and music-instrument
-# modes (fast and whisper, no router: audio.cpp's music-lyrics-gen or
-# music-instrument-gen takes the rest) and image mode (sd-server alone:
-# FLUX.2-dev, no other model on the card). GPU-VM.md F5, Image generation,
-# Music generation.
+# neo-coder loaded and whisper stopped), music-instrument mode (fast and
+# whisper, no router: audio.cpp's music-instrument-gen takes the rest) and
+# image mode (sd-server alone: FLUX.2-dev, no other model on the card).
+# GPU-VM.md F5, Image generation, Music generation.
 # sd-server.service Conflicts= with fast, the router and whisper-server, so
 # starting either side stops the other; llama-fast brings whisper back.
 # Installed to /usr/local/sbin/llm-mode; run with sudo.
@@ -58,16 +57,15 @@ case "${1:-}" in
       "see journalctl -u llama-router" >&2
     exit 1
     ;;
-  music-lyrics|music-instrument)
-    # audio.cpp beside fast and whisper: the router and sd-server stop, so no
-    # preset can take the card's remaining ~26 GB. MiniMax Music 3
-    # (music-lyrics-gen) peaks near 10 GB of it, Stable Audio 3 Medium
-    # (music-instrument-gen) near 5.5 GB, so both keep the voice assistant.
+  music-instrument)
+    # Stable Audio 3 Medium (music-instrument-gen) beside fast and whisper:
+    # the router and sd-server stop, so no preset can take the card's
+    # remaining ~26 GB. It peaks near 5.5 GB, so the voice assistant stays.
     systemctl stop llama-router sd-server
     systemctl start llama-fast
     for _ in $(seq 180); do
       if curl -fs -o /dev/null http://127.0.0.1:8081/health; then
-        echo "router stopped; fast and whisper kept; run $1-gen as dev"
+        echo "router stopped; fast and whisper kept; run music-instrument-gen as dev"
         exit 0
       fi
       sleep 1
@@ -115,7 +113,7 @@ case "${1:-}" in
     fi
     ;;
   *)
-    echo "usage: llm-mode agent|heretic|music-lyrics|music-instrument|normal|image|status" >&2
+    echo "usage: llm-mode agent|heretic|music-instrument|normal|image|status" >&2
     exit 2
     ;;
 esac

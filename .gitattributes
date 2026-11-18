@@ -1,4 +1,2 @@
 *.yaml linguist-detectable
 *.yml linguist-detectable
-# Patches against upstream CRLF sources: keep line endings byte-exact.
-scripts/llm/audiocpp/*.patch -text

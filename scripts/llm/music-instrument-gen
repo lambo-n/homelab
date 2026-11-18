@@ -22,8 +22,8 @@ M=/models/stable-audio-3-medium
 out=/models/music/$(date +%Y%m%d-%H%M%S).wav
 seed=${3:-$((RANDOM * 32768 + RANDOM))}
 export ONEAPI_DEVICE_SELECTOR=level_zero:gpu
-# Unlike MiniMax Music 3, this model needs no GGML_SYCL_DISABLE_DNN: its SYCL
-# output matches the CPU backend's with oneDNN on or off.
+# No GGML_SYCL_* switches needed: this model's SYCL output matches the CPU
+# backend's with oneDNN on or off.
 
 /usr/local/bin/llama-oneapi \
   /models/src/audio.cpp/build-sycl/bin/audiocpp_cli \
