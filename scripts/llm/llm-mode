@@ -1,7 +1,7 @@
 #!/bin/bash
 # Switch the llm VM between normal mode (fast + router), agent mode (router
 # only, so qwen27-agent gets the whole card), heretic mode (router only, with
-# neo-coder-agent loaded and whisper stopped), music-instrument mode (fast and
+# heretic-agent loaded and whisper stopped), music-instrument mode (fast and
 # whisper, no router: audio.cpp's music-instrument-gen takes the rest) and
 # image mode (sd-server alone: FLUX.2-dev, no other model on the card).
 # GPU-VM.md F5, Image generation, Music generation.
@@ -17,7 +17,7 @@ usage: sudo llm-mode MODE
 
   normal            fast + router (all presets beside fast) + whisper
   agent             router only; request qwen27-agent (163,840 ctx)
-  heretic           router only, neo-coder-agent loaded (196,608 ctx);
+  heretic           router only, heretic-agent loaded (196,608 ctx);
                     whisper off, no voice STT until normal
   music-instrument  fast + whisper, router off; then run
                     music-instrument-gen as dev (not through llm-mode)
@@ -54,7 +54,7 @@ case "${1:-}" in
     echo "llama-fast stopped; request model qwen27-agent on :8080"
     ;;
   heretic)
-    # neo-coder-agent alone: fast and whisper off (the voice satellite has no
+    # heretic-agent alone: fast and whisper off (the voice satellite has no
     # STT until `llm-mode normal`). Starting the router stops sd-server
     # (Conflicts=); --models-max 1 evicts any other preset on load.
     systemctl stop llama-fast whisper-server
@@ -65,23 +65,23 @@ case "${1:-}" in
     done
     curl -fsS -H @<(hdr) \
       -H 'Content-Type: application/json' \
-      -d '{"model":"neo-coder-agent"}' "$U/models/load" >/dev/null
-    echo "fast and whisper stopped; loading neo-coder-agent..."
+      -d '{"model":"heretic-agent"}' "$U/models/load" >/dev/null
+    echo "fast and whisper stopped; loading heretic-agent..."
     for i in $(seq 300); do
       s=$(curl -fsS -H @<(hdr) "$U/models" \
-        | jq -r '.data[] | select(.id=="neo-coder-agent") | .status.value')
+        | jq -r '.data[] | select(.id=="heretic-agent") | .status.value')
       if [ "$s" = loaded ]; then
-        echo "neo-coder-agent loaded alone; request it on :8080"
+        echo "heretic-agent loaded alone; request it on :8080"
         exit 0
       fi
       # Allow a few seconds for the router to report "loading" at all.
       if [ "$s" != loading ] && [ "$i" -gt 5 ]; then
-        echo "neo-coder-agent: $s; see journalctl -u llama-router" >&2
+        echo "heretic-agent: $s; see journalctl -u llama-router" >&2
         exit 1
       fi
       sleep 1
     done
-    echo "neo-coder-agent not loaded after 300 s;" \
+    echo "heretic-agent not loaded after 300 s;" \
       "see journalctl -u llama-router" >&2
     exit 1
     ;;
@@ -104,7 +104,7 @@ case "${1:-}" in
   normal)
     # Both solo presets fill the card; fast cannot load beside either.
     unload qwen27-agent
-    unload neo-coder-agent
+    unload heretic-agent
     sleep 5
     systemctl start llama-router llama-fast
     echo "waiting for llama-fast to load (usually ~10 s)..."

@@ -170,10 +170,10 @@ user `llama`, plus an image-generation server that has the card to itself
 | Preset | Model | Context (beside `fast`) |
 |---|---|---:|
 | `qwen27` | Qwen3.8-27B UD-Q6_K_XL | 65,536 (sized to leave room for `whisper-server` — see [`VOICE.md`](VOICE.md)) |
-| `neo-coder` | Qwen3.8-27B "Brainwaves HERETIC" NEO-CODER Q6_K (community fine-tune, uncensored), MTP speculative decoding | 65,536 |
+| `heretic` | Qwen3.8-27B "Brainwaves HERETIC" NEO-CODER Q6_K (community fine-tune, uncensored), MTP speculative decoding | 65,536 |
 | `chat` | Qwen3.6-35B-A3B UD-Q4_K_XL | 262,144 (full) |
 | `qwen27-agent` | Qwen3.8-27B UD-Q6_K_XL, alone, MTP speculative decoding | 163,840 (`sudo llm-mode agent` first — stops `llama-fast`) |
-| `neo-coder-agent` | the `neo-coder` GGUF, alone, MTP speculative decoding | 196,608 (`sudo llm-mode heretic` loads it) |
+| `heretic-agent` | the `heretic` GGUF, alone, MTP speculative decoding | 196,608 (`sudo llm-mode heretic` loads it) |
 
 **`qwen27-agent` decodes speculatively with the model's own MTP head**
 (`spec-type = draft-mtp`, two draft tokens, q8_0 draft KV cache): about
@@ -191,14 +191,14 @@ unchanged (~477 tok/s on a 135k prompt, so a full window takes minutes).
 | `journalctl -u llama-router \| grep "draft acceptance"` after a request | `draft acceptance = 0.8…–0.9…` on code, `mean len` ≈ 2.8 |
 | `llm_gpu_vram_used_bytes` in `/var/lib/prometheus/node-exporter/llama.prom` with the preset loaded | ≈ 33.2 GB |
 
-**`neo-coder` runs MTP beside `fast`.** Its Q6_K is 1.27 GB lighter than
+**`heretic` runs MTP beside `fast`.** Its Q6_K is 1.27 GB lighter than
 UD-Q6_K_XL, enough for the draft cache at 65,536: about **38 tok/s**, 93%
 acceptance on code, and 29.1 GB on the card with `fast` and `whisper` running
 beside it. Its GGUF embeds an older Qwen template that raises on mid-conversation
 system messages, so the preset uses the patched base template (same tokenizer).
 
-**`neo-coder-agent` is the same model with the card to itself**, at
-196,608 context, 3× `neo-coder`'s. The KV plus MTP draft cache costs about
+**`heretic-agent` is the same model with the card to itself**, at
+196,608 context, 3× `heretic`'s. The KV plus MTP draft cache costs about
 46 KiB per token at q8_0, and the lighter weights buy ~27k tokens over
 `qwen27-agent`. It holds 33.5 GB on the card (~0.7 GB free) and stays
 there through a 189k-token prompt: ~485 tok/s prefill (about 6.5 min),
@@ -208,12 +208,12 @@ grows the compute buffers.
 
 | Check | Healthy |
 |---|---|
-| `sudo llm-mode heretic` | `neo-coder-agent loaded alone` |
-| `curl` `/slots?model=neo-coder-agent` | `n_ctx` 196608 |
+| `sudo llm-mode heretic` | `heretic-agent loaded alone` |
+| `curl` `/slots?model=heretic-agent` | `n_ctx` 196608 |
 | `llm_gpu_vram_used_bytes` with it loaded | ≈ 33.5 GB |
 
 > ⚠️ **Any request naming another preset evicts it** (`--models-max 1`),
-> including `GET /slots?model=neo-coder`, which loads the preset it names.
+> including `GET /slots?model=heretic`, which loads the preset it names.
 > Poll `/slots` only for the preset that is already loaded.
 
 History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#mtp-speculative-decoding-on-qwen27-agent-2026-10-15).
@@ -222,7 +222,7 @@ History and the benchmark table: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUIL
 switches between the always-on `fast` service, the long-context solo mode,
 image mode, music mode (*Music generation* below) and heretic mode.
 **`sudo llm-mode heretic`** stops `fast` and `whisper-server` and loads
-`neo-coder-agent` through the router's `/models/load`, so it is the only
+`heretic-agent` through the router's `/models/load`, so it is the only
 model on the card, at 196,608 context. Home Assistant has no speech-to-text
 until `sudo llm-mode normal`.
 `llm_mode` reports heretic mode as `agent`, because both run the router
@@ -230,7 +230,7 @@ without `fast`.
 `llama-fast.service` `Wants=whisper-proxy.service`, so however `fast` starts,
 `whisper-server` and its proxy start with it. All models live in `/models`
 (the `llm-pool` disk) and are checksum-verified against Hugging Face at
-download time, except `neo-coder`'s GGUF, which was copied in by hand from
+download time, except `heretic`'s GGUF, which was copied in by hand from
 no pinned upstream revision: its hash is in `/models/gguf/SHA256SUMS`
 (`sha256sum -c` there). Llama 3.1 8B Q8_0 is also downloaded but not wired into a
 preset today.
@@ -272,9 +272,9 @@ ports directly.
   Claude Code is not used against these models: its per-turn prompt is too
   heavy for a 27B model on this card ([`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#claude-code-wrapper-retired-2026-10-14)).
 - **Agent: Hermes Agent** (v2026.9.24, `~/.local/bin/hermes`), against
-  `qwen27-agent` by default (`sudo llm-mode agent` first), or `neo-coder`
-  beside `fast` with `hermes -m neo-coder` (no mode switch, 65,536 context),
-  or `hermes -m neo-coder-agent` after `sudo llm-mode heretic` (196,608).
+  `qwen27-agent` by default (`sudo llm-mode agent` first), or `heretic`
+  beside `fast` with `hermes -m heretic` (no mode switch, 65,536 context),
+  or `hermes -m heretic-agent` after `sudo llm-mode heretic` (196,608).
   It edits with its own `patch`
   tool and keeps memory and full session history in `~/.hermes`. Runs as `dev`
   on the dev VM, where `~/.hermes` is a separate 20 GiB disk
@@ -290,11 +290,11 @@ ports directly.
     evict the first; the judge gets a 300 s timeout instead of 60 s;
   - each preset's window: `model.context_length` (163,840) for the default,
     `providers.llama.models.<preset>.context_length` for any other. Without
-    the entry Hermes takes `neo-coder` as 256,000 and never compacts before
+    the entry Hermes takes `heretic` as 256,000 and never compacts before
     the server's 65,536 overflows. Each must equal `ctx-size` in `models.ini`;
   - compaction at 64k tokens (`compression.threshold_tokens`) on
     `qwen27-agent`, not the 75%-of-window floor (~123k): at ~477 tok/s
-    prefill a 123k summary takes ~4 min. On `neo-coder` the window's own
+    prefill a 123k summary takes ~4 min. On `heretic` the window's own
     threshold (55,705) comes first;
   - non-thinking sampling sent per request in `extra_body`, overriding the
     thinking-mode defaults in `models.ini`;
@@ -338,9 +338,9 @@ ports directly.
   |---|---|
   | `hermes doctor` | `auxiliary task routing resolves: … custom@192.168.50.107`, `Config version up to date (v46)`; only the npm warnings left |
   | `hermes chat -q "Reply with just OK"`, then on `llm`: `curl -H "Authorization: Bearer …" localhost:8080/slots?model=qwen27-agent` | `temperature` 0.7, `top_p` 0.8, `top_k` 20, `presence_penalty` 1.5, `n_ctx` 163840 |
-  | `hermes -m neo-coder chat -q "Reply with just OK"`, then the same `curl` with `?model=neo-coder` | the same sampling, `n_ctx` 65536 |
-  | `grep "API call" ~/.hermes/logs/agent.log` after that session | `model=neo-coder`, never `qwen27-agent` |
-  | `sudo llm-mode heretic` on `llm`, then `hermes -m neo-coder-agent chat -q "Reply with just OK"` and the `curl` with `?model=neo-coder-agent` | the same sampling, `n_ctx` 196608 |
+  | `hermes -m heretic chat -q "Reply with just OK"`, then the same `curl` with `?model=heretic` | the same sampling, `n_ctx` 65536 |
+  | `grep "API call" ~/.hermes/logs/agent.log` after that session | `model=heretic`, never `qwen27-agent` |
+  | `sudo llm-mode heretic` on `llm`, then `hermes -m heretic-agent chat -q "Reply with just OK"` and the `curl` with `?model=heretic-agent` | the same sampling, `n_ctx` 196608 |
   | `grep "Context file" ~/.hermes/logs/agent.log` after a session in `~/homelab` | no `blocked` line |
 
 ### Tool calling
