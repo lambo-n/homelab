@@ -30,22 +30,17 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       [`GPU-VM.md`](GPU-VM.md) → *Image generation*, and consider an upstream
       llama.cpp PR (the bug is still in `master`).
 
-- [ ] **Run the B70 fan listening sweep and set the `quiet` profile.**
-      `gpu-profile`'s quiet values (140 W, 2,400 MHz) are placeholders. Install
-      `gpu-profile`, `gpu-fan-sweep` and `gpu-profile.service`, then, with
-      someone at the server, run `sudo gpu-fan-sweep`. Pick the highest step
-      that stays acceptably quiet and check its tok/s cost. Possibly run a second pass at
-      a lower `--mhz`. Write the chosen values into `scripts/llm/gpu-profile`
-      and the table in [`GPU-VM.md`](GPU-VM.md) → *Fan noise and power
-      profiles*.
+- [ ] **Rotate router API key 1** (line 1 of `/etc/llama/api-keys` on VM
+      105) and update the clients that use it. It was printed into a session
+      transcript. See [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#b70-fan-and-coil-whine-sweep-2026-11-21).
 - [ ] **Direct fan control for the B70, once it's practical.** Stock `xe` has
       none. Intel's `drm/xe/hwmon` fan-control series (patchwork 168027) adds
       `pwm1` and a fan curve but isn't in a released kernel. It also unblocks
       `xpu-smi --fancurve`. `exzile/intel-arc-pro-fan-control` builds it
       out of tree today: kernel 7.0 (VM 105's), confirmed on the B60, one
       B70 report, rebuild per kernel update. Waiting on the series to merge,
-      or a decision to run the out-of-tree build. A curve capped below
-      ~3,000 RPM would let `quiet` give up less speed.
+      or a decision to run the out-of-tree build. Low priority: coil whine,
+      not the fan, sets both profiles' caps, and no fan curve changes that.
 
 ## Windows 11 VM (106)
 

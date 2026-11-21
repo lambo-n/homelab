@@ -55,20 +55,32 @@ History: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → *GuC firmware 
 
 ### Fan noise and power profiles
 
-The B70 (ASRock, a blower card) is quiet at idle and very loud under sustained
-load. The fan follows the card's **hottest sensor**, not its power draw, and
-the firmware curve has a cliff near **70 °C**:
+The B70 (ASRock, a blower card) is quiet at idle. Under sustained load it has
+two noise sources, and both scale with power:
 
-| Hottest sensor | Fan, typical | Fan, max |
-|---|---|---|
-| 45–60 °C (idle, short bursts) | ~1,070–1,100 RPM | ~1,450 RPM |
-| 60–70 °C | ~1,300–1,450 RPM | ~2,600 RPM |
-| ≥ 70 °C | ~3,100–3,300 RPM | ~3,650 RPM |
+- **Coil whine** is the loud one. It switches on between 180 and 200 W of
+  sustained draw, within seconds of the cap going up, and is louder than the
+  rest of the server put together.
+- **The fan** follows the GPU package temperature, with a firmware cliff near
+  **70 °C**: ~1,300–1,900 RPM below it, 3,100–3,650 RPM above. The package
+  stays at or below 69 °C up to a 200 W cap, so only the stock 275 W cap
+  reaches the cliff (6–25 min of heavy load).
 
-Short requests rarely get there; 6–25 minutes of load averaging 130–230 W
-does. Above ~3,000 RPM the card is louder than the rest of the server put
-together. Source: 16 days of `node_hwmon_fan_rpm{instance="llm"}` against the
-card's `energy1` rate and `max(node_hwmon_temp_celsius{instance="llm"})`.
+Measured at fixed caps with `gpu-fan-sweep` (`qwen27`, steady load; listening
+rating 1 = inaudible … 5 = unbearable):
+
+| Cap | Fan | Package | Generation | Prefill | Heard |
+|---|---|---|---|---|---|
+| 140 W | ~1,675 RPM | 66 °C | 13.6 tok/s | ~364 tok/s | 2 |
+| **160 W** (`quiet`) | ~1,900 RPM | 66–67 °C | 15.6 tok/s | ~417 tok/s | 2, level with the server's fans |
+| **180 W** (`normal`) | ~2,165 RPM | 68 °C | 16.7 tok/s | ~453 tok/s | 2–4, occasional whine |
+| 200 W | ~2,370 RPM | 69 °C | 17.0–17.3 tok/s | ~450 tok/s | 4–5, constant whine |
+| 275 W (stock) | 3,100+ RPM | 70+ °C | ~18.5 tok/s | ~477 tok/s | whine and fan |
+
+Generation is memory-bound: above 180 W the card gains almost nothing. Below
+140 W it falls off fast (9.3 tok/s at 120 W). The hottest sensor is VRAM
+(82–84 °C from 160 W up, limit 105 °C), which the fan doesn't track.
+Raw runs: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#b70-fan-and-coil-whine-sweep-2026-11-21).
 
 **The fan itself can't be controlled on this driver.** Stock `xe` exposes
 `fan1_input` read-only and no `pwm*`; `xpu-smi config -d 0` shows
@@ -77,9 +89,10 @@ on; and the board's late-binding fan firmware
 (`xe/fan_control_8086_e223_1849_6025.bin`) isn't shipped, so
 `lb_fan_control_version` reads `0.0.0.0`. Neither is voltage (no undervolt).
 What *is* writable is the power cap (`hwmon/power1_cap`, µW) and the clock
-ceiling (`tile0/gt0/freq0/max_freq`, 400–2,800 MHz in 50 MHz steps).
-Lowering both keeps sustained load under 70 °C, and a lower ceiling runs the
-card lower on its voltage curve, so it buys most of what an undervolt would.
+ceiling (`tile0/gt0/freq0/max_freq`, 400–2,800 MHz in 50 MHz steps). The cap
+is what matters: at 160–180 W a 2,400 MHz ceiling gave the same watts,
+temperatures, fan speed and tok/s as 2,800, because the cap already holds the
+clock below it.
 
 **`gpu-profile`** (`scripts/llm/gpu-profile` → `/usr/local/sbin/`) sets one of
 two profiles and saves it to `/etc/gpu-profile` (outside `/etc/llama`, which is `750` for the API keys, so `status` works without sudo);
@@ -89,13 +102,17 @@ profile. The profile is independent of the mode: agent mode can run quiet.
 
 | Profile | Power cap | Clock ceiling | |
 |---|---|---|---|
-| `normal` | 275 W | 2,800 MHz | the card's stock settings |
-| `quiet` | 140 W | 2,400 MHz | **provisional** until the listening sweep picks real values (`BACKLOG.md`) |
+| `normal` | 180 W | 2,800 MHz | fastest cap without coil whine; ~10% slower generation than stock |
+| `quiet` | 160 W | 2,800 MHz | fan level with the server's own fans; ~7% slower than `normal` |
+
+Stock (275 W) is one command away for a run where speed matters more than
+noise: `sudo gpu-profile set 275 2800`, unsaved.
 
 **`gpu-fan-sweep`** (`scripts/llm/gpu-fan-sweep`) is the listening test that
-sets the quiet values. It loads a router preset (`qwen27` by default), keeps
+chose those values; rerun it after a cooler, firmware or case change. It loads a router preset (`qwen27` by default), keeps
 it generating back to back with a ~2k-token uncached prompt, and steps the
-power cap (default 100 → 200 W, up to 5 min each) at a fixed clock ceiling.
+power cap (default 100 → 200 W, up to 5 min each; `--steps 160,180`,
+`--mhz`, `--hold` override) at a fixed clock ceiling.
 Every 5 s it prints card power, temperatures and fan RPM. Someone at the
 server types a note and presses Enter to move on. It writes one CSV row per
 step (last-minute averages, median decode and prefill tok/s, the note) to
@@ -130,7 +147,7 @@ Checking it:
 |---|---|
 | `gpu-profile status` | `saved:` and `power cap:` / `max clock:` match the same row of the table above |
 | `sudo gpu-profile apply` | `profile <saved>` then `power cap … W, max clock … MHz` matching it; a value the card refused prints `asked … card reports …` and exits 1 |
-| `node_hwmon_power_cap_watt{instance="llm"}` in Prometheus | the saved profile's cap, e.g. `140` |
+| `node_hwmon_power_cap_watt{instance="llm"}` in Prometheus | the saved profile's cap: `180` or `160` |
 | `systemctl status gpu-profile` after a VM reboot | `active (exited)`, log line `profile quiet` (or `normal`) |
 
 ---

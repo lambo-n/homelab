@@ -36,9 +36,12 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 K=$(head -n1 /etc/llama/api-keys)
+# The key goes to curl through a pipe (-H @file), never argv, where any
+# user on the VM could read it with ps. Same as llama-metrics.
+hdr() { printf 'Authorization: Bearer %s' "$K"; }
 
 unload() {
-  curl -fsS -H "Authorization: Bearer $K" \
+  curl -fsS -H @<(hdr) \
     -H 'Content-Type: application/json' \
     -d "{\"model\":\"$1\"}" "$U/models/unload" >/dev/null 2>&1 || true
 }
@@ -60,12 +63,12 @@ case "${1:-}" in
       curl -fs -o /dev/null "$U/health" && break
       sleep 1
     done
-    curl -fsS -H "Authorization: Bearer $K" \
+    curl -fsS -H @<(hdr) \
       -H 'Content-Type: application/json' \
       -d '{"model":"neo-coder-agent"}' "$U/models/load" >/dev/null
     echo "fast and whisper stopped; loading neo-coder-agent..."
     for i in $(seq 300); do
-      s=$(curl -fsS -H "Authorization: Bearer $K" "$U/models" \
+      s=$(curl -fsS -H @<(hdr) "$U/models" \
         | jq -r '.data[] | select(.id=="neo-coder-agent") | .status.value')
       if [ "$s" = loaded ]; then
         echo "neo-coder-agent loaded alone; request it on :8080"
@@ -148,7 +151,7 @@ case "${1:-}" in
     # The router lists its presets only while it runs; otherwise read them
     # from the file it would load.
     if a llama-router; then
-      curl -fsS -H "Authorization: Bearer $K" "$U/models" \
+      curl -fsS -H @<(hdr) "$U/models" \
         | jq -r '.data[] | "  \(.id)\t\(.status.value)"'
     else
       sed -n 's/^\[\([^]*][^]]*\)\]$/  \1\trouter stopped/p' \

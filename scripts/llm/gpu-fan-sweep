@@ -24,10 +24,10 @@ U=http://127.0.0.1:8080
 
 usage() {
   cat <<USAGE
-usage: sudo gpu-fan-sweep [--steps "W W ..."] [--hold SECONDS]
+usage: sudo gpu-fan-sweep [--steps W,W,...] [--hold SECONDS]
                           [--mhz MAX_CLOCK] [--model PRESET]
 
-  --steps   power caps to step through, watts   (default: $STEPS)
+  --steps   power caps to step through, watts   (default: ${STEPS// /,})
   --hold    longest time per step, seconds      (default: $HOLD)
   --mhz     clock ceiling held for every step   (default: $MHZ)
   --model   router preset generating the load   (default: $MODEL)
@@ -38,7 +38,7 @@ USAGE
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --steps) STEPS=$2; shift 2 ;;
+    --steps) STEPS=${2//,/ }; shift 2 ;;
     --hold) HOLD=$2; shift 2 ;;
     --mhz) MHZ=$2; shift 2 ;;
     --model) MODEL=$2; shift 2 ;;
@@ -57,6 +57,9 @@ if ! systemctl -q is-active llama-router; then
 fi
 
 K=$(head -n1 /etc/llama/api-keys)
+# The key goes to curl through a pipe (-H @file), never argv, where any
+# user on the VM could read it with ps. Same as llama-metrics.
+hdr() { printf 'Authorization: Bearer %s' "$K"; }
 for c in /sys/class/drm/card[0-9]*; do
   if [ "$(cat "$c/device/vendor" 2>/dev/null)" = 0x8086 ] &&
      [ "$(cat "$c/device/device")" = 0xe223 ]; then
@@ -115,10 +118,10 @@ jq -n --arg m "$MODEL" --arg p "$prompt" '{model:$m, max_tokens:768,
   messages:[{role:"user", content:$p}]}' > "$WORK/req.json"
 
 echo "loading $MODEL..."
-curl -fsS -H "Authorization: Bearer $K" -H 'Content-Type: application/json' \
+curl -fsS -H @<(hdr) -H 'Content-Type: application/json' \
   -d "{\"model\":\"$MODEL\"}" "$U/models/load" >/dev/null || true
 for i in $(seq 300); do
-  s=$(curl -fsS -H "Authorization: Bearer $K" "$U/models" |
+  s=$(curl -fsS -H @<(hdr) "$U/models" |
     jq -r --arg m "$MODEL" '.data[] | select(.id==$m) | .status.value')
   [ "$s" = loaded ] && break
   if [ "$s" != loading ] && [ "$i" -gt 5 ]; then
@@ -132,7 +135,7 @@ done
 # epoch, decode tokens/s, prefill tokens/s.
 (
   while :; do
-    curl -fsS -m 600 -H "Authorization: Bearer $K" \
+    curl -fsS -m 600 -H @<(hdr) \
       -H 'Content-Type: application/json' -d @"$WORK/req.json" \
       "$U/v1/chat/completions" 2>/dev/null |
       jq -r '"\(now|floor) \(.timings.predicted_per_second) \(.timings.prompt_per_second)"' \
