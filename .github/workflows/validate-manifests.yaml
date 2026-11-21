@@ -135,7 +135,7 @@ jobs:
           set -euo pipefail
           if ! python3 -c 'import yaml' 2>/dev/null; then
             # renovate: datasource=pypi depName=pyyaml
-            pip install --quiet --disable-pip-version-check 'pyyaml==6.0.3'
+            pip install --quiet --disable-pip-version-check 'pyyaml==6.0.4'
           fi
           python3 .github/scripts/depgraph.py --check README.md
 
@@ -163,7 +163,7 @@ jobs:
           # assumed so this job does not start failing on an image change.
           python3 -c 'import yaml' 2>/dev/null && exit 0
           # renovate: datasource=pypi depName=pyyaml
-          pip install --quiet --disable-pip-version-check 'pyyaml==6.0.3'
+          pip install --quiet --disable-pip-version-check 'pyyaml==6.0.4'
 
       - name: Render every HelmRelease
         run: python3 .github/scripts/render-charts.py kubernetes
