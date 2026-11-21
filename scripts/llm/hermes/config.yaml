@@ -12,8 +12,8 @@ model:
   # OpenAI's V4A patch dialect to Qwen (tools/file_tools.py,
   # _is_openai_family_main).
   # qwen27-agent: the card to itself (`sudo llm-mode agent` on llm first,
-  # which stops llama-fast). `hermes -m neo-coder` runs beside fast instead,
-  # with no mode switch; `-m neo-coder-agent` after `sudo llm-mode heretic`.
+  # which stops llama-fast). `hermes -m heretic` runs beside fast instead,
+  # with no mode switch; `-m heretic-agent` after `sudo llm-mode heretic`.
   # context_length applies to this default only and must equal the preset's
   # ctx-size in models.ini; any other preset takes its window from
   # providers.llama.models below (Hermes' floor is 64,000,
@@ -42,12 +42,12 @@ providers:
       presence_penalty: 1.5
     # Context windows for presets other than model.default (which uses
     # model.context_length). Each equals the preset's ctx-size in models.ini;
-    # without one, Hermes takes neo-coder as 256,000 and never compacts
+    # without one, Hermes takes heretic as 256,000 and never compacts
     # before the 65,536 window overflows.
     models:
-      neo-coder:
+      heretic:
         context_length: 65536
-      neo-coder-agent:
+      heretic-agent:
         context_length: 196608
 
 # Every side task on whichever preset the session runs, since a second model

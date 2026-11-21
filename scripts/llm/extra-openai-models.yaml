@@ -23,15 +23,15 @@
   api_key_name: llama
   supports_tools: true
 
-- model_id: neo-coder
-  model_name: neo-coder
+- model_id: heretic
+  model_name: heretic
   api_base: "http://127.0.0.1:8080/v1"
   api_key_name: llama
   supports_tools: true
 
 # Needs `sudo llm-mode heretic` first (stops llama-fast); otherwise the load fails.
-- model_id: neo-coder-agent
-  model_name: neo-coder-agent
+- model_id: heretic-agent
+  model_name: heretic-agent
   api_base: "http://127.0.0.1:8080/v1"
   api_key_name: llama
   supports_tools: true

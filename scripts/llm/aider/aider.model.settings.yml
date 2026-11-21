@@ -18,7 +18,7 @@
       chat_template_kwargs:
         enable_thinking: false
 
-- name: openai/neo-coder
+- name: openai/heretic
   edit_format: diff
   use_repo_map: true
   extra_params:
@@ -26,7 +26,7 @@
       chat_template_kwargs:
         enable_thinking: false
 
-- name: openai/neo-coder-agent
+- name: openai/heretic-agent
   edit_format: diff
   use_repo_map: true
   extra_params:
