@@ -1,0 +1,14 @@
+[Unit]
+Description=Reapply the saved Arc Pro B70 power/clock profile (homelab GPU-VM.md, Fan noise and power profiles)
+# The cap and clock ceiling are runtime sysfs values; a VM reboot resets them
+# to stock. Run before the inference services can put load on the card.
+After=systemd-modules-load.service
+Before=llama-router.service llama-fast.service sd-server.service whisper-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gpu-profile apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

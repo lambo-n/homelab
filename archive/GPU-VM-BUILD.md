@@ -2374,6 +2374,43 @@ After the revert, Stable Audio's 30 s seed-42 clip from the unmodified build
 matched the patched build's at correlation 0.9997, within its own run-to-run
 variation.
 
+## B70 fan and coil-whine sweep (2026-11-21)
+
+The card was very loud under sustained load. Sixteen days of Prometheus data
+(`node_hwmon_fan_rpm`, the `energy1` rate, the hottest hwmon sensor) showed
+the fan at ~1,073 RPM 99% of the time and 3,000–3,650 RPM in 24 episodes of
+6–25 min sustained load at 130–230 W, with the jump at ~70 °C. Stock `xe`
+offers no fan or voltage control (`xpu-smi` `Fan 0: N/A`,
+`lb_fan_control_version` `0.0.0.0`), so `gpu-profile` and `gpu-fan-sweep`
+(PR #317) were built around the power cap and clock ceiling.
+
+Three listening runs with the owner at the server, `qwen27`, ~2k-token
+uncached prompt, last-minute averages per step:
+
+| Cap | Ceiling | Card W | Package | VRAM | Fan | Gen tok/s | Prefill tok/s | Rating, note |
+|---|---|---|---|---|---|---|---|---|
+| 100 | 2800 | 100 | 59 | 71 | 1,283 | 7.1 | 207 | 1, inaudible under the server fans |
+| 120 | 2800 | 120 | 63 | 76 | 1,427 | 9.3 | 204 | 2, slightly quieter than the server fans |
+| 140 | 2800 | 140 | 66 | 81 | 1,675 | 13.6 | 364 | 2 |
+| 160 | 2800 | 159 | 67 | 82 | 1,936 | 15.6 | 416 | (no note) |
+| 180 | 2800 | 180 | 68 | 84 | 2,161 | 16.7 | 453 | 4, way too loud |
+| 200 | 2800 | 199 | 69 | 84 | 2,386 | 17.0 | 452 | 5, coil whine |
+| 160 | 2400 | 159 | 66 | 82 | 1,890 | 15.7 | 419 | 2, same as the server fans |
+| 180 | 2400 | 179 | 68 | 84 | 2,171 | 16.7 | 454 | 2, no louder than 160 |
+| 200 | 2800 | 199 | 69 | 83 | 2,350 | 17.3 | 279 | 4, whine within seconds of 180 → 200 |
+
+Findings: the unbearable noise was coil whine, not the fan, and it switches
+on between 180 and 200 W. The fan never passed 2,400 RPM at ≤ 200 W, because
+the package stayed below its ~70 °C cliff. The 2,400 MHz ceiling changed
+nothing at 160–180 W. The owner chose `normal` = 180 W and `quiet` = 160 W.
+The 200 W run's low prefill figure is from its 110 s step, mostly one
+request.
+
+During the runs, a process listing on VM 105 printed one router API key from
+`gpu-fan-sweep`'s `curl` argv into a session transcript; `gpu-fan-sweep` and
+`llm-mode` were changed to pass the key through `-H @<(hdr)`, as
+`llama-metrics` already did, and the key was flagged for rotation.
+
 ## Checklist
 
 - [x] A1 preflight read and recorded (2026-09-16) — except the GPU's own IOMMU group, still to read before A4
