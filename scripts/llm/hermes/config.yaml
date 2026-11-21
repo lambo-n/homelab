@@ -26,10 +26,13 @@ providers:
   llama:
     api: http://192.168.50.107:8080/v1
     transport: chat_completions
-    # The agents key, from /etc/llama/api-keys line 3 on the llm guest.
-    # key_cmd runs through a shell (agent/command_token_source.py), so ~ is
-    # the user running Hermes.
-    key_cmd: "cat ~/.config/llama/api-key"
+    # The agents key (/etc/llama/api-keys line 3 on the llm guest), which
+    # install.sh copies from ~/.config/llama/api-key into ~/.hermes/.env.
+    # Not key_cmd: v2026.9.24 hands key_cmd's token source to code that
+    # expects a string, so the first message after an in-session /model
+    # switch fails with "'CommandTokenSource' object has no attribute
+    # 'strip'".
+    key_env: LLAMA_API_KEY
     # Thinking off, so Qwen's non-thinking sampling profile rather than the
     # thinking-mode defaults in models.ini [*]. presence_penalty 1.5 is the
     # model card's fix for repeated text.

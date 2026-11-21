@@ -6,7 +6,9 @@
 #   scripts/llm/hermes/install.sh [--config-only]
 #
 # Needs ~/.config/llama/api-key (mode 600) holding an API key for VM 105's
-# router. This script never reads or prints it; copying it is the owner's step.
+# router; copying it there is the owner's step. This script copies it into
+# ~/.hermes/.env as LLAMA_API_KEY (config.yaml's key_env) without printing it,
+# so re-run it after changing the key.
 set -euo pipefail
 
 VERSION=v2026.9.24
@@ -36,6 +38,18 @@ if [[ ! -s $KEY ]]; then
   exit 1
 fi
 [[ $(stat -c %a "$KEY") == 600 ]] || echo "warning: $KEY is not mode 600" >&2
+
+# Replace any LLAMA_API_KEY line in .env, keeping the rest. printf is a bash
+# builtin, so the key never reaches a process's argv.
+ENV=$HERMES_HOME/.env
+tmp_env=$(mktemp "$HERMES_HOME/.env.XXXXXX")
+{
+  if [[ -f $ENV ]]; then grep -v '^LLAMA_API_KEY=' "$ENV" || true; fi
+  printf 'LLAMA_API_KEY=%s\n' "$(tr -d '[:space:]' <"$KEY")"
+} >"$tmp_env"
+chmod 600 "$tmp_env"
+mv "$tmp_env" "$ENV"
+echo "LLAMA_API_KEY set in $ENV"
 
 # doctor exits 1 for warnings it can't fix (the npm advisories), so its status
 # isn't a verdict; read the lines instead. Healthy: no ✗, routing resolves.

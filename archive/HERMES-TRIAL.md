@@ -83,3 +83,31 @@ Prompt: *"In scripts/llm/models.ini, raise the context of the 27B preset."*
 The rules make it ask; nothing in the prompt makes it stop once the tool
 refuses. Non-interactive modes are for questions, not edits
 (`GPU-VM.md` → *Consumers*).
+
+## `key_cmd` and in-session `/model` (2026-11-21)
+
+After the `neo-coder` presets were renamed `heretic`, switching to
+`heretic-agent` with `/model` on a laptop install failed in three layers:
+
+- The local `config.yaml` predated the rename's config change: no
+  `providers.llama.models` windows (Hermes fell back to 256,000) and every
+  side task pinned to `qwen27-agent`. Fixed by installing the repo copy.
+- The `/model` picker still offered `neo-coder` and `neo-coder-agent`,
+  read from `~/.hermes/provider_models_cache.json`, written before the
+  rename. Deleting the `custom:http://192.168.50.107:8080/v1#…` entry made
+  Hermes refetch the real list.
+- With the right names, the switch reported "could not reach this custom
+  endpoint's model listing" and the first message failed with
+  `'CommandTokenSource' object has no attribute 'strip'`. `key_cmd` makes
+  the provider key a callable token source. The picker resolves it
+  (`hermes_cli/model_switch_providers.py`, `materialize_probe_api_key`),
+  but `_validate_switch` (`hermes_cli/model_switch.py`) passes it straight to
+  `probe_api_models`, which sends `Bearer <CommandTokenSource …>` and gets
+  `401`, and the agent rebuild calls `.strip()` on it. `hermes -m` at
+  startup takes a different path and worked throughout.
+
+The config moved to `key_env: LLAMA_API_KEY`, with `install.sh` copying
+`~/.config/llama/api-key` into `~/.hermes/.env` (built with the `printf`
+builtin, so the key is never in argv). After that, `/model heretic-agent`
+switched cleanly and answered. The cost is a second plaintext copy of the key
+per machine, in a mode-600 file Hermes already uses for credentials.
