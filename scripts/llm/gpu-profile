@@ -1,0 +1,142 @@
+#!/bin/bash
+# Power/clock profile for the Arc Pro B70: quiet or normal. GPU-VM.md →
+# *Fan noise and power profiles*.
+#
+# The card's fan follows its hottest sensor, and the firmware curve jumps from
+# ~1,500 to 3,000+ RPM at about 70 °C; the stock xe driver gives no fan
+# control. Capping power and top clock keeps sustained load below that point.
+# Both settings are runtime-only (lost on a driver reload or VM reboot), so
+# the chosen profile is saved to $STATE and gpu-profile.service reapplies it
+# at boot.
+#
+# Installed to /usr/local/sbin/gpu-profile; run with sudo.
+set -euo pipefail
+
+# normal is the card's stock configuration.
+NORMAL_W=275
+NORMAL_MHZ=2800
+# quiet is PROVISIONAL until gpu-fan-sweep has been run with someone listening:
+# set these to the highest step that stayed acceptably quiet.
+QUIET_W=140
+QUIET_MHZ=2400
+
+STATE=/etc/gpu-profile
+
+usage() {
+  cat <<'USAGE'
+usage: sudo gpu-profile PROFILE
+
+  quiet    lower power cap and clock ceiling: slower, fan stays low
+  normal   stock power cap and clocks
+  apply    reapply the saved profile (gpu-profile.service runs this at boot)
+  set W MHZ
+           any cap in watts and clock ceiling in MHz, not saved (testing)
+  status   saved profile, live cap and clocks, fan and temperatures
+USAGE
+}
+
+# The B70 (8086:e223) is the only Intel discrete card in this VM, but find it
+# by ID rather than assume card1.
+find_card() {
+  local c
+  for c in /sys/class/drm/card[0-9]*; do
+    [ -f "$c/device/vendor" ] || continue
+    if [ "$(cat "$c/device/vendor")" = 0x8086 ] &&
+       [ "$(cat "$c/device/device")" = 0xe223 ]; then
+      DEV=$c/device
+      HW=$(echo "$DEV"/hwmon/hwmon*)
+      FREQ=$DEV/tile0/gt0/freq0
+      return 0
+    fi
+  done
+  return 1
+}
+
+# value of the hwmon temp sensor with this label, in °C
+temp() {
+  local l
+  for l in "$HW"/temp*_label; do
+    if [ "$(cat "$l")" = "$1" ]; then
+      echo $(( $(cat "${l%_label}_input") / 1000 ))
+      return
+    fi
+  done
+  echo "?"
+}
+
+# Write the cap and clock ceiling, then read both back: a write the driver
+# clamps or ignores shows up here rather than as a silent no-op.
+set_limits() {
+  local w=$1 mhz=$2 got_w got_mhz
+  echo $(( w * 1000000 )) > "$HW/power1_cap"
+  # max_freq may not go below min_freq.
+  if [ "$mhz" -lt "$(cat "$FREQ/min_freq")" ]; then
+    echo "$mhz" > "$FREQ/min_freq"
+  fi
+  echo "$mhz" > "$FREQ/max_freq"
+  got_w=$(( $(cat "$HW/power1_cap") / 1000000 ))
+  got_mhz=$(cat "$FREQ/max_freq")
+  if [ "$got_w" -ne "$w" ] || [ "$got_mhz" -ne "$mhz" ]; then
+    echo "gpu-profile: asked ${w} W / ${mhz} MHz, card reports" \
+      "${got_w} W / ${got_mhz} MHz" >&2
+    return 1
+  fi
+  echo "power cap ${got_w} W, max clock ${got_mhz} MHz"
+}
+
+apply_profile() {
+  case "$1" in
+    quiet) set_limits "$QUIET_W" "$QUIET_MHZ" ;;
+    normal) set_limits "$NORMAL_W" "$NORMAL_MHZ" ;;
+    *) echo "gpu-profile: unknown profile '$1' in $STATE" >&2; return 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  -h|--help|help) usage; exit 0 ;;
+  quiet|normal|apply|status) ;;
+  set) [ $# -eq 3 ] || { usage >&2; exit 2; } ;;
+  *) usage >&2; exit 2 ;;
+esac
+if [ "$(id -u)" -ne 0 ] && [ "$1" != status ]; then
+  echo "gpu-profile: run with sudo (sudo gpu-profile $1)" >&2
+  exit 1
+fi
+
+# At boot xe may still be probing; wait for the hwmon node.
+for _ in $(seq 30); do
+  find_card && [ -f "$HW/power1_cap" ] && break
+  sleep 1
+done
+if [ ! -f "${HW:-/nonexistent}/power1_cap" ]; then
+  echo "gpu-profile: Arc Pro B70 (8086:e223) hwmon not found" >&2
+  exit 1
+fi
+
+case "$1" in
+  quiet|normal)
+    apply_profile "$1"
+    echo "$1" > "$STATE"
+    echo "profile $1 saved; reapplied at boot by gpu-profile.service"
+    ;;
+  apply)
+    p=$(cat "$STATE" 2>/dev/null || echo normal)
+    echo "profile $p"
+    apply_profile "$p"
+    ;;
+  set)
+    set_limits "$2" "$3"
+    echo "not saved: '$(cat "$STATE" 2>/dev/null || echo normal)'" \
+      "returns at boot or with sudo gpu-profile apply"
+    ;;
+  status)
+    echo "saved:     $(cat "$STATE" 2>/dev/null || echo "normal (none saved)")"
+    echo "power cap: $(( $(cat "$HW/power1_cap") / 1000000 )) W" \
+      "(quiet ${QUIET_W}, normal ${NORMAL_W})"
+    echo "max clock: $(cat "$FREQ/max_freq") MHz" \
+      "(quiet ${QUIET_MHZ}, normal ${NORMAL_MHZ}); now $(cat "$FREQ/act_freq") MHz"
+    echo "fan:       $(cat "$HW/fan1_input") RPM"
+    echo "temps:     pkg $(temp pkg) °C, vram $(temp vram) °C," \
+      "pcie $(temp pcie) °C"
+    ;;
+esac

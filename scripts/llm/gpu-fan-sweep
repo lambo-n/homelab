@@ -1,0 +1,192 @@
+#!/bin/bash
+# Listening test for the Arc Pro B70's fan: hold steady inference load under a
+# series of power caps so the fan settles at each speed, while someone at the
+# server notes how it sounds. GPU-VM.md → *Fan noise and power profiles*.
+#
+# Each step prints live card power, temperatures and fan RPM every 5 s. Type a
+# note (or nothing) and press Enter to end the step early; otherwise it ends
+# after --hold seconds. One CSV row per step: the last minute's averages,
+# median tokens/s of the requests that finished in the step, and the note.
+# The saved gpu-profile is restored on exit, including Ctrl-C.
+#
+# Needs the router up (normal, agent or heretic mode). The card is loud and
+# busy for the whole run: voice and other model requests are slow meanwhile.
+#
+# Installed to /usr/local/sbin/gpu-fan-sweep; run with sudo, in a terminal.
+set -euo pipefail
+
+STEPS="100 120 140 160 180 200"
+HOLD=300
+MHZ=2800
+MODEL=qwen27
+MAX_TEMP=92   # abort above this; the Grafana alert fires at 90
+U=http://127.0.0.1:8080
+
+usage() {
+  cat <<USAGE
+usage: sudo gpu-fan-sweep [--steps "W W ..."] [--hold SECONDS]
+                          [--mhz MAX_CLOCK] [--model PRESET]
+
+  --steps   power caps to step through, watts   (default: $STEPS)
+  --hold    longest time per step, seconds      (default: $HOLD)
+  --mhz     clock ceiling held for every step   (default: $MHZ)
+  --model   router preset generating the load   (default: $MODEL)
+
+Enter ends a step early; text typed before it is saved as the step's note.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --steps) STEPS=$2; shift 2 ;;
+    --hold) HOLD=$2; shift 2 ;;
+    --mhz) MHZ=$2; shift 2 ;;
+    --model) MODEL=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+if [ "$(id -u)" -ne 0 ]; then
+  echo "gpu-fan-sweep: run with sudo" >&2
+  exit 1
+fi
+if ! systemctl -q is-active llama-router; then
+  echo "gpu-fan-sweep: llama-router is not running (image or" \
+    "music-instrument mode?); run sudo llm-mode normal first" >&2
+  exit 1
+fi
+
+K=$(head -n1 /etc/llama/api-keys)
+for c in /sys/class/drm/card[0-9]*; do
+  if [ "$(cat "$c/device/vendor" 2>/dev/null)" = 0x8086 ] &&
+     [ "$(cat "$c/device/device")" = 0xe223 ]; then
+    HW=$(echo "$c"/device/hwmon/hwmon*)
+  fi
+done
+[ -n "${HW:-}" ] || { echo "gpu-fan-sweep: B70 hwmon not found" >&2; exit 1; }
+
+WORK=$(mktemp -d)
+OUT_DIR=$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)
+CSV=$OUT_DIR/gpu-fan-sweep-$(date +%Y%m%d-%H%M).csv
+LOAD_PID=
+
+cleanup() {
+  # Stop the loop, then the curl it was waiting on; the router finishes that
+  # last request (at most 768 tokens) on its own.
+  if [ -n "$LOAD_PID" ]; then
+    kids=$(pgrep -P "$LOAD_PID" || true)
+    kill "$LOAD_PID" $kids 2>/dev/null || true
+  fi
+  wait 2>/dev/null || true
+  echo
+  /usr/local/sbin/gpu-profile apply || true
+  rm -rf "$WORK"
+  [ -f "$CSV" ] && chown "${SUDO_USER:-root}" "$CSV" && echo "results: $CSV"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+temp() {
+  local l
+  for l in "$HW"/temp*_label; do
+    if [ "$(cat "$l")" = "$1" ]; then
+      echo $(( $(cat "${l%_label}_input") / 1000 ))
+      return
+    fi
+  done
+}
+hottest() {
+  local m=0 f v
+  for f in "$HW"/temp*_input; do
+    v=$(cat "$f")
+    [ "$v" -gt "$m" ] && m=$v
+  done
+  echo $(( m / 1000 ))
+}
+
+# ~2k-token prompt with prompt caching off, so every request does a real
+# prefill as well as decode, as an agent session does.
+para="The homelab runs a Proxmox host with a k3s cluster, a GPU VM serving \
+llama.cpp, and ZFS pools backed up off-site. Describe in detail how each \
+part could fail, how the failure would show up, and how to recover."
+prompt=$(for _ in $(seq 40); do printf '%s ' "$para"; done)
+jq -n --arg m "$MODEL" --arg p "$prompt" '{model:$m, max_tokens:768,
+  temperature:0.7, cache_prompt:false,
+  messages:[{role:"user", content:$p}]}' > "$WORK/req.json"
+
+echo "loading $MODEL..."
+curl -fsS -H "Authorization: Bearer $K" -H 'Content-Type: application/json' \
+  -d "{\"model\":\"$MODEL\"}" "$U/models/load" >/dev/null || true
+for i in $(seq 300); do
+  s=$(curl -fsS -H "Authorization: Bearer $K" "$U/models" |
+    jq -r --arg m "$MODEL" '.data[] | select(.id==$m) | .status.value')
+  [ "$s" = loaded ] && break
+  if [ "$s" != loading ] && [ "$i" -gt 5 ]; then
+    echo "gpu-fan-sweep: $MODEL is '$s'; see journalctl -u llama-router" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+# Load generator: back-to-back requests, one line per finished request:
+# epoch, decode tokens/s, prefill tokens/s.
+(
+  while :; do
+    curl -fsS -m 600 -H "Authorization: Bearer $K" \
+      -H 'Content-Type: application/json' -d @"$WORK/req.json" \
+      "$U/v1/chat/completions" 2>/dev/null |
+      jq -r '"\(now|floor) \(.timings.predicted_per_second) \(.timings.prompt_per_second)"' \
+        >> "$WORK/tps" 2>/dev/null || sleep 2
+  done
+) &
+LOAD_PID=$!
+
+echo "step_w,max_mhz,seconds,card_w,pkg_c,vram_c,hottest_c,fan_rpm,decode_tps,prefill_tps,note" > "$CSV"
+e0=$(cat "$HW/energy1_input")
+t0=$(date +%s%N)
+
+for W in $STEPS; do
+  /usr/local/sbin/gpu-profile set "$W" "$MHZ" >/dev/null
+  echo
+  echo "=== ${W} W cap, ${MHZ} MHz ceiling — type a note + Enter to move on" \
+    "(auto after ${HOLD} s)"
+  start=$(date +%s)
+  : > "$WORK/samples"
+  note=
+  while :; do
+    # Without a terminal read returns at once: just wait out the step.
+    if [ -t 0 ]; then
+      if read -r -t 5 note; then break; fi
+    else
+      sleep 5
+    fi
+    e1=$(cat "$HW/energy1_input"); t1=$(date +%s%N)
+    watts=$(( (e1 - e0) * 1000 / (t1 - t0) ))   # µJ / ns → W
+    e0=$e1; t0=$t1
+    el=$(( $(date +%s) - start ))
+    pkg=$(temp pkg); vram=$(temp vram); hot=$(hottest)
+    fan=$(cat "$HW/fan1_input")
+    printf '  %4ss  %3s W  pkg %2s°C  vram %2s°C  hottest %2s°C  fan %4s RPM\n' \
+      "$el" "$watts" "$pkg" "$vram" "$hot" "$fan"
+    echo "$(date +%s) $watts $pkg $vram $hot $fan" >> "$WORK/samples"
+    if [ "$hot" -ge "$MAX_TEMP" ]; then
+      echo "gpu-fan-sweep: ${hot} °C ≥ ${MAX_TEMP} °C, stopping" >&2
+      note="aborted: ${hot} C"
+      break
+    fi
+    [ "$el" -ge "$HOLD" ] && break
+  done
+  # Averages over the step's last 60 s, when the fan has settled.
+  now=$(date +%s)
+  avg=$(awk -v c=$((now - 60)) '$1>=c {n++; for(i=2;i<=6;i++) s[i]+=$i}
+    END {if(n) printf "%.0f,%.0f,%.0f,%.0f,%.0f", s[2]/n,s[3]/n,s[4]/n,s[5]/n,s[6]/n;
+         else printf ",,,,"}' "$WORK/samples")
+  tps=$(gawk -v a="$start" '$1>=a && $2!="null" {d[++n]=$2; p[n]=$3}
+    END {if(!n){printf ","; exit}
+         asort(d); asort(p); m=int((n+1)/2); printf "%.1f,%.1f", d[m], p[m]}' \
+    "$WORK/tps" 2>/dev/null || echo ",")
+  note=${note//[\",]/ }
+  echo "$W,$MHZ,$((now - start)),$avg,$tps,\"$note\"" >> "$CSV"
+  echo "  → step done: $(tail -n1 "$CSV")"
+  case "$note" in aborted*) break ;; esac
+done

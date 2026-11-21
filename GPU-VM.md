@@ -53,6 +53,86 @@ Checking it (on the guest):
 
 History: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → *GuC firmware override*.
 
+### Fan noise and power profiles
+
+The B70 (ASRock, a blower card) is quiet at idle and very loud under sustained
+load. The fan follows the card's **hottest sensor**, not its power draw, and
+the firmware curve has a cliff near **70 °C**:
+
+| Hottest sensor | Fan, typical | Fan, max |
+|---|---|---|
+| 45–60 °C (idle, short bursts) | ~1,070–1,100 RPM | ~1,450 RPM |
+| 60–70 °C | ~1,300–1,450 RPM | ~2,600 RPM |
+| ≥ 70 °C | ~3,100–3,300 RPM | ~3,650 RPM |
+
+Short requests rarely get there; 6–25 minutes of load averaging 130–230 W
+does. Above ~3,000 RPM the card is louder than the rest of the server put
+together. Source: 16 days of `node_hwmon_fan_rpm{instance="llm"}` against the
+card's `energy1` rate and `max(node_hwmon_temp_celsius{instance="llm"})`.
+
+**The fan itself can't be controlled on this driver.** Stock `xe` exposes
+`fan1_input` read-only and no `pwm*`; `xpu-smi config -d 0` shows
+`Fan 0: N/A`, so its `--fanspeed` / `--fancurve` options have nothing to act
+on; and the board's late-binding fan firmware
+(`xe/fan_control_8086_e223_1849_6025.bin`) isn't shipped, so
+`lb_fan_control_version` reads `0.0.0.0`. Neither is voltage (no undervolt).
+What *is* writable is the power cap (`hwmon/power1_cap`, µW) and the clock
+ceiling (`tile0/gt0/freq0/max_freq`, 400–2,800 MHz in 50 MHz steps).
+Lowering both keeps sustained load under 70 °C, and a lower ceiling runs the
+card lower on its voltage curve, so it buys most of what an undervolt would.
+
+**`gpu-profile`** (`scripts/llm/gpu-profile` → `/usr/local/sbin/`) sets one of
+two profiles and saves it to `/etc/gpu-profile` (outside `/etc/llama`, which is `750` for the API keys, so `status` works without sudo);
+**`gpu-profile.service`** reapplies it at boot, before the inference services,
+because both settings are runtime-only. `sudo llm-mode status` shows the saved
+profile. The profile is independent of the mode: agent mode can run quiet.
+
+| Profile | Power cap | Clock ceiling | |
+|---|---|---|---|
+| `normal` | 275 W | 2,800 MHz | the card's stock settings |
+| `quiet` | 140 W | 2,400 MHz | **provisional** until the listening sweep picks real values (`BACKLOG.md`) |
+
+**`gpu-fan-sweep`** (`scripts/llm/gpu-fan-sweep`) is the listening test that
+sets the quiet values. It loads a router preset (`qwen27` by default), keeps
+it generating back to back with a ~2k-token uncached prompt, and steps the
+power cap (default 100 → 200 W, up to 5 min each) at a fixed clock ceiling.
+Every 5 s it prints card power, temperatures and fan RPM. Someone at the
+server types a note and presses Enter to move on. It writes one CSV row per
+step (last-minute averages, median decode and prefill tok/s, the note) to
+`~/gpu-fan-sweep-<date>.csv`, aborts at 92 °C, and restores the saved profile
+on exit, Ctrl-C included.
+
+> ⚠️ **The sweep makes the card loud and busy for its whole run** (~30 min
+> at the defaults). Voice and other model requests are slow meanwhile, and it
+> refuses to start in image or music-instrument mode, when the router is down.
+
+> ⚠️ **`gpu-profile set W MHZ` isn't saved.** It's for experiments; the
+> saved profile comes back at the next boot or with `sudo gpu-profile apply`.
+
+Install (on the guest, from a copy of `scripts/llm/`):
+
+```bash
+sudo install -m 755 gpu-profile gpu-fan-sweep llm-mode /usr/local/sbin/
+```
+```bash
+sudo install -m 644 gpu-profile.service /etc/systemd/system/
+```
+```bash
+sudo systemctl daemon-reload
+```
+```bash
+sudo systemctl enable --now gpu-profile.service
+```
+
+Checking it:
+
+| Command | Healthy |
+|---|---|
+| `gpu-profile status` | `saved:` and `power cap:` / `max clock:` match the same row of the table above |
+| `sudo gpu-profile apply` | `profile <saved>` then `power cap … W, max clock … MHz` matching it; a value the card refused prints `asked … card reports …` and exits 1 |
+| `node_hwmon_power_cap_watt{instance="llm"}` in Prometheus | the saved profile's cap, e.g. `140` |
+| `systemctl status gpu-profile` after a VM reboot | `active (exited)`, log line `profile quiet` (or `normal`) |
+
 ---
 
 ## The inference stack

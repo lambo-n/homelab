@@ -142,6 +142,8 @@ case "${1:-}" in
     else mode="none (nothing running)"
     fi
     echo "mode:         $mode"
+    # Power/clock profile, separate from the mode: gpu-profile sets it.
+    echo "gpu profile:  $(cat /etc/gpu-profile 2>/dev/null || echo normal)"
     echo "presets:"
     # The router lists its presets only while it runs; otherwise read them
     # from the file it would load.
