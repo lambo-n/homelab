@@ -296,6 +296,9 @@ ports directly.
     `qwen27-agent`, not the 75%-of-window floor (~123k): at ~477 tok/s
     prefill a 123k summary takes ~4 min. On `heretic` the window's own
     threshold (55,705) comes first;
+  - the API key from `LLAMA_API_KEY` in `~/.hermes/.env` (`key_env`), which
+    `install.sh` copies from `~/.config/llama/api-key`; not `key_cmd`, which
+    breaks `/model` (⚠️ below);
   - non-thinking sampling sent per request in `extra_body`, overriding the
     thinking-mode defaults in `models.ini`;
   - seven toolsets (file, terminal, memory, session search, skills, todo,
@@ -308,7 +311,11 @@ ports directly.
 
   **Another machine** needs only the key: `install.sh` stops until
   `~/.config/llama/api-key` (mode 600) holds the agents key, which the owner
-  copies (`dev` has it at the same path). Off the LAN, a tailnet member with
+  copies (`dev` has it at the same path), then writes it into
+  `~/.hermes/.env` without printing it. Re-run `install.sh --config-only`
+  after changing the key; Hermes reads the copy, not the original.
+  `install.sh` replaces `~/.hermes/config.yaml` whole, so anything added
+  there by hand (an `mcp_servers` entry, say) goes too. Off the LAN, a tailnet member with
   `--accept-routes` uses the same `192.168.50.107:8080` address unchanged; it
   shares the one loaded model with LAN clients, so a mode switch from either
   side evicts the other's. What stays per machine, and out of
@@ -327,6 +334,18 @@ ports directly.
   > never-decrypt rule is an instruction to the model, not a control. A
   > secret that does land there is in `sas-pool/vm`'s snapshots for six months.
 
+  > ⚠️ **`key_cmd` breaks `/model` in v2026.9.24.** Hermes hands the
+  > command's token source, not the token, to the switch path: the switch
+  > reports "could not reach this custom endpoint's model listing" (its probe
+  > sends the object as the Bearer and gets `401`), and the next message
+  > fails with `'CommandTokenSource' object has no attribute 'strip'`.
+  > `hermes -m` at startup is unaffected. `key_env` passes a plain string.
+
+  > ⚠️ **The `/model` picker lists presets from a cache**,
+  > `~/.hermes/provider_models_cache.json`, so a renamed preset shows its old
+  > name until that file's `custom:http://192.168.50.107:8080/v1#…` entry is
+  > deleted; Hermes then fetches the list again.
+
   > ⚠️ **A repo HTML comment containing `ignore`, `override`, `system`,
   > `secret` or `hidden` blocks the whole file.** Hermes' context scanner
   > replaces AGENTS.md with a `[BLOCKED]` notice and the session runs without
@@ -342,6 +361,7 @@ ports directly.
   | `grep "API call" ~/.hermes/logs/agent.log` after that session | `model=heretic`, never `qwen27-agent` |
   | `sudo llm-mode heretic` on `llm`, then `hermes -m heretic-agent chat -q "Reply with just OK"` and the `curl` with `?model=heretic-agent` | the same sampling, `n_ctx` 196608 |
   | `grep "Context file" ~/.hermes/logs/agent.log` after a session in `~/homelab` | no `blocked` line |
+  | In an interactive `hermes` session: `/model heretic`, then any message | a reply, with no "could not reach" note on the switch |
 
 ### Tool calling
 
