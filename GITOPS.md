@@ -863,6 +863,13 @@ console default (check mode, `autogroup:self`).
 > or Traefik never opens an SSH session, so it is not recorded. The policy
 > limits *where* a routed device can go, not whether that is logged.
 
+> ⚠️ **The trust credential's subject is `repo:lambo-n@86932850/homelab@1355275871:*`,
+> not `repo:lambo-n/homelab:*`.** The repo sends GitHub's immutable subject
+> format, with owner and repo IDs (`gh api
+> repos/lambo-n/homelab/actions/oidc/customization/sub` → `sub_claim_prefix`).
+> A subject that doesn't match fails the run with `token exchange failed with
+> status 403`.
+
 > ⚠️ **Change the policy by PR, not in the console.** The console's lock can
 > be bypassed with *Edit anyway*, but `apply` then refuses to run until the
 > file matches: `gitops-pusher` notices the console version changed since its
