@@ -2406,6 +2406,15 @@ nothing at 160–180 W. The owner chose `normal` = 180 W and `quiet` = 160 W.
 The 200 W run's low prefill figure is from its 110 s step, mostly one
 request.
 
+**2026-11-24 — the "coil whine" was the PSU fans.** The owner identified the
+high-pitched noise as the host's two 800 W PSU fans, not the card: the B70
+itself has no noise problem. The ratings and the 180–200 W threshold above
+stand; only the source was misattributed. The PSUs' firmware runs those fans
+from their own temperature and load, out of iDRAC's reach.
+[`HARDWARE.md`](../HARDWARE.md#power-supplies-and-the-psu-fan-noise) and
+[`GPU-VM.md`](../GPU-VM.md) were rewritten to match, and the mitigation is open
+in [`BACKLOG.md`](../BACKLOG.md).
+
 During the runs, a process listing on VM 105 printed one router API key from
 `gpu-fan-sweep`'s `curl` argv into a session transcript; `gpu-fan-sweep` and
 `llm-mode` were changed to pass the key through `-H @<(hdr)`, as
