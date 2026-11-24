@@ -839,8 +839,9 @@ state.
 
 | Grant | For |
 |---|---|
+| `autogroup:self` `tcp:22` | Tailscale SSH to a member's own devices (the network half of the `ssh` block) |
 | gateway `100.75.44.72` `tcp:22` | the `ProxyJump` hop |
-| `192.168.50.101` `tcp:8006` | Proxmox UI/API |
+| `192.168.50.101` `tcp:8006`, `tcp:445` | Proxmox UI/API, and the `[data]` Samba share ([`SAS-STORAGE.md`](SAS-STORAGE.md)) |
 | `192.168.50.33` `tcp:443` | iDRAC9 web UI and HTML5 virtual console |
 | `192.168.50.104` `tcp:80`, `tcp:8123` | Traefik (Grafana) and Home Assistant |
 | `192.168.50.107` `tcp:8080`, `tcp:8082` | the LLM router, for Hermes off the LAN, and image generation (only answers in image mode); API key still required ([`GPU-VM.md`](GPU-VM.md)) |

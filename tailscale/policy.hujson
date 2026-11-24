@@ -20,11 +20,15 @@
 	},
 
 	"grants": [
+		// Network layer for Tailscale SSH (the "ssh" block below): each
+		// member reaches port 22 on their own devices.
+		{"src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["tcp:22"]},
+
 		// SSH to the gateway itself — the ProxyJump hop.
 		{"src": ["autogroup:member"], "dst": ["tailscale-gateway"], "ip": ["tcp:22"]},
 
-		// Proxmox web UI / API.
-		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006"]},
+		// Proxmox web UI / API, and the host's Samba share (SAS-STORAGE.md).
+		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006", "tcp:445"]},
 
 		// iDRAC9 web UI and its HTML5 virtual console, both on 443. Also why
 		// iDRAC works at all from a member on the LAN: with --accept-routes
