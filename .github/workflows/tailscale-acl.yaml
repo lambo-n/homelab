@@ -1,0 +1,74 @@
+name: Tailscale policy
+
+# Applies tailscale/policy.hujson to the tailnet. A PR that changes it gets a
+# `test` run (validates the file and runs its ACL tests, changes nothing); a
+# push to main runs `apply`. See GITOPS.md -> "Tailscale (host)".
+#
+# Auth is a Tailscale federated identity (trust credential) with the
+# `policy_file` scope: the job trades GitHub's OIDC token for a short-lived
+# Tailscale one, so no long-lived Tailscale key is stored anywhere. The three
+# secrets are the credential's client ID and audience, and the tailnet ID,
+# which is kept out of this public repo because it can name the owner.
+#
+# version-cache.json is how gitops-pusher notices a policy edited in the admin
+# console since its last apply: it refuses to overwrite one rather than
+# silently discarding it. The cache carries it from run to run.
+#
+# A fork's PR gets neither the secrets nor an OIDC token, so its `test` run
+# fails; there are no fork contributors here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tailscale/policy.hujson
+      - .github/workflows/tailscale-acl.yaml
+  pull_request:
+    branches: [main]
+    paths:
+      - tailscale/policy.hujson
+      - .github/workflows/tailscale-acl.yaml
+
+concurrency:
+  group: tailscale-acl
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  acl:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the OIDC token the Tailscale federated identity trusts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore version-cache.json
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ./version-cache.json
+          key: version-cache.json-${{ github.run_id }}
+          restore-keys: |
+            version-cache.json-
+
+      - name: Test policy
+        if: github.event_name == 'pull_request'
+        uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1.5.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          policy-file: tailscale/policy.hujson
+          action: test
+
+      - name: Apply policy
+        if: github.event_name == 'push'
+        uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1.5.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          policy-file: tailscale/policy.hujson
+          action: apply

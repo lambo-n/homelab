@@ -1,6 +1,7 @@
-// Tailscale policy file — the record of what is pasted into
-// admin console → Access controls. Not applied by anything; edit here first,
-// then paste. See GITOPS.md → Tailscale (host).
+// Tailscale policy file — the source of the tailnet's access controls.
+// .github/workflows/tailscale-acl.yaml tests it on a PR and applies it on
+// merge to main; the admin console is locked against edits. See GITOPS.md →
+// Tailscale (host).
 //
 // Replaces the default allow-all grant (2026-09-21). The 192.168.50.0/24
 // subnet route stays approved, but only the ports below are reachable

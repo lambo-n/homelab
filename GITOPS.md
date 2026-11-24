@@ -41,7 +41,7 @@ Open items and remaining backlog live in [`BACKLOG.md`](BACKLOG.md), not here.
 | searxng | [↓](#searxng) | No redis, so the request limiter is off — fine for one caller, not a public instance |
 | kube-prometheus-stack | [↓](#kube-prometheus-stack) | The Flux alert every guide gives you queries a metric that no longer exists |
 | sanoid (host) | [↓](#sanoid-host) | A snapshot of a live Postgres is crash-consistent, not a backup |
-| Tailscale (host) | [↓](#tailscale-host) | The policy file is a record, not applied by anything — edit it, then paste it into the console |
+| Tailscale (host) | [↓](#tailscale-host) | The policy file is applied by CI on merge; the console is locked against edits |
 | OpenTofu | [↓](#opentofu) | `PVEAuditor` cannot import a QEMU guest, and the error lies about why |
 | mise | [↓](#mise) | Shims must sit above the interactivity guard in `.bashrc` |
 | k3s / storage substrate | [↓](#k3s--storage-substrate) | `local-path` provisions a directory, not a quota |
@@ -831,6 +831,7 @@ state.
 | Exit node | offered, `AllowedIPs` includes `0.0.0.0/0` and `::/0` |
 | Subnet router | advertises **and has approved** `192.168.50.0/24` — `PrimaryRoutes: ["192.168.50.0/24"]` |
 | Tailnet policy | [`tailscale/policy.hujson`](tailscale/policy.hujson) — grants below, default deny |
+| Policy deploy | [`.github/workflows/tailscale-acl.yaml`](.github/workflows/tailscale-acl.yaml): `test` on a PR, `apply` on push to `main`, via `tailscale/gitops-acl-action` and a federated-identity trust credential (`policy_file` scope; secrets `TS_OAUTH_ID`, `TS_AUDIENCE`, `TS_TAILNET`). Console edits are locked (*Settings → Policy file management*) |
 | SSH session logs | written by a daemon on the gateway, **not** Tailscale's recorder (the policy has no `recorder`), to `/var/log/ts-ssh-records` on the `/archive-pool/ts-ssh-records` bind mount (`archive/STORAGE.md:416-448`, `archive/SAS-RECLAIM.md`) |
 
 **What the subnet route reaches.** Only what the policy grants, from
@@ -862,10 +863,14 @@ console default (check mode, `autogroup:self`).
 > or Traefik never opens an SSH session, so it is not recorded. The policy
 > limits *where* a routed device can go, not whether that is logged.
 
-> ⚠️ **The file is the record, not the source.** Nothing applies it. Edit
-> `tailscale/policy.hujson` first, then paste the whole file into admin console
-> → Access controls, and keep them identical. If a paste locks you out, paste
-> `{"src": ["*"], "dst": ["*"], "ip": ["*"]}` back in as the only grant.
+> ⚠️ **Change the policy by PR, not in the console.** The console's lock can
+> be bypassed with *Edit anyway*, but `apply` then refuses to run until the
+> file matches: `gitops-pusher` notices the console version changed since its
+> last apply (`version-cache.json`, kept in the Actions cache) rather than
+> overwrite it. Copy the console edit into the file, or revert it there. If a
+> bad policy locks you out of the tailnet, revert the PR; the apply runs from
+> GitHub, not from the tailnet. A fork's PR gets no secrets or OIDC token, so
+> its `test` run fails.
 
 **Checking it**, from a tailnet device off the LAN with `--accept-routes`, as
 fish-safe one-liners:
