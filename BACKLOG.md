@@ -40,8 +40,8 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       out of tree today: kernel 7.0 (VM 105's), confirmed on the B60, one
       B70 report, rebuild per kernel update. Waiting on the series to merge,
       or a decision to run the out-of-tree build. Low priority: the B70's fan
-      isn't a noise problem; the host's PSU fans are, and set both profiles'
-      caps (*Host* below).
+      isn't a noise problem; the host's PSU fans are, and set the `quiet`
+      profile's cap (*Host* below).
 
 ## Windows 11 VM (106)
 
@@ -95,7 +95,7 @@ custom "Hey Doofus" wake word; the items below are what is left. See [`VOICE.md`
       higher chassis fan floor and hot spare on vs off; PSUs with more headroom
       if neither is enough. If one works, record it in
       [`HARDWARE.md`](HARDWARE.md#power-supplies-and-the-psu-fan-noise) and
-      rerun the sweep, since it may let `gpu-profile` raise its caps.
+      rerun the sweep, since it may let `gpu-profile` raise `quiet`'s cap.
 
 ## Hardware — still unknown
 

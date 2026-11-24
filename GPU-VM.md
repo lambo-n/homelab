@@ -70,7 +70,7 @@ through the PSUs:
 - **The GPU fan** follows the package temperature, with a firmware cliff near
   **70 °C**: ~1,300–1,900 RPM below it, 3,100–3,650 RPM above. The package
   stays at or below 69 °C up to a 200 W cap, so only the stock 275 W cap
-  reaches the cliff (6–25 min of heavy load).
+  (`normal`) reaches the cliff (6–25 min of heavy load).
 
 Measured at fixed caps with `gpu-fan-sweep` (`qwen27`, steady load; listening
 rating for the whole server, 1 = inaudible … 5 = unbearable):
@@ -79,9 +79,9 @@ rating for the whole server, 1 = inaudible … 5 = unbearable):
 |---|---|---|---|---|---|
 | 140 W | ~1,675 RPM | 66 °C | 13.6 tok/s | ~364 tok/s | 2 |
 | **160 W** (`quiet`) | ~1,900 RPM | 66–67 °C | 15.6 tok/s | ~417 tok/s | 2, level with the chassis fans |
-| **180 W** (`normal`) | ~2,165 RPM | 68 °C | 16.7 tok/s | ~453 tok/s | 2–4, PSU fans at times |
+| 180 W | ~2,165 RPM | 68 °C | 16.7 tok/s | ~453 tok/s | 2–4, PSU fans at times |
 | 200 W | ~2,370 RPM | 69 °C | 17.0–17.3 tok/s | ~450 tok/s | 4–5, PSU fans constantly |
-| 275 W (stock) | 3,100+ RPM | 70+ °C | ~18.5 tok/s | ~477 tok/s | PSU fans |
+| **275 W** (`normal`, stock) | 3,100+ RPM | 70+ °C | ~18.5 tok/s | ~477 tok/s | PSU fans |
 
 Generation is memory-bound: above 180 W the card gains almost nothing. Below
 140 W it falls off fast (9.3 tok/s at 120 W). The hottest sensor is VRAM
@@ -108,14 +108,15 @@ profile. The profile is independent of the mode: agent mode can run quiet.
 
 | Profile | Power cap | Clock ceiling | |
 |---|---|---|---|
-| `normal` | 180 W | 2,800 MHz | fastest cap that mostly keeps the PSU fans down; ~10% slower generation than stock |
-| `quiet` | 160 W | 2,800 MHz | PSU fans stay off; ~7% slower than `normal` |
+| `normal` | 275 W | 2,800 MHz | stock, full speed; the PSU fans run under sustained load |
+| `quiet` | 160 W | 2,800 MHz | PSU fans stay off; ~16% slower generation than `normal` |
 
-Stock (275 W) is one command away for a run where speed matters more than
-noise: `sudo gpu-profile set 275 2800`, unsaved.
+`normal` is stock rather than a middle cap because the PSU fans are what's
+audible, and at 180 W they already come on at times: the extra ~10% of
+generation speed is worth more than the difference.
 
 **`gpu-fan-sweep`** (`scripts/llm/gpu-fan-sweep`) is the listening test that
-chose those values; rerun it after a PSU, iDRAC cooling, firmware or case change. It loads a router preset (`qwen27` by default), keeps
+chose `quiet`'s cap; rerun it after a PSU, iDRAC cooling, firmware or case change. It loads a router preset (`qwen27` by default), keeps
 it generating back to back with a ~2k-token uncached prompt, and steps the
 power cap (default 100 → 200 W, up to 5 min each; `--steps 160,180`,
 `--mhz`, `--hold` override) at a fixed clock ceiling.
@@ -153,7 +154,7 @@ Checking it:
 |---|---|
 | `gpu-profile status` | `saved:` and `power cap:` / `max clock:` match the same row of the table above |
 | `sudo gpu-profile apply` | `profile <saved>` then `power cap … W, max clock … MHz` matching it; a value the card refused prints `asked … card reports …` and exits 1 |
-| `node_hwmon_power_cap_watt{instance="llm"}` in Prometheus | the saved profile's cap: `180` or `160` |
+| `node_hwmon_power_cap_watt{instance="llm"}` in Prometheus | the saved profile's cap: `275` or `160` |
 | `systemctl status gpu-profile` after a VM reboot | `active (exited)`, log line `profile quiet` (or `normal`) |
 
 ---
