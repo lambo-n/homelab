@@ -840,6 +840,7 @@ state.
 |---|---|
 | gateway `100.75.44.72` `tcp:22` | the `ProxyJump` hop |
 | `192.168.50.101` `tcp:8006` | Proxmox UI/API |
+| `192.168.50.33` `tcp:443` | iDRAC9 web UI and HTML5 virtual console |
 | `192.168.50.104` `tcp:80`, `tcp:8123` | Traefik (Grafana) and Home Assistant |
 | `192.168.50.107` `tcp:8080`, `tcp:8082` | the LLM router, for Hermes off the LAN, and image generation (only answers in image mode); API key still required ([`GPU-VM.md`](GPU-VM.md)) |
 | `autogroup:internet` | the exit node |
@@ -849,6 +850,12 @@ API's `fast` port (8081), SSH straight to a guest, and traffic between the lapto
 `ProxyJump` to every host in `ssh-config` works, because the second hop is the
 gateway's *own* LAN traffic, which grants do not govern. The `ssh` block is the
 console default (check mode, `autogroup:self`).
+
+> ⚠️ **The grants apply at home too.** A member with `--accept-routes` sends
+> `192.168.50.0/24` traffic through the subnet route even on the LAN (on
+> Linux, Tailscale's table 52 outranks the LAN route), so an address the policy
+> doesn't grant is unreachable from that device with Tailscale up. `ip route
+> get 192.168.50.33` showing `dev tailscale0 table 52` is that path.
 
 > ⚠️ **The granted ports are a second way in, and they produce no session
 > log.** The logs cover SSH through the gateway. A routed request to `:8006`
@@ -868,6 +875,7 @@ fish-safe one-liners:
 | `ssh dev 'hostname'` | `dev` |
 | `curl -skI https://192.168.50.101:8006/api2/json/version \| head -1` | any HTTP status (`501` — PVE refuses `HEAD`) |
 | `curl -sI 192.168.50.104 \| head -1` | `302 Found` |
+| `curl -sk -m5 -o /dev/null -w '%{http_code}' https://192.168.50.33/` | any HTTP status (iDRAC answers) |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8080/v1/models` | `401` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8081/v1/models` | `000` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8082/v1/models` | `401` in image mode; `000` otherwise, as `:8082` is closed outside it |

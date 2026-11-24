@@ -15,6 +15,7 @@
 		"proxmox":           "192.168.50.101",
 		"k3s-control":       "192.168.50.104",
 		"llm":               "192.168.50.107",
+		"idrac":             "192.168.50.33",
 	},
 
 	"grants": [
@@ -23,6 +24,12 @@
 
 		// Proxmox web UI / API.
 		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006"]},
+
+		// iDRAC9 web UI and its HTML5 virtual console, both on 443. Also why
+		// iDRAC works at all from a member on the LAN: with --accept-routes
+		// that traffic takes the subnet route, so an ungranted LAN address
+		// is unreachable even from home.
+		{"src": ["autogroup:member"], "dst": ["idrac"], "ip": ["tcp:443"]},
 
 		// Traefik (Grafana, reached by IP, no host rule) and Home Assistant.
 		// One node IP is enough; klipper answers on all three.
