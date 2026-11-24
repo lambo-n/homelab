@@ -2,9 +2,10 @@
 # Power/clock profile for the Arc Pro B70: quiet or normal. GPU-VM.md →
 # *Fan noise and power profiles*.
 #
-# Above ~180 W of sustained load the card's coil whine switches on, and near
-# 70 °C its fan jumps past 3,000 RPM; the stock xe driver gives no fan or
-# voltage control. Capping power keeps sustained load below both.
+# Above ~180 W of sustained GPU load the host's PSU fans spin up with a loud,
+# high-pitched whine (the card itself stays quiet), and near 70 °C the card's
+# fan jumps past 3,000 RPM; the stock xe driver gives no fan or voltage
+# control. Capping power keeps sustained load below both.
 # Both settings are runtime-only (lost on a driver reload or VM reboot), so
 # the chosen profile is saved to $STATE and gpu-profile.service reapplies it
 # at boot.
@@ -12,8 +13,8 @@
 # Installed to /usr/local/sbin/gpu-profile; run with sudo.
 set -euo pipefail
 
-# Chosen by listening with gpu-fan-sweep. normal: the fastest cap without
-# coil whine (200 W whines). quiet: fan level with the server's own fans.
+# Chosen by listening with gpu-fan-sweep. normal: the fastest cap that mostly
+# keeps the PSU fans down (200 W sets them off). quiet: PSU fans stay off.
 # A lower clock ceiling changed nothing at these caps, so both keep 2,800.
 # Stock is 275 W / 2,800 MHz: `sudo gpu-profile set 275 2800`, unsaved.
 NORMAL_W=180
@@ -27,8 +28,8 @@ usage() {
   cat <<'USAGE'
 usage: sudo gpu-profile PROFILE
 
-  quiet    160 W: fan level with the server's fans, ~7% slower
-  normal   180 W: fastest cap without coil whine (stock 275 W whines)
+  quiet    160 W: PSU fans stay off, ~7% slower
+  normal   180 W: fastest cap that mostly keeps the PSU fans down
   apply    reapply the saved profile (gpu-profile.service runs this at boot)
   set W MHZ
            any cap in watts and clock ceiling in MHz, not saved (testing)

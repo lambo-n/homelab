@@ -39,8 +39,9 @@ fuller context lives. Nothing here is blocking day-to-day operation.
       `xpu-smi --fancurve`. `exzile/intel-arc-pro-fan-control` builds it
       out of tree today: kernel 7.0 (VM 105's), confirmed on the B60, one
       B70 report, rebuild per kernel update. Waiting on the series to merge,
-      or a decision to run the out-of-tree build. Low priority: coil whine,
-      not the fan, sets both profiles' caps, and no fan curve changes that.
+      or a decision to run the out-of-tree build. Low priority: the B70's fan
+      isn't a noise problem; the host's PSU fans are, and set both profiles'
+      caps (*Host* below).
 
 ## Windows 11 VM (106)
 
@@ -83,6 +84,18 @@ custom "Hey Doofus" wake word; the items below are what is left. See [`VOICE.md`
       `kubectl -n sunfire logs job/<name> --all-containers`. Suspect B2
       latency or a stuck restic lock. Check that `KubeJobFailed` reaches
       someone. See [`runbooks/OFFSITE-RESTORE.md`](runbooks/OFFSITE-RESTORE.md).
+
+## Host
+
+- [ ] **Quiet the PSU fans under sustained GPU load.** They are the server's
+      loud, high-pitched noise and switch on above a ~180 W GPU cap. Next:
+      log `ipmitool sdr elist` power and exhaust temperature while
+      `gpu-fan-sweep` runs and note when they start, to learn whether watts or
+      compartment temperature triggers them. Then try, in iDRAC (owner-run), a
+      higher chassis fan floor and hot spare on vs off; PSUs with more headroom
+      if neither is enough. If one works, record it in
+      [`HARDWARE.md`](HARDWARE.md#power-supplies-and-the-psu-fan-noise) and
+      rerun the sweep, since it may let `gpu-profile` raise its caps.
 
 ## Hardware — still unknown
 

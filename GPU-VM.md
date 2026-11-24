@@ -55,34 +55,40 @@ History: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md) → *GuC firmware 
 
 ### Fan noise and power profiles
 
-The B70 (ASRock, a blower card) is quiet at idle. Under sustained load it has
-two noise sources, and both scale with power:
+The B70 (ASRock, a blower card) is not a noise problem: its own fan stays
+level with or below the server's chassis fans at every cap tested. The loud,
+high-pitched noise under sustained GPU load is the **host's PSU fans**: two
+800 W redundant supplies whose small fans are run by the PSUs' own firmware,
+not by iDRAC, and which spin up once the extra load heats the PSU compartment
+([`HARDWARE.md`](HARDWARE.md#power-supplies-and-the-psu-fan-noise)). The GPU
+power cap is the lever on this side of it, because every GPU watt also passes
+through the PSUs:
 
-- **Coil whine** is the loud one. It switches on between 180 and 200 W of
-  sustained draw, within seconds of the cap going up, and is louder than the
-  rest of the server put together.
-- **The fan** follows the GPU package temperature, with a firmware cliff near
+- **The PSU fans** switch on between 180 and 200 W of sustained GPU draw,
+  within seconds of the cap going up, and are louder than the rest of the
+  server put together.
+- **The GPU fan** follows the package temperature, with a firmware cliff near
   **70 °C**: ~1,300–1,900 RPM below it, 3,100–3,650 RPM above. The package
   stays at or below 69 °C up to a 200 W cap, so only the stock 275 W cap
   reaches the cliff (6–25 min of heavy load).
 
 Measured at fixed caps with `gpu-fan-sweep` (`qwen27`, steady load; listening
-rating 1 = inaudible … 5 = unbearable):
+rating for the whole server, 1 = inaudible … 5 = unbearable):
 
-| Cap | Fan | Package | Generation | Prefill | Heard |
+| Cap | GPU fan | Package | Generation | Prefill | Heard |
 |---|---|---|---|---|---|
 | 140 W | ~1,675 RPM | 66 °C | 13.6 tok/s | ~364 tok/s | 2 |
-| **160 W** (`quiet`) | ~1,900 RPM | 66–67 °C | 15.6 tok/s | ~417 tok/s | 2, level with the server's fans |
-| **180 W** (`normal`) | ~2,165 RPM | 68 °C | 16.7 tok/s | ~453 tok/s | 2–4, occasional whine |
-| 200 W | ~2,370 RPM | 69 °C | 17.0–17.3 tok/s | ~450 tok/s | 4–5, constant whine |
-| 275 W (stock) | 3,100+ RPM | 70+ °C | ~18.5 tok/s | ~477 tok/s | whine and fan |
+| **160 W** (`quiet`) | ~1,900 RPM | 66–67 °C | 15.6 tok/s | ~417 tok/s | 2, level with the chassis fans |
+| **180 W** (`normal`) | ~2,165 RPM | 68 °C | 16.7 tok/s | ~453 tok/s | 2–4, PSU fans at times |
+| 200 W | ~2,370 RPM | 69 °C | 17.0–17.3 tok/s | ~450 tok/s | 4–5, PSU fans constantly |
+| 275 W (stock) | 3,100+ RPM | 70+ °C | ~18.5 tok/s | ~477 tok/s | PSU fans |
 
 Generation is memory-bound: above 180 W the card gains almost nothing. Below
 140 W it falls off fast (9.3 tok/s at 120 W). The hottest sensor is VRAM
 (82–84 °C from 160 W up, limit 105 °C), which the fan doesn't track.
 Raw runs: [`archive/GPU-VM-BUILD.md`](archive/GPU-VM-BUILD.md#b70-fan-and-coil-whine-sweep-2026-11-21).
 
-**The fan itself can't be controlled on this driver.** Stock `xe` exposes
+**The GPU fan can't be controlled on this driver**, which doesn't matter for noise. Stock `xe` exposes
 `fan1_input` read-only and no `pwm*`; `xpu-smi config -d 0` shows
 `Fan 0: N/A`, so its `--fanspeed` / `--fancurve` options have nothing to act
 on; and the board's late-binding fan firmware
@@ -102,14 +108,14 @@ profile. The profile is independent of the mode: agent mode can run quiet.
 
 | Profile | Power cap | Clock ceiling | |
 |---|---|---|---|
-| `normal` | 180 W | 2,800 MHz | fastest cap without coil whine; ~10% slower generation than stock |
-| `quiet` | 160 W | 2,800 MHz | fan level with the server's own fans; ~7% slower than `normal` |
+| `normal` | 180 W | 2,800 MHz | fastest cap that mostly keeps the PSU fans down; ~10% slower generation than stock |
+| `quiet` | 160 W | 2,800 MHz | PSU fans stay off; ~7% slower than `normal` |
 
 Stock (275 W) is one command away for a run where speed matters more than
 noise: `sudo gpu-profile set 275 2800`, unsaved.
 
 **`gpu-fan-sweep`** (`scripts/llm/gpu-fan-sweep`) is the listening test that
-chose those values; rerun it after a cooler, firmware or case change. It loads a router preset (`qwen27` by default), keeps
+chose those values; rerun it after a PSU, iDRAC cooling, firmware or case change. It loads a router preset (`qwen27` by default), keeps
 it generating back to back with a ~2k-token uncached prompt, and steps the
 power cap (default 100 → 200 W, up to 5 min each; `--steps 160,180`,
 `--mhz`, `--hold` override) at a fixed clock ceiling.

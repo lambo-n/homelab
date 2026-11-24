@@ -64,6 +64,45 @@ rather than ballooned, because a passthrough device holds all of a guest's
 memory. Compute is not the scarce resource here and never has been; **disk is**,
 and this file is why.
 
+### Power supplies, and the PSU fan noise
+
+| | | Source |
+|---|---|---|
+| PSUs | **2 × 800 W redundant**, Liteon, Dell P/N `0C8T2PA04` | `dmidecode -t 39`, 2026-11-24 |
+| Load sharing | both active, equal current (0.80 A each at 120 V, ~192 W total with the GPU idle) | `ipmitool sdr elist`, 2026-11-24 |
+| Chassis fans | 4 populated (`Fan1`–`Fan4`), ~1,320 RPM at idle, 18 °C inlet, 29 °C exhaust | `ipmitool sdr elist`, 2026-11-24 |
+
+**The PSU fans are the loudest thing in the server.** Each PSU has a small,
+high-RPM fan that its own firmware drives from its internal temperature and
+load. iDRAC's fan settings don't drive it and IPMI doesn't report its speed.
+The PSUs draw air that has already crossed the chassis, so sustained GPU load
+(above a ~180 W cap; see [`GPU-VM.md`](GPU-VM.md) → *Fan noise and power
+profiles*) heats the compartment until they spin up with a high-pitched
+whine, several times louder than the chassis or GPU fans. The B70's own fan
+is not a noise problem.
+
+The levers, in order of cost: the GPU power cap (`gpu-profile`); a higher
+chassis fan floor in iDRAC (*Configuration → System Settings → Hardware
+Settings → Cooling Configuration*, **Minimum Fan Speed in PWM** or **Fan
+Speed Offset**), which cools the PSUs' intake air and trades a low hum for
+the whine; the hot-spare setting (*Power Configuration → Enable Hot Spare*),
+which idles one PSU and loads the other harder, so it can go either way; and
+higher-rated, higher-efficiency PSUs, which shed less heat at the same load.
+Don't touch the fan inside a PSU. Which of these to use is open:
+[`BACKLOG.md`](BACKLOG.md) → *Host*.
+
+Checking it, from the dev VM (read-only):
+
+```bash
+ssh pve-hostconfig ipmitool sdr type "Power Supply"
+```
+```bash
+ssh pve-hostconfig "ipmitool sdr elist | grep -E 'Fan[1-4] |Pwr|Current|Temp'"
+```
+
+Healthy: both PSUs present with no fault; `Current 1` and `Current 2` roughly
+equal (unless hot spare is on); exhaust temperature tracks load.
+
 ---
 
 ## Storage controllers — the topology that decides passthrough
