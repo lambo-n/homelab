@@ -171,13 +171,14 @@ using the `archival` template:
 
 ---
 
-## Remote Access (Samba / LAN only)
+## Remote Access (Samba)
 
-Only one user accesses this storage, and only from the LAN. The Samba ports
-(445/139) are **not** in `tailscale/policy.hujson`'s grant list for `proxmox`
-(`GITOPS.md` → Tailscale host), so the tailnet subnet route does not reach this
-share — being on the tailnet is not sufficient on its own. The share works when
-the client is physically on `192.168.50.0/24`.
+Only one user accesses this storage. `tailscale/policy.hujson` grants
+`tcp:445` on `proxmox` (`GITOPS.md` → Tailscale host), so the share is
+reachable from any tailnet member through the subnet route, at home or away;
+`139` (NetBIOS) is not granted and isn't needed. The grant matters at home too:
+a client with `--accept-routes` sends LAN traffic through the subnet route, so
+without it the share is unreachable whenever Tailscale is up.
 
 ### Samba Share Config (`/etc/samba/smb.conf`)
 

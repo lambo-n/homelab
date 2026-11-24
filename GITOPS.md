@@ -41,7 +41,7 @@ Open items and remaining backlog live in [`BACKLOG.md`](BACKLOG.md), not here.
 | searxng | [↓](#searxng) | No redis, so the request limiter is off — fine for one caller, not a public instance |
 | kube-prometheus-stack | [↓](#kube-prometheus-stack) | The Flux alert every guide gives you queries a metric that no longer exists |
 | sanoid (host) | [↓](#sanoid-host) | A snapshot of a live Postgres is crash-consistent, not a backup |
-| Tailscale (host) | [↓](#tailscale-host) | The policy file is a record, not applied by anything — edit it, then paste it into the console |
+| Tailscale (host) | [↓](#tailscale-host) | The policy file is applied by CI on merge; the console is locked against edits |
 | OpenTofu | [↓](#opentofu) | `PVEAuditor` cannot import a QEMU guest, and the error lies about why |
 | mise | [↓](#mise) | Shims must sit above the interactivity guard in `.bashrc` |
 | k3s / storage substrate | [↓](#k3s--storage-substrate) | `local-path` provisions a directory, not a quota |
@@ -831,6 +831,7 @@ state.
 | Exit node | offered, `AllowedIPs` includes `0.0.0.0/0` and `::/0` |
 | Subnet router | advertises **and has approved** `192.168.50.0/24` — `PrimaryRoutes: ["192.168.50.0/24"]` |
 | Tailnet policy | [`tailscale/policy.hujson`](tailscale/policy.hujson) — grants below, default deny |
+| Policy deploy | [`.github/workflows/tailscale-acl.yaml`](.github/workflows/tailscale-acl.yaml): `test` on a PR, `apply` on push to `main`, via `tailscale/gitops-acl-action` and a federated-identity trust credential (`policy_file` scope; secrets `TS_OAUTH_ID`, `TS_AUDIENCE`, `TS_TAILNET`). Console edits are locked (*Settings → Policy file management*) |
 | SSH session logs | written by a daemon on the gateway, **not** Tailscale's recorder (the policy has no `recorder`), to `/var/log/ts-ssh-records` on the `/archive-pool/ts-ssh-records` bind mount (`archive/STORAGE.md:416-448`, `archive/SAS-RECLAIM.md`) |
 
 **What the subnet route reaches.** Only what the policy grants, from
@@ -838,8 +839,10 @@ state.
 
 | Grant | For |
 |---|---|
+| `autogroup:self` `tcp:22` | Tailscale SSH to a member's own devices (the network half of the `ssh` block) |
 | gateway `100.75.44.72` `tcp:22` | the `ProxyJump` hop |
-| `192.168.50.101` `tcp:8006` | Proxmox UI/API |
+| `192.168.50.101` `tcp:8006`, `tcp:445` | Proxmox UI/API, and the `[data]` Samba share ([`SAS-STORAGE.md`](SAS-STORAGE.md)) |
+| `192.168.50.33` `tcp:443` | iDRAC9 web UI and HTML5 virtual console |
 | `192.168.50.104` `tcp:80`, `tcp:8123` | Traefik (Grafana) and Home Assistant |
 | `192.168.50.107` `tcp:8080`, `tcp:8082` | the LLM router, for Hermes off the LAN, and image generation (only answers in image mode); API key still required ([`GPU-VM.md`](GPU-VM.md)) |
 | `autogroup:internet` | the exit node |
@@ -850,15 +853,32 @@ API's `fast` port (8081), SSH straight to a guest, and traffic between the lapto
 gateway's *own* LAN traffic, which grants do not govern. The `ssh` block is the
 console default (check mode, `autogroup:self`).
 
+> ⚠️ **The grants apply at home too.** A member with `--accept-routes` sends
+> `192.168.50.0/24` traffic through the subnet route even on the LAN (on
+> Linux, Tailscale's table 52 outranks the LAN route), so an address the policy
+> doesn't grant is unreachable from that device with Tailscale up. `ip route
+> get 192.168.50.33` showing `dev tailscale0 table 52` is that path.
+
 > ⚠️ **The granted ports are a second way in, and they produce no session
 > log.** The logs cover SSH through the gateway. A routed request to `:8006`
 > or Traefik never opens an SSH session, so it is not recorded. The policy
 > limits *where* a routed device can go, not whether that is logged.
 
-> ⚠️ **The file is the record, not the source.** Nothing applies it. Edit
-> `tailscale/policy.hujson` first, then paste the whole file into admin console
-> → Access controls, and keep them identical. If a paste locks you out, paste
-> `{"src": ["*"], "dst": ["*"], "ip": ["*"]}` back in as the only grant.
+> ⚠️ **The trust credential's subject is `repo:lambo-n@86932850/homelab@1355275871:*`,
+> not `repo:lambo-n/homelab:*`.** The repo sends GitHub's immutable subject
+> format, with owner and repo IDs (`gh api
+> repos/lambo-n/homelab/actions/oidc/customization/sub` → `sub_claim_prefix`).
+> A subject that doesn't match fails the run with `token exchange failed with
+> status 403`.
+
+> ⚠️ **Change the policy by PR, not in the console.** The console's lock can
+> be bypassed with *Edit anyway*, but `apply` then refuses to run until the
+> file matches: `gitops-pusher` notices the console version changed since its
+> last apply (`version-cache.json`, kept in the Actions cache) rather than
+> overwrite it. Copy the console edit into the file, or revert it there. If a
+> bad policy locks you out of the tailnet, revert the PR; the apply runs from
+> GitHub, not from the tailnet. A fork's PR gets no secrets or OIDC token, so
+> its `test` run fails.
 
 **Checking it**, from a tailnet device off the LAN with `--accept-routes`, as
 fish-safe one-liners:
@@ -868,6 +888,7 @@ fish-safe one-liners:
 | `ssh dev 'hostname'` | `dev` |
 | `curl -skI https://192.168.50.101:8006/api2/json/version \| head -1` | any HTTP status (`501` — PVE refuses `HEAD`) |
 | `curl -sI 192.168.50.104 \| head -1` | `302 Found` |
+| `curl -sk -m5 -o /dev/null -w '%{http_code}' https://192.168.50.33/` | any HTTP status (iDRAC answers) |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8080/v1/models` | `401` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8081/v1/models` | `000` |
 | `curl -s -m5 -o /dev/null -w '%{http_code}' http://192.168.50.107:8082/v1/models` | `401` in image mode; `000` otherwise, as `:8082` is closed outside it |

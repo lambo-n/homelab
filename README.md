@@ -203,7 +203,7 @@ in the *Guests* table before it is set.
   | Path | What it reaches | Logged? |
   |---|---|---|
   | `ProxyJump` SSH through the gateway | a shell on a guest | yes — `/var/log/ts-ssh-records` |
-  | The subnet route, from a tailnet device running `--accept-routes` | only what [`tailscale/policy.hujson`](tailscale/policy.hujson) grants: PVE `:8006`, and Traefik `:80` and HA `:8123` on `.104`. Everything else is denied | no |
+  | The subnet route, from a tailnet device running `--accept-routes` | only what [`tailscale/policy.hujson`](tailscale/policy.hujson) grants: PVE `:8006` and Samba `:445`, iDRAC `:443` on `.33`, Traefik `:80` and HA `:8123` on `.104`, and the LLM router `:8080`/`:8082` on `.107`. Everything else is denied | no |
 
   > ⚠️ **Session logs cover the SSH path only.** A routed request to a granted
   > port opens no SSH session and leaves no log. The policy limits where the

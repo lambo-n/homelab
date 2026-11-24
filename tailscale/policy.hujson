@@ -1,6 +1,7 @@
-// Tailscale policy file — the record of what is pasted into
-// admin console → Access controls. Not applied by anything; edit here first,
-// then paste. See GITOPS.md → Tailscale (host).
+// Tailscale policy file — the source of the tailnet's access controls.
+// .github/workflows/tailscale-acl.yaml tests it on a PR and applies it on
+// merge to main; the admin console is locked against edits. See GITOPS.md →
+// Tailscale (host).
 //
 // Replaces the default allow-all grant (2026-09-21). The 192.168.50.0/24
 // subnet route stays approved, but only the ports below are reachable
@@ -15,14 +16,25 @@
 		"proxmox":           "192.168.50.101",
 		"k3s-control":       "192.168.50.104",
 		"llm":               "192.168.50.107",
+		"idrac":             "192.168.50.33",
 	},
 
 	"grants": [
+		// Network layer for Tailscale SSH (the "ssh" block below): each
+		// member reaches port 22 on their own devices.
+		{"src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["tcp:22"]},
+
 		// SSH to the gateway itself — the ProxyJump hop.
 		{"src": ["autogroup:member"], "dst": ["tailscale-gateway"], "ip": ["tcp:22"]},
 
-		// Proxmox web UI / API.
-		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006"]},
+		// Proxmox web UI / API, and the host's Samba share (SAS-STORAGE.md).
+		{"src": ["autogroup:member"], "dst": ["proxmox"], "ip": ["tcp:8006", "tcp:445"]},
+
+		// iDRAC9 web UI and its HTML5 virtual console, both on 443. Also why
+		// iDRAC works at all from a member on the LAN: with --accept-routes
+		// that traffic takes the subnet route, so an ungranted LAN address
+		// is unreachable even from home.
+		{"src": ["autogroup:member"], "dst": ["idrac"], "ip": ["tcp:443"]},
 
 		// Traefik (Grafana, reached by IP, no host rule) and Home Assistant.
 		// One node IP is enough; klipper answers on all three.
